@@ -4,7 +4,7 @@
 // the panel's RPC handlers go through here, so they agree on how they're read.
 import { access, appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { EMPTY_DASHBOARD, latestRun, parseProgress, reduceProgress, type Dashboard, type NextIds } from "../shared/dashboard.ts";
+import { EMPTY_DASHBOARD, latestRun, parseProgress, reduceProgress, scopeEvents, type Dashboard, type NextIds } from "../shared/dashboard.ts";
 import { EVENT_VERSION, eventSchema, PANEL_OPENED_NAME, PROGRESS_FILE_NAME, type ProgressEvent } from "../shared/events.ts";
 import { withLock } from "./lock.ts";
 
@@ -27,22 +27,27 @@ export interface ProgressRead {
 // file only grows, and the panel and pills read it every few seconds.
 const parsedFiles = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; parsed: ReturnType<typeof parseProgress> }>();
 // Replaced file snapshots and their derived data can be collected together.
-const dashboards = new WeakMap<ReturnType<typeof parseProgress>, { dashboard: Dashboard; from: number; until: number }>();
+// Each snapshot holds one entry per scope, so two workspaces reading one file
+// never hand each other's dashboard over the cache.
+const dashboards = new WeakMap<ReturnType<typeof parseProgress>, Map<string | undefined, { dashboard: Dashboard; from: number; until: number }>>();
 
 // The dashboard at `now`, for the panel, the pills and `show`. Repeated reads
 // reuse the last one until the file changes or a stale or overdue time passes.
 // Stale and overdue checks use the daemon host's clock, the same clock the
-// command stamps events with.
-export async function readProgress(directory: string, now = new Date()): Promise<ProgressRead> {
+// command stamps events with. `scope` shows one workspace's run; with no
+// scope the fold is exactly 0.4.0's.
+export async function readProgress(directory: string, now = new Date(), scope?: string): Promise<ProgressRead> {
   const parsed = await readParsed(directory);
   const panelOpened = await exists(join(directory, PANEL_OPENED_NAME));
   if (parsed === null) return { configured: false, dashboard: EMPTY_DASHBOARD, panelOpened };
-  let cached = dashboards.get(parsed);
+  let cached = dashboards.get(parsed)?.get(scope);
   // A backwards clock jump must also re-evaluate stale/overdue state.
   if (!cached || now.getTime() < cached.from || now.getTime() >= cached.until) {
-    const { dashboard, validUntil } = reduceProgress(parsed, now);
+    const { dashboard, validUntil } = reduceProgress(parsed, now, scope);
     cached = { dashboard, from: now.getTime(), until: validUntil };
-    dashboards.set(parsed, cached);
+    const perScope = dashboards.get(parsed) ?? new Map();
+    perScope.set(scope, cached);
+    dashboards.set(parsed, perScope);
   }
   return { configured: true, dashboard: cached.dashboard, panelOpened };
 }
@@ -58,17 +63,19 @@ export async function readLatestRun(directory: string): Promise<ProgressEvent[]>
 export async function appendProgress<T>(
   directory: string,
   now: () => Date,
-  // `events` is the latest run as it is now, oldest first.
+  // `events` is the run the scope shows (the latest run when no scope), oldest first.
   write: (state: { dashboard: Dashboard; nextIds: NextIds; events: ProgressEvent[] }) => { event: EventDraft; result: T },
   // Runs before the lock is released, with the whole file as it now is.
   after?: (text: string) => Promise<void>,
+  // `scope` takes writer state from one workspace's run; with no scope, exactly 0.4.0.
+  scope?: string,
 ): Promise<T> {
   await mkdir(directory, { recursive: true });
   return withLock(join(directory, LOCK_NAME), async () => {
     const text = (await readText(directory)) ?? "";
     const parsed = parseProgress(text);
-    const { dashboard, nextIds } = reduceProgress(parsed, now());
-    const { event, result } = write({ dashboard, nextIds, events: latestRun(parsed.events).map((line) => line.event) });
+    const { dashboard, nextIds } = reduceProgress(parsed, now(), scope);
+    const { event, result } = write({ dashboard, nextIds, events: scopeEvents(parsed.events, scope).map((line) => line.event) });
     const checked = eventSchema.safeParse({ v: EVENT_VERSION, ts: now().toISOString(), ...withoutUndefined(event) });
     if (!checked.success) {
       throw new InvalidEvent(checked.error.issues.map((issue) => `${issue.path.join(".") || "value"}: ${issue.message}`).join("; "));
