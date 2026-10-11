@@ -181,7 +181,9 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
       <Presence show order={0}>
       <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+          {/* flexShrink: a long run title yields to the scope control on a
+              narrow (phone) header instead of pushing it off the right edge. */}
+          <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600", flexShrink: 1 }}>
             {dashboard.run?.title ?? "Progress"}
           </Text>
           <ScopeControl colors={colors} scope={scope} onChange={onScopeChange} />
