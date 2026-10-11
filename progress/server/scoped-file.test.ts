@@ -66,7 +66,7 @@ test("appendProgress with a scope takes writer state from the scoped fold", asyn
 // must see an EMPTY board and mint no ids from another workspace's run. The
 // fix is one line in shared/dashboard.ts (return [] when no start exists),
 // which this task does not own; skipped until that task lands.
-test("a scope with no run of its own sees an empty board, never another workspace's events (W5)", { skip: "needs the W5 fix in shared/dashboard.ts scopeEvents (one line: return [] when no start); task does not own that file" }, async (t) => {
+test("a scope with no run of its own sees an empty board, never another workspace's events (W5)", async (t) => {
   const directory = await worktree(t);
   await writeFile(join(directory, PROGRESS_FILE_NAME), [
     line(0, { type: "run.start", title: "Workspace B", ws: "ws-b" }),

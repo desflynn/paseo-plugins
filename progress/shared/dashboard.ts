@@ -215,7 +215,11 @@ export function scopeEvents(events: ParsedLine[], scope?: string): ParsedLine[] 
   if (scope === undefined) return latestRun(events);
   let start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === scope);
   if (start < 0) start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === undefined);
-  return events.slice(Math.max(start, 0)).filter(({ event }) => event.ws === undefined || event.ws === scope);
+  // This workspace has never started a run here, so it sees nothing. Without
+  // this, `Math.max(start, 0)` slices from the top of the file and hands the
+  // scope another workspace's stray unscoped events.
+  if (start < 0) return [];
+  return events.slice(start).filter(({ event }) => event.ws === undefined || event.ws === scope);
 }
 
 // Folds the events of the latest run into what the panel shows at `now`, how
