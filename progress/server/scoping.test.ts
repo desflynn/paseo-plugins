@@ -180,3 +180,59 @@ test("an unscoped event shared by two scoped runs appears once in the union", ()
   const titles = dashboard.tickets.map((ticket) => ticket.title).sort();
   assert.deepEqual(titles, ["A ticket", "B ticket", "Legacy shared ticket"], "three tickets, no duplicates");
 });
+
+// PROOF FIXES (revision 7), from CHECKPILOT's proof run 1: D-2 and D-1.
+
+test("a run with no ws continued by a ws writer folds honestly in the union (D-2)", () => {
+  // 0.4.0 started this run before the swap; a ws-tagged agent continues it.
+  // The union must treat the continuation as part of that run whatever ws the
+  // later events carry: show --all and the workspace show agree on statuses,
+  // counts, and no skipped lines.
+  const text = [
+    line({ type: "run.start", title: "Legacy run" }),
+    add("T01", "First ticket"),
+    add("T02", "Second ticket"),
+    line({ type: "ticket.update", id: "T01", status: "done", ws: "ws-a" }),
+    "",
+  ].join("\n");
+  const union = unionFold(text);
+  const workspace = fold(text, "ws-a");
+  assert.deepEqual(
+    union.dashboard.tickets.map((ticket) => [ticket.id, ticket.status]),
+    workspace.dashboard.tickets.map((ticket) => [ticket.id, ticket.status]),
+    "union and workspace views disagree",
+  );
+  assert.equal(union.dashboard.progress.doneMin, 60);
+  assert.equal(union.dashboard.progress.totalMin, 120);
+  assert.equal(union.dashboard.progress.percent, 50);
+  assert.deepEqual(union.dashboard.issues, [], "skipped lines in the union");
+  assert.deepEqual(workspace.dashboard.issues, []);
+  // And two scopes' same-id T01s still both show.
+  const both = unionFold([
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A ticket", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T01", "B ticket", { ws: "ws-b" }),
+    "",
+  ].join("\n"));
+  assert.deepEqual(both.dashboard.tickets.map((ticket) => ticket.title).sort(), ["A ticket", "B ticket"]);
+});
+
+test("a stray unscoped run.start claims no header in a scope with its own run (D-1)", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A ticket", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T02", "B ticket", { ws: "ws-b" }),
+    line({ type: "run.start", title: "Stray unscoped run" }),
+    "",
+  ].join("\n");
+  const a = fold(text, "ws-a");
+  const b = fold(text, "ws-b");
+  const union = unionFold(text);
+  assert.equal(a.dashboard.run?.title, "Workspace A", "stray displaced A's title");
+  assert.equal(b.dashboard.run?.title, "Workspace B", "stray displaced B's title");
+  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
+  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["T02"]);
+  assert.equal(union.dashboard.run?.title, "Workspace B", "stray displaced the union header");
+});
