@@ -30,6 +30,9 @@ export interface Ticket {
   ref?: string;
   // The Paseo agent that last added or updated it, when written from Paseo.
   agentId?: string;
+  // The ticket's owning workspace, so a union board can tell two scopes'
+  // same-minted ids apart.
+  ws?: string;
   // Every status, stage and note change, starting with when it was added.
   history: TicketChange[];
 }
@@ -197,6 +200,11 @@ export function isSettled(ticket: Ticket): boolean {
   return ticket.status === "done" || ticket.status === "skipped";
 }
 
+// The union scope: All folds every scope's current run together into one
+// board (owner union, revision 5). Distinct from undefined, which stays the
+// unscoped 0.4.0 latest-run fold.
+export const UNION_SCOPE = "*";
+
 // The events from the last `run.start` on; earlier runs are ignored.
 export function latestRun(events: ParsedLine[]): ParsedLine[] {
   const start = events.findLastIndex(({ event }) => event.type === "run.start");
@@ -212,6 +220,7 @@ export function latestRun(events: ParsedLine[]): ParsedLine[] {
 // - Content: inside the selected run, an event with no `ws` stays visible in
 //   every scope, so legacy events and unscoped writers are never filtered away.
 export function scopeEvents(events: ParsedLine[], scope?: string): ParsedLine[] {
+  if (scope === UNION_SCOPE) return unionEvents(events);
   if (scope === undefined) return latestRun(events);
   let start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === scope);
   if (start < 0) start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === undefined);
@@ -222,12 +231,36 @@ export function scopeEvents(events: ParsedLine[], scope?: string): ParsedLine[] 
   return events.slice(start).filter(({ event }) => event.ws === undefined || event.ws === scope);
 }
 
+// The union fold: every scope's current run, each event once, in file order —
+// one board with both runs' tickets (owner union, revision 5). Unscoped
+// events shared by two scoped runs appear once. A file with no workspace
+// events folds exactly as 0.4.0 did.
+function unionEvents(events: ParsedLine[]): ParsedLine[] {
+  const scopes = new Set(events.flatMap(({ event }) => (event.type === "run.start" && event.ws !== undefined ? [event.ws] : [])));
+  if (scopes.size === 0) return latestRun(events);
+  const seen = new Set<number>();
+  const union: ParsedLine[] = [];
+  for (const scope of scopes) {
+    for (const parsed of scopeEvents(events, scope)) {
+      if (seen.has(parsed.line)) continue;
+      seen.add(parsed.line);
+      union.push(parsed);
+    }
+  }
+  return union.sort((a, b) => a.line - b.line);
+}
+
 // Folds the events of the latest run into what the panel shows at `now`, how
 // long that stays true while the events don't change, and the ids new items get.
 // Everything before the last `run.start` belongs to earlier runs and is ignored.
 export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue[] }, now: Date, scope?: string): { dashboard: Dashboard; validUntil: number; nextIds: NextIds } {
   const time = clock(now);
   const events = scopeEvents(parsed.events, scope);
+  // In the union fold, ids minted per scope may repeat, so every id is keyed
+  // by its scope ("" for legacy events) and the ticket carries its ws. One
+  // board, both T01s.
+  const union = scope === UNION_SCOPE;
+  const key = (ws: string | undefined, id: string) => (union ? `${ws ?? ""}/${id}` : id);
   const issues = [...parsed.issues];
   let run: Dashboard["run"] = null;
   const tickets = new Map<string, Ticket>();
@@ -249,7 +282,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         ticker = null;
         break;
       case "ticket.add":
-        tickets.set(event.id, {
+        tickets.set(key(event.ws, event.id), {
           id: event.id,
           title: event.title,
           estimateMin: event.estimateMin,
@@ -260,11 +293,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           waitsFor: event.waitsFor,
           source: event.source,
           ref: event.ref,
+          ws: event.ws,
           agentId: event.by,
         });
         break;
       case "ticket.update": {
-        const ticket = tickets.get(event.id);
+        const ticket = tickets.get(key(event.ws, event.id));
         if (!ticket) {
           issues.push({ line, reason: `unknown ticket ${event.id}` });
           break;
@@ -289,14 +323,15 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (event.waitsFor !== undefined) ticket.waitsFor = event.waitsFor || undefined;
         if (event.source !== undefined) ticket.source = event.source || undefined;
         if (event.ref !== undefined) ticket.ref = event.ref;
+        if (event.ws !== undefined) ticket.ws = event.ws;
         if (event.by) ticket.agentId = event.by;
         break;
       }
       case "ticket.remove":
-        if (!tickets.delete(event.id)) issues.push({ line, reason: `unknown ticket ${event.id}` });
+        if (!tickets.delete(key(event.ws, event.id))) issues.push({ line, reason: `unknown ticket ${event.id}` });
         break;
       case "question.ask":
-        questions.set(event.id, {
+        questions.set(key(event.ws, event.id), {
           id: event.id,
           title: event.title,
           question: event.question,
@@ -310,13 +345,13 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         });
         break;
       case "question.answer": {
-        const question = questions.get(event.id);
+        const question = questions.get(key(event.ws, event.id));
         if (!question) issues.push({ line, reason: `unknown question ${event.id}` });
         else question.answer = { choice: event.choice, words: event.words, changedCourse: event.changedCourse, at: event.ts };
         break;
       }
       case "question.update": {
-        const question = questions.get(event.id);
+        const question = questions.get(key(event.ws, event.id));
         if (!question) {
           issues.push({ line, reason: `unknown question ${event.id}` });
           break;
@@ -327,10 +362,10 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         break;
       }
       case "question.remove":
-        if (!questions.delete(event.id)) issues.push({ line, reason: `unknown question ${event.id}` });
+        if (!questions.delete(key(event.ws, event.id))) issues.push({ line, reason: `unknown question ${event.id}` });
         break;
       case "deliverable.add":
-        deliverables.set(event.id, {
+        deliverables.set(key(event.ws, event.id), {
           id: event.id,
           title: event.title,
           path: event.path,
@@ -341,19 +376,19 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         });
         break;
       case "deliverable.remove":
-        if (!deliverables.delete(event.id)) issues.push({ line, reason: `unknown deliverable ${event.id}` });
+        if (!deliverables.delete(key(event.ws, event.id))) issues.push({ line, reason: `unknown deliverable ${event.id}` });
         break;
       case "activity.add":
-        activity.set(event.id, { id: event.id, text: event.text, ticketId: event.ticket, at: event.ts });
+        activity.set(key(event.ws, event.id), { id: event.id, text: event.text, ticketId: event.ticket, at: event.ts });
         break;
       case "activity.update": {
-        const entry = activity.get(event.id);
+        const entry = activity.get(key(event.ws, event.id));
         if (!entry) issues.push({ line, reason: `unknown activity ${event.id}` });
         else Object.assign(entry, { text: event.text, editedAt: event.ts });
         break;
       }
       case "activity.remove":
-        if (!activity.delete(event.id)) issues.push({ line, reason: `unknown activity ${event.id}` });
+        if (!activity.delete(key(event.ws, event.id))) issues.push({ line, reason: `unknown activity ${event.id}` });
         break;
       case "ticker.set":
         ticker = { text: event.text, since: event.ts, ...(event.by ? { by: event.by } : {}) };
@@ -362,17 +397,17 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         ticker = null;
         break;
       case "stuck.set":
-        manualStuck.set(event.id, { id: event.id, reason: event.reason, ticket: event.ticket, since: event.ts });
+        manualStuck.set(key(event.ws, event.id), { id: event.id, reason: event.reason, ticket: event.ticket, since: event.ts });
         break;
       case "stuck.clear":
-        if (!manualStuck.delete(event.id)) issues.push({ line, reason: `unknown stuck item ${event.id}` });
+        if (!manualStuck.delete(key(event.ws, event.id))) issues.push({ line, reason: `unknown stuck item ${event.id}` });
         break;
     }
   }
 
   const list = [...tickets.values()];
   for (const ticket of list) {
-    const other = ticket.waitsFor ? tickets.get(ticket.waitsFor) : undefined;
+    const other = ticket.waitsFor ? tickets.get(key(ticket.ws, ticket.waitsFor)) : undefined;
     ticket.waitingFor = other && !isSettled(other) && !isSettled(ticket)
       ? { id: other.id, title: other.title }
       : undefined;

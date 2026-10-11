@@ -3,7 +3,7 @@
 // folds exactly as 0.4.0 did. Also: `ref` carried onto Ticket.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseProgress, reduceProgress } from "../shared/dashboard.ts";
+import { parseProgress, reduceProgress, UNION_SCOPE } from "../shared/dashboard.ts";
 
 const T0 = Date.parse("2026-09-27T19:59:00.000Z");
 const at = (minute: number) => new Date(T0 + minute * 60_000).toISOString();
@@ -115,4 +115,68 @@ test("ref carries onto the Ticket and updates with ticket.update", () => {
   assert.equal(fromBead?.ref, "gh:o/r#7");
   const noRef = dashboard.tickets.find((ticket) => ticket.id === "T02");
   assert.equal(noRef?.ref, undefined);
+});
+
+// OWNER UNION (revision 5): the union fold — every scope's current run folds
+// together into one board. All tickets visible, counts and percent over the
+// union, ids minted per scope may repeat and both show.
+const unionFold = (text: string) => fold(text, UNION_SCOPE);
+
+test("union folds every scope's current run into one board with honest counts", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A ticket", { ws: "ws-a", status: "done" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T01", "B ticket", { ws: "ws-b" }),
+    "",
+  ].join("\n");
+  const { dashboard } = unionFold(text);
+  assert.equal(dashboard.tickets.length, 2, "both runs' tickets show");
+  assert.equal(dashboard.progress.totalMin, 120, "counts over the union");
+  assert.equal(dashboard.progress.doneMin, 60);
+  assert.equal(dashboard.progress.percent, 50, "percent over the union");
+  assert.ok(dashboard.tickets.every((ticket) => ticket.ws), "each union ticket names its workspace");
+});
+
+test("ids minted per scope may repeat and both show", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A ticket", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T01", "B ticket", { ws: "ws-b" }),
+    "",
+  ].join("\n");
+  const { dashboard } = unionFold(text);
+  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id).sort(), ["T01", "T01"], "both T01s show");
+  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.title).sort(), ["A ticket", "B ticket"]);
+});
+
+test("a file with no ws anywhere folds the union exactly like 0.4.0", () => {
+  const text = [
+    line({ type: "run.start", title: "Old run" }),
+    add("T90", "Old ticket"),
+    line({ type: "run.start", title: "New run" }),
+    add("T01", "New ticket"),
+    "",
+  ].join("\n");
+  const union = unionFold(text);
+  const legacy = fold(text);
+  assert.equal(union.dashboard.run?.title, "New run");
+  assert.deepEqual(union.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
+  assert.equal(union.nextIds.ticket, legacy.nextIds.ticket);
+  assert.deepEqual(union.dashboard.tickets, legacy.dashboard.tickets);
+});
+
+test("an unscoped event shared by two scoped runs appears once in the union", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A ticket", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T05", "Legacy shared ticket"),
+    add("T02", "B ticket", { ws: "ws-b" }),
+    "",
+  ].join("\n");
+  const { dashboard } = unionFold(text);
+  const titles = dashboard.tickets.map((ticket) => ticket.title).sort();
+  assert.deepEqual(titles, ["A ticket", "B ticket", "Legacy shared ticket"], "three tickets, no duplicates");
 });
