@@ -21,16 +21,20 @@ export async function handleMarkPanelOpened(
 // The panel polls with the version it already has; when nothing it shows has
 // changed, the reply is just "unchanged" instead of the whole dashboard again.
 export async function handleGetDashboard(
-  input: { workspaceId: string; workspaceDirectory: string; since?: string },
+  input: { workspaceId: string; workspaceDirectory: string; since?: string; scope?: "workspace" | "all" },
   _context: PluginHandlerContext,
 ): Promise<DashboardResult | { unchanged: true; version: string }> {
   const root = findRoot(input.workspaceDirectory);
   const store = await findStore(root);
-  const result = await readProgress(store.directory);
+  // "workspace" (the default) folds just this workspace's run; "all" is the
+  // whole file, exactly 0.4.0.
+  const result = await readProgress(store.directory, undefined, input.scope === "all" ? undefined : input.workspaceId);
   const file = join(store.shown, PROGRESS_FILE_NAME);
   const savedTo = await historyFolder(root);
   const inRepo = await inGitRepo(root);
-  const key = JSON.stringify([result.panelOpened, file, savedTo, inRepo]);
+  // Scope sits in the key so a scope switch is never answered "unchanged"
+  // with the other scope's version.
+  const key = JSON.stringify([result.panelOpened, file, savedTo, inRepo, input.scope ?? "workspace"]);
   let cached = versions.get(result.dashboard);
   if (!cached || cached.key !== key) {
     cached = { key, version: createHash("sha1").update(JSON.stringify(result) + key).digest("base64url") };
@@ -45,7 +49,8 @@ export async function handleGetAttention(
   input: { workspaceId: string; workspaceDirectory: string },
   _context: PluginHandlerContext,
 ): Promise<AttentionResult> {
-  const { configured, dashboard, panelOpened } = await readProgress((await findStore(findRoot(input.workspaceDirectory))).directory);
+  // The pill counts this workspace's run; legacy unscoped events stay visible.
+  const { configured, dashboard, panelOpened } = await readProgress((await findStore(findRoot(input.workspaceDirectory))).directory, undefined, input.workspaceId);
   return {
     configured,
     questions: dashboard.questions.open.length,

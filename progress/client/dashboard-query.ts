@@ -1,20 +1,21 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DashboardResult, getDashboard } from "../shared/rpc";
+import { type DashboardResult, getDashboard } from "../shared/rpc.ts";
 
-type FetchDashboard = (input: { workspaceId: string; workspaceDirectory: string; since?: string }) => Promise<RpcOutput<typeof getDashboard>>;
+type DashboardScope = "workspace" | "all";
+type FetchDashboard = (input: { workspaceId: string; workspaceDirectory: string; since?: string; scope?: DashboardScope }) => Promise<RpcOutput<typeof getDashboard>>;
 
 export const POLL_MS = 3_000;
 
 // `previous` is what the cache already holds. Polls send its version, and an
 // "unchanged" reply keeps that same object, so nothing re-renders.
-export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: string, workspaceId: string, directory: string | null, previous?: () => DashboardResult | undefined) {
+export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: string, workspaceId: string, directory: string | null, previous?: () => DashboardResult | undefined, scope: DashboardScope = "workspace") {
   return {
-    queryKey: ["progress", "dashboard", hostId, workspaceId, directory],
+    queryKey: ["progress", "dashboard", hostId, workspaceId, directory, scope],
     queryFn: async (): Promise<DashboardResult> => {
       const last = previous?.();
-      const result = await fetchDashboard({ workspaceId, workspaceDirectory: directory!, ...(last ? { since: last.version } : {}) });
+      const result = await fetchDashboard({ workspaceId, workspaceDirectory: directory!, ...(last ? { since: last.version } : {}), scope });
       return "unchanged" in result && last ? last : result as DashboardResult;
     },
     enabled: Boolean(directory),
@@ -23,10 +24,10 @@ export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: st
   };
 }
 
-export function useDashboard(hostId: string, workspaceId: string, directory: string | null) {
+export function useDashboard(hostId: string, workspaceId: string, directory: string | null, scope: DashboardScope = "workspace") {
   const fetchDashboard = useRpc(getDashboard);
   const queryClient = useQueryClient();
   const options = dashboardQueryOptions(fetchDashboard, hostId, workspaceId, directory,
-    () => queryClient.getQueryData<DashboardResult>(options.queryKey));
+    () => queryClient.getQueryData<DashboardResult>(options.queryKey), scope);
   return useQuery(options);
 }

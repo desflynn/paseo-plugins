@@ -20,6 +20,9 @@ export const getDashboard = defineRpc({
     workspaceDirectory: z.string().min(1),
     // The version the caller already has; if it's current, the reply is `unchanged`.
     since: z.string().optional(),
+    // "workspace" (the default) folds this workspace's run; "all" folds the
+    // whole file exactly like 0.4.0.
+    scope: z.enum(["workspace", "all"]).optional(),
   }),
   output: z.custom<DashboardResult | { unchanged: true; version: string }>(),
 });
@@ -136,5 +139,33 @@ export const previewDeliverable = defineRpc({
   output: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("image"), dataUri: z.string(), bytes: z.number() }),
     z.object({ kind: z.literal("text"), text: z.string(), bytes: z.number(), truncated: z.boolean() }),
+  ]),
+});
+
+// One row of the Beads tab: what `bd list --json` prints, narrowed to the
+// fields the tab shows. Beads stays the record; the panel shows a read-only
+// view of it. Only `id`, `title` and `status` are guaranteed.
+const beadIssue = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  priority: z.number().optional(),
+  issue_type: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type BeadIssue = z.infer<typeof beadIssue>;
+
+// The repo's recorded beads for the read-only Beads tab. "none" when there is
+// no beads database to read; "error" carries what went wrong.
+export const getBeads = defineRpc({
+  name: "progress.beads",
+  input: z.object({
+    workspaceId: z.string().min(1),
+    workspaceDirectory: z.string().min(1),
+  }),
+  output: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("ok"), issues: z.array(beadIssue) }),
+    z.object({ state: z.literal("none") }),
+    z.object({ state: z.literal("error"), message: z.string() }),
   ]),
 });
