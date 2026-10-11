@@ -8,6 +8,7 @@ import { isSettled, type Dashboard, type NextIds, type Ticket } from "../shared/
 import { DELIVERABLE_KINDS, TICKET_STATUSES, type FileLink, type ProgressEvent } from "../shared/events.ts";
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
+import { resolveWorkspaceId } from "./workspace.ts";
 import { installLauncher } from "./launcher.ts";
 import { findStore, saveRunCopy } from "./store.ts";
 import { dashboardText } from "../shared/show.ts";
@@ -187,26 +188,27 @@ const commands: Record<string, Command> = {
     },
   },
   "ticket add": {
-    usage: `ticket add "<title>" --estimate <minutes> [--status <status>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]]`,
-    summary: "Add a ticket. Prints its id (T01, T02, ...). --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link.",
-    options: { estimate: { type: "string" }, status: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" } },
+    usage: `ticket add "<title>" --estimate <minutes> [--status <status>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref>]`,
+    summary: `Add a ticket. Prints its id (T01, T02, ...). --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>.`,
+    options: { estimate: { type: "string" }, status: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string" } },
     run({ positionals, values, state, cwd, root }) {
       const waitsFor = values["waits-for"] === undefined ? undefined : existingTicket(state, stringOption(values["waits-for"])).id;
       const title = required(positionals[0], "ticket title");
       const estimateMin = minutesOption(values.estimate, "estimate");
       if (estimateMin === undefined) throw new UsageError("Missing --estimate <minutes>.");
       const source = values.source === undefined ? undefined : parseFile(String(values.source), cwd, root);
+      const ref = values.ref === undefined ? undefined : required(String(values.ref), "--ref");
       const id = state.nextIds.ticket;
       return {
-        event: { type: "ticket.add", id, title, estimateMin, status: statusOption(values.status), waitsFor, source },
-        message: `Added ${id}: ${title} (${estimateMin} min)${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}`,
+        event: { type: "ticket.add", id, title, estimateMin, status: statusOption(values.status), waitsFor, source, ref },
+        message: `Added ${id}: ${title} (${estimateMin} min)${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}${ref ? `, ref ${ref}` : ""}`,
       };
     },
   },
   "ticket update": {
-    usage: `ticket update <id> [--status <status>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]]`,
-    summary: `Change a ticket. Statuses: ${TICKET_STATUSES.join(", ")}. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --source is where the ticket is written up ("" clears it).`,
-    options: { status: { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" } },
+    usage: `ticket update <id> [--status <status>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref>]`,
+    summary: `Change a ticket. Statuses: ${TICKET_STATUSES.join(", ")}. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --source is where the ticket is written up ("" clears it). --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>.`,
+    options: { status: { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string" } },
     run({ positionals, values, state, cwd, root }) {
       const ticket = existingTicket(state, positionals[0]);
       const rawWaitsFor = values["waits-for"] === undefined ? undefined : String(values["waits-for"]).trim();
@@ -227,11 +229,39 @@ const commands: Record<string, Command> = {
         note: stringOption(values.note),
         waitsFor,
         source: values.source === undefined ? undefined : String(values.source).trim() === "" ? "" as const : parseFile(String(values.source), cwd, root),
+        ref: values.ref === undefined ? undefined : required(String(values.ref), "--ref"),
       };
       const changes = Object.entries(event).filter(([key, value]) => key !== "type" && key !== "id" && value !== undefined);
-      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --stage, --title, --estimate, --note, --waits-for, or --source.");
+      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --stage, --title, --estimate, --note, --waits-for, --source, or --ref.");
       const shown = (value: unknown) => (typeof value === "object" ? (value as FileLink).path ?? (value as FileLink).url : value);
       return { event, message: `Updated ${ticket.id}: ${changes.map(([key, value]) => `${key} ${shown(value)}`).join(", ")}` };
+    },
+  },
+  "ticket claim": {
+    usage: `ticket claim <id> [--stage <name>] [--note <text>]`,
+    summary: "Take a ticket: set it working and stamp you as the one on it. Same as ticket update --status working.",
+    options: { stage: { type: "string" }, note: { type: "string" } },
+    run({ positionals, values, state }) {
+      const ticket = existingTicket(state, positionals[0]);
+      const stage = stringOption(values.stage);
+      const note = stringOption(values.note);
+      return {
+        event: { type: "ticket.update", id: ticket.id, status: "working" as const, stage, note },
+        message: `Claimed ${ticket.id}: ${ticket.title}${stage ? `, stage ${stage}` : ""}${note ? `, note ${note}` : ""}`,
+      };
+    },
+  },
+  "ticket done": {
+    usage: `ticket done <id> [--note <text>]`,
+    summary: "Set a ticket done.",
+    options: { note: { type: "string" } },
+    run({ positionals, values, state }) {
+      const ticket = existingTicket(state, positionals[0]);
+      const note = stringOption(values.note);
+      return {
+        event: { type: "ticket.update", id: ticket.id, status: "done" as const, note },
+        message: `Done ${ticket.id}: ${ticket.title}${note ? `, note ${note}` : ""}`,
+      };
     },
   },
   "ticket remove": {
@@ -458,7 +488,7 @@ function guessKind(target: string, isUrl: boolean, cwd: string): (typeof DELIVER
   return "file";
 }
 
-const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Progress panel.";
+const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Progress panel. Flags: --mine (only your work), --all (every workspace), --json (machine-readable).";
 const INSTALL_SUMMARY = "Write the paseo-progress launcher (default ~/.local/bin/paseo-progress). It runs this command from whichever copy of the plugin Paseo is running.";
 const DEFAULT_LAUNCHER = "~/.local/bin/paseo-progress";
 
@@ -480,6 +510,9 @@ function help(): string {
 export async function runCli(argv: string[], options: CliOptions): Promise<number> {
   const out = options.out ?? ((line: string) => console.log(line));
   const now = options.now ?? (() => new Date());
+  // The workspace id resolves once per call: every read and write in this
+  // call scopes to it. No agent, or no record, is unscoped (All, as 0.4.0).
+  const scope = options.agentId ? resolveWorkspaceId(options.agentId) : undefined;
   const [first, second] = argv;
   if (!first || first === "--help" || first === "-h" || first === "help") {
     out(help());
@@ -493,9 +526,45 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     if (first === "show") {
       const root = findRoot(options.cwd);
       const store = await findStore(root);
-      const { dashboard } = await readProgress(store.directory, now());
-      const added = addedByOthersText(addedByOthers(await readLatestRun(store.directory), dashboard, options.agentId), dashboard);
-      out(`Worktree: ${root}\n\n${dashboardText(dashboard, now().getTime())}${added}`);
+      let parsed;
+      try {
+        parsed = parseArgs({ args: argv.slice(1), options: { mine: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" } }, allowPositionals: true, strict: true });
+      } catch (error) {
+        out(`${(error as Error).message}\nUsage: ${USAGE_NAME} show [--mine] [--all] [--json]`);
+        return 1;
+      }
+      const flags = { mine: parsed.values.mine === true, all: parsed.values.all === true, json: parsed.values.json === true };
+      if (!flags.mine && !flags.all && !flags.json) {
+        // Plain show: byte-identical to 0.4.0 for an unscoped call, and this
+        // workspace's own board for a scoped one.
+        const { dashboard } = await readProgress(store.directory, now(), scope);
+        const added = addedByOthersText(addedByOthers(await readLatestRun(store.directory), dashboard, options.agentId), dashboard);
+        out(`Worktree: ${root}\n\n${dashboardText(dashboard, now().getTime())}${added}`);
+        return 0;
+      }
+      if (flags.mine && options.agentId === undefined) {
+        out("show --mine needs a Paseo agent id (run it from a Paseo seat).");
+        return 1;
+      }
+      // --all shows the All board; the other views stay in this workspace.
+      const { dashboard } = await readProgress(store.directory, now(), flags.all ? undefined : scope);
+      let view = dashboard;
+      if (flags.mine) {
+        // Question ids never restart, so matching asked-by on the unscoped run
+        // is safe; tickets match on the ticket's own `by` (its last agent).
+        const askedByMe = new Set((await readLatestRun(store.directory)).flatMap((event) => (event.type === "question.ask" && event.by === options.agentId ? [event.id] : [])));
+        view = {
+          ...dashboard,
+          tickets: dashboard.tickets.filter((ticket) => ticket.agentId === options.agentId),
+          questions: { ...dashboard.questions, open: dashboard.questions.open.filter((question) => askedByMe.has(question.id)) },
+        };
+      }
+      if (flags.json) {
+        out(JSON.stringify({ worktree: root, dashboard: view }, null, 2));
+        return 0;
+      }
+      const added = flags.mine ? "" : addedByOthersText(addedByOthers(await readLatestRun(store.directory), view, options.agentId), view);
+      out(`Worktree: ${root}\n\n${dashboardText(view, now().getTime())}${added}`);
       return 0;
     }
     const target = resolve(options.cwd, (argv[1] ?? DEFAULT_LAUNCHER).replace(/^~(?=$|\/)/, homedir()));
@@ -529,8 +598,8 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root });
       const added = command === commands.start ? "" : addedByOthersText(addedByOthers(state.events, state.dashboard, options.agentId), state.dashboard);
-      return { event: { ...event, by: options.agentId }, result: `${message}${added}` };
-    }, (text) => saveRunCopy(root, text));
+      return { event: { ...event, by: options.agentId, ws: scope }, result: `${message}${added}` };
+    }, (text) => saveRunCopy(root, text), scope);
     out(message);
     return 0;
   } catch (error) {
