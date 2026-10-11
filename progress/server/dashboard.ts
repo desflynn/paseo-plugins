@@ -2,6 +2,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { Dashboard } from "../shared/dashboard.ts";
+import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { PROGRESS_FILE_NAME } from "../shared/events.ts";
 import type { AttentionResult, DashboardResult } from "../shared/rpc.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
@@ -26,9 +27,9 @@ export async function handleGetDashboard(
 ): Promise<DashboardResult | { unchanged: true; version: string }> {
   const root = findRoot(input.workspaceDirectory);
   const store = await findStore(root);
-  // "workspace" (the default) folds just this workspace's run; "all" is the
-  // whole file, exactly 0.4.0.
-  const result = await readProgress(store.directory, undefined, input.scope === "all" ? undefined : input.workspaceId);
+  // "workspace" (the default) folds just this workspace's run; "all" folds
+  // every scope's current run together into one board (owner union).
+  const result = await readProgress(store.directory, undefined, input.scope === "all" ? UNION_SCOPE : input.workspaceId);
   const file = join(store.shown, PROGRESS_FILE_NAME);
   const savedTo = await historyFolder(root);
   const inRepo = await inGitRepo(root);

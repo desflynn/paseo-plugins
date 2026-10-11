@@ -42,7 +42,7 @@ async function seedTwoRuns(root: string): Promise<void> {
   await add({ type: "ticket.add", id: "T01", title: "Beta ticket", estimateMin: 45, ws: "wsB" });
 }
 
-test("workspace scope folds only that workspace's run; all folds the latest run overall", async () => {
+test("workspace scope folds only that workspace's run; all folds the union of every workspace's run", async () => {
   const root = await repo();
   await seedTwoRuns(root);
   const input = (scope: "workspace" | "all") => ({ workspaceId: "wsA", workspaceDirectory: root, scope });
@@ -50,10 +50,22 @@ test("workspace scope folds only that workspace's run; all folds the latest run 
   assert.ok("dashboard" in ws);
   assert.equal(ws.dashboard.run?.title, "Alpha");
   assert.deepEqual(ws.dashboard.tickets.map((t) => t.title), ["Alpha ticket"]);
+  // Owner union (revision 5): all folds every scope's current run together —
+  // both T01s show, the run header is the newest start.
   const all = await handleGetDashboard(input("all"), context);
   assert.ok("dashboard" in all);
   assert.equal(all.dashboard.run?.title, "Beta");
-  assert.deepEqual(all.dashboard.tickets.map((t) => t.title), ["Beta ticket"]);
+  assert.deepEqual(all.dashboard.tickets.map((t) => t.title).sort(), ["Alpha ticket", "Beta ticket"]);
+});
+
+test("the all fold counts over the union and shows repeated per-scope ids", async () => {
+  const root = await repo();
+  await seedTwoRuns(root);
+  const all = await handleGetDashboard({ workspaceId: "wsA", workspaceDirectory: root, scope: "all" }, context);
+  assert.ok("dashboard" in all);
+  assert.deepEqual(all.dashboard.tickets.map((t) => t.id), ["T01", "T01"]);
+  assert.equal(all.dashboard.progress.totalMin, 75, "counts over the union, not one run");
+  assert.equal(all.dashboard.progress.percent, 0);
 });
 
 test("a call with no scope defaults to this workspace", async () => {
