@@ -2,13 +2,15 @@
 
 # Progress
 
-A plugin for Paseo 0.11 and later that gives each worktree a live progress dashboard. Agents record progress with the `paseo-progress` command, which adds one line per change to the worktree's progress file. That file lives outside the repo, so git never sees it. The **Progress** panel draws the dashboard from that file and updates by itself.
+A plugin for Paseo 0.11 and later that gives each worktree a live progress dashboard. Agents record progress with the `paseo-progress` command, which adds one line per change to the worktree's progress file. That file lives outside the repo, so git never sees it. The **Progress** panel draws the dashboard from that file and updates by itself. Several Paseo workspaces can share one checkout: each keeps its own run, and a WS/GIT card in the panel header switches between this workspace's board and every workspace's work in the checkout.
 
 <img src="images/1-panel.png" alt="The Progress panel in Explorer" width="440">
 
 The dashboard shows:
 
 - the run's title, a headline ("2 of 4 tickets done, 5 questions waiting for you, 1 stuck"), a one-line "now" ticker, and when it was last updated
+- a WS/GIT card beside the run title: **WS**, the default, shows this workspace's run; **GIT** shows every workspace's current tickets together on one board, with counts over all of them. Inside a git worktree it shows GIT only, because a worktree is already its own checkout
+- a tab row above the tickets — **Tickets · Beads · GH Issues**. Tickets is the board below; Beads shows this repo's beads, read-only; GH Issues is a calm "not yet" placeholder
 - a "possibly stale" warning after 15 minutes with no update while tickets remain, unless Paseo shows an agent in the workspace still running, and never once every ticket is done or skipped or the run is finished; working items swap their spinner for a pulsing amber warning
 - percent of estimated work done, time done of time estimated (like "1 h 30 min of 2 h"; once everything is done, how long it really took), and a bar with one segment per ticket
 - **Stuck:** blocked tickets, working tickets with no update for longer than their estimate, and blockers the agent flags
@@ -61,6 +63,16 @@ The choice covers every worktree of the repo and is kept in the repo's local git
 
 Earlier versions kept progress in `.scratch/` in each worktree, hidden by a `.scratch/.gitignore` they wrote. The first time the command or the panel touches a worktree after the upgrade, the plugin moves its files out of `.scratch/` and removes that `.gitignore` if it's exactly the one the plugin wrote. If `.scratch/` is then empty, it goes too; anything else you keep there stays. If git tracks the old progress file (for example, an agent committed it), the plugin leaves it where it is and keeps using it, so nothing changes in that repo.
 
+## Workspaces
+
+A Paseo workspace is not a path. Two workspaces can work on one checkout — same folder, same repo — so a run cannot be told apart by where it happened. Every event written from a Paseo seat carries its workspace id next to the agent id, and the dashboard folds only the slice that belongs to yours. Events with no workspace id — runs recorded by 0.4.0, or a command run from a plain terminal — stay visible in every view.
+
+Nothing needs setting up. The command reads the workspace id from the agent's Paseo record; a seat it cannot resolve writes unscoped events and its runs show under GIT, exactly where 0.4.0 would have shown them. Plain `show`, and every call that resolves no workspace, folds the file the way 0.4.0 did: the latest `start` wins.
+
+One progress file still holds the whole checkout. Scoping happens when the file is read, so moving from 0.4.0 resets nothing: old lines are still there and still show.
+
+The GIT side of the toggle (and `show --all`) is the union: every workspace's current-run tickets together on one board — both `T01`s if two workspaces each minted one — with counts and percent over all of them. No workspace's board goes empty because another one is busy.
+
 ## Agent skill
 
 The plugin ships an agent skill, `paseo-progress`, that tells agents when to run each command during a multi-ticket job: set up the run, move tickets through their stages, ask questions without stopping, flag stuck work, and finish. Press **Install skill** in the Progress panel. It links `paseo-progress` into `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` (the folders Paseo installs its own skills into), pointing at the copy of the plugin Paseo runs, so plugin updates reach agents. If Paseo later runs the plugin from somewhere else, the button changes to **Update skill**. It never replaces a skill it didn't link; that folder is skipped.
@@ -96,6 +108,18 @@ paseo-progress show
 paseo-progress finish "Snapshots ship for all four tables"
 ```
 
+Claiming and finishing cost one call each, and a ticket can carry where its work came from:
+
+```sh
+paseo-progress ticket add "Ticket 02: Help text" --estimate 60 --ref gh:bank/loans#412   # Added T02
+paseo-progress ticket claim T02 --stage Build                            # Claimed T02
+paseo-progress ticket update T02 --ref bead:pp-91                        # Updated T02
+paseo-progress ticket done T02 --note "Green in CI."
+paseo-progress show --mine
+paseo-progress show --all
+paseo-progress show --json
+```
+
 - Statuses are `not_started`, `working`, `blocked`, `done`, and `skipped`. Skipped tickets leave the totals.
 - `ticket add` and `ticket update` take an optional `--source <path or link>[=<label>]`: where the ticket is written up, like its spec file or issue. It shows under the ticket's status in its dialog and opens like a deliverable. `--source ""` clears it. Tickets without one are fine.
 - A working ticket is stuck once it goes longer than its estimate without an update, timed from its last status, stage or note change, or activity tagged to it. The ticket's dialog still shows total time worked against the estimate.
@@ -105,10 +129,32 @@ paseo-progress finish "Snapshots ship for all four tables"
 - Subagents record their own progress. Since Paseo 0.11, an agent waiting on background subagents shows as idle, so only the subagents' updates show the work is still going. The skill has the agent give each subagent the worktree path and ticket id, and the subagent records its stages and a ticker line on that worktree's dashboard.
 - `start` begins a fresh dashboard. Earlier runs stay in the file. Question references stay unique across runs.
 - `finish "<outcome>"` closes the run once every ticket is done or skipped, no question is open, and nothing is flagged stuck; otherwise it says what is left. The run stays on the dashboard, marked Finished with its outcome, and takes no more updates, so the next agent in the worktree starts a new run instead of adding to it.
+- `ticket claim <id>` takes a ticket: status `working`, you stamped as the one on it. Same as `ticket update --status working`, one word shorter. `ticket done <id>` sets it `done`. Both take `--note`; claim also takes `--stage`.
+- `ticket add` and `ticket update` take an optional `--ref <ref>`: where the work came from, as free text like `bead:pp-91`, `gh:bank/loans#412` or `teams:<message id>`. The panel shows it as a small chip on the ticket row. `--ref` is not `--source`: `--source` is where the ticket is written up, `--ref` is where the work came from. `--ref ""` clears it.
+- `show --mine` prints only your tickets and open questions in this run, matched on your agent id. `show --all` prints every workspace's current-run tickets together, with counts over all of them. `show --json` prints the dashboard as JSON instead of text, and combines with either: `--mine --json`, `--all --json`. Plain `show` is unchanged.
 
 ## The progress file
 
 The progress file, `progress.jsonl`, holds one JSON event per line, each with a version (`v`), a UTC timestamp (`ts`) from the real clock, and a `type`. Events written by a Paseo agent also carry its agent id (`by`). It is only ever appended to, so you can read or diff the history. A half-written last line is ignored. Other bad lines are skipped and listed in a small notice in the panel while the rest still renders. A lock keeps two commands from writing at once or handing out the same id.
+
+## The Beads tab
+
+The Beads tab shows this repo's beads, read-only: one row per open or in-progress issue, with a priority pill (P0–P4), the issue id, its title and its status. Closed issues are not listed, because `bd list` without `--all` shows open work. The tab needs the `bd` command on the daemon host, and the only call it ever makes is `bd --readonly -C <repo-root> list --json --limit 0`. No button on the tab writes anything. Beads stays the record; the tab is a view of it, and the plugin never becomes a second store for beads.
+
+Two calm states, each in its own words: a repo with no `bd`, or no `.beads/` folder, says "No beads in this repo"; a repo whose `bd` answers with an empty list says "No open beads". If `bd` fails, the tab shows its message, never a stack.
+
+## This fork and how to roll it back
+
+This is the 0.4.0-df fork of the plugin, version 0.4.0-df.1: 0.4.0 plus workspaces, the Beads tab and the new verbs, all additive — every 0.4.0 verb, flag and output behaves as before. It runs live from this checkout: `npm run dev` in the plugin folder swaps it into Paseo, and `paseo plugin ls` shows `progress` running from the folder.
+
+To go back to the published plugin:
+
+```sh
+paseo plugin remove progress
+paseo plugin add npm:@stevecastaneda/paseo-progress
+```
+
+`paseo plugin ls` then shows `progress` running from `~/.paseo/plugins`, and the panel loads from the published build (the npm build lags the registry build: 0.2.1 against 0.3.4 when this was checked; `paseo plugin add stevecastaneda/progress` installs the registry one). Both directions were exercised when this fork was built: removed, added back, checked, then the fork swapped in again with `npm run dev`, ending with the fork live.
 
 ## Limitations
 
@@ -122,8 +168,18 @@ The progress file, `progress.jsonl`, holds one JSON event per line, each with a 
 - Pills check busy worktrees every 5 seconds and quiet ones every 30. In a quiet worktree, a new question can take up to half a minute to show.
 - Previews cover images up to 10 MB and the first 256 KB of a text file. Other files open in their default app.
 - Stale warnings and overdue times use the daemon host's clock.
+- `show --mine` needs a Paseo agent id. From a plain terminal it exits with a note saying so, and prints nothing.
 
 ## Changelog
+
+### 0.4.0-df.1
+
+- The 0.4.0-df fork: 0.4.0 unchanged, plus what follows. The version marks the fork; nothing from 0.4.0 was renamed or removed.
+- Runs scope per Paseo workspace, so two workspaces on one checkout each keep their own run. A WS/GIT card in the panel header switches between this workspace and the union of every workspace's current tickets. Inside a git worktree the card shows GIT only.
+- The panel's tickets card became a tab row: **Tickets · Beads · GH Issues**. Beads is a read-only view of this repo's beads; Beads stays the record. GH Issues is a calm placeholder.
+- New CLI verbs and flags: `ticket claim`, `ticket done`, `--ref` on `ticket add` and `ticket update`, and `show --mine`, `--all`, `--json`.
+- A ticket's `--ref` shows as a chip on its row in the panel.
+- Rolling back to the published plugin: `paseo plugin remove progress`, then `paseo plugin add npm:@stevecastaneda/paseo-progress`. See "This fork and how to roll it back".
 
 ### 0.4.0
 
