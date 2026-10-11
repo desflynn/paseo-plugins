@@ -1,6 +1,6 @@
 import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Text, View } from "react-native";
-import type { BeadsResult } from "../server/beads.ts";
+import type { BeadsResult } from "../shared/rpc.ts";
 
 type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 

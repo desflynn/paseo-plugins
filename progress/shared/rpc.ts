@@ -155,6 +155,14 @@ const beadIssue = z.object({
 });
 export type BeadIssue = z.infer<typeof beadIssue>;
 
+// The beads method's return shape. It lives here, in shared, so the client
+// bundle can import it without touching any server-only module; the Paseo
+// bundler refuses even type-only imports from the server side.
+export type BeadsResult =
+  | { state: "ok"; issues: BeadIssue[] }
+  | { state: "none" }
+  | { state: "error"; message: string };
+
 // The repo's recorded beads for the read-only Beads tab. "none" when there is
 // no beads database to read; "error" carries what went wrong.
 export const getBeads = defineRpc({

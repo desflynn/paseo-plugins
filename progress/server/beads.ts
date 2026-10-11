@@ -7,11 +7,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import type { BeadIssue } from "../shared/rpc.ts";
+import type { BeadIssue, BeadsResult } from "../shared/rpc.ts";
 import { getBeads } from "../shared/rpc.ts";
 import { findRoot } from "./paths.ts";
 
-export type BeadsResult = { state: "ok"; issues: BeadIssue[] } | { state: "none" } | { state: "error"; message: string };
+// Re-exported for existing imports; the type itself now lives in shared so
+// the client bundle never imports this server-only module, even as a type.
+export type { BeadsResult };
 
 // The bd command runner, so tests can fake the binary.
 export type BdRunner = (

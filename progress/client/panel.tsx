@@ -14,8 +14,7 @@ import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, Vie
 import { finishedToFold, isFinished, shortTitle, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { TicketStatus } from "../shared/events";
 import { formatEstimate, formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
-import { type BeadsResult } from "../server/beads.ts";
-import { markPanelOpened, getBeads } from "../shared/rpc";
+import { markPanelOpened, getBeads, type BeadsResult } from "../shared/rpc";
 import { useDashboard } from "./dashboard-query";
 import { STATUS_LABEL } from "./status-badge";
 import { TicketDialogs } from "./ticket-dialog";
