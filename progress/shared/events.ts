@@ -17,7 +17,8 @@ export type TicketStatus = z.infer<typeof ticketStatusSchema>;
 const text = z.string().trim().min(1);
 const minutes = z.number().int().positive().max(100_000);
 // `by` is the Paseo agent that wrote the event, absent when run outside Paseo.
-const base = { v: z.literal(EVENT_VERSION), ts: z.iso.datetime(), by: text.optional() };
+// `ws` is the Paseo workspace id, absent when unknown or run outside Paseo.
+const base = { v: z.literal(EVENT_VERSION), ts: z.iso.datetime(), by: text.optional(), ws: text.optional() };
 
 export const questionOptionSchema = z.object({
   letter: z.string().regex(/^[A-Z]$/),
@@ -57,6 +58,8 @@ export const eventSchema = z.discriminatedUnion("type", [
     waitsFor: text.optional(),
     // Where the ticket is written up: a spec file or an issue link.
     source: fileLinkSchema.optional(),
+    // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
+    ref: text.optional(),
   }),
   z.object({
     ...base,
@@ -72,6 +75,8 @@ export const eventSchema = z.discriminatedUnion("type", [
     waitsFor: z.string().trim().optional(),
     // Empty clears it.
     source: z.union([fileLinkSchema, z.literal("")]).optional(),
+    // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
+    ref: text.optional(),
   }),
   z.object({ ...base, type: z.literal("ticket.remove"), id: text }),
   // A blocker that is not a ticket status, like a failing external service.
