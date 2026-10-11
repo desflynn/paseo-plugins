@@ -67,8 +67,8 @@ export async function readBeads(root: string, runner: BdRunner = defaultRunner):
   }
   if (!Array.isArray(parsed)) return { state: "error", message: "bd list printed no JSON array" };
   const issues = parsed.map(issueOf).filter((issue): issue is BeadIssue => issue !== null);
-  // An empty repo reads as the calm none state, same as no bd at all.
-  if (issues.length === 0) return { state: "none" };
+  // An empty read is ok with an empty list, not none (proof fix D-3): none
+  // stays only for missing bd or no .beads/.
   return { state: "ok", issues };
 }
 

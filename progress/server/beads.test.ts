@@ -78,9 +78,22 @@ test("output that is not a JSON array is an error", async () => {
   assert.equal(result.state, "error");
 });
 
-test("an empty list means the calm none state", async () => {
+// Amended by plan revision 7 (D-3): was "an empty list means the calm none
+// state" pinning {state:"none"}; the owner's proof cycle ruled an empty read
+// is ok with zero issues and none stays only for missing bd / no .beads/.
+test("an empty list is ok with zero issues — distinct from none (rev 7, D-3)", async () => {
   const root = await repo();
-  assert.deepEqual(await readBeads(root, fake("[]").runner), { state: "none" });
+  assert.deepEqual(await readBeads(root, fake("[]").runner), { state: "ok", issues: [] });
+  const bare = await mkdtemp(join(tmpdir(), "beads-empty-"));
+  assert.deepEqual(await readBeads(bare, fake("[]").runner), { state: "none" });
+});
+
+// PROOF FIX (revision 7, D-3): an EMPTY list is not none — a successful read
+// returns ok with an empty list; none stays only for missing bd, no .beads/.
+test("a successful empty read is ok with an empty list, not none (D-3)", async () => {
+  const root = await repo();
+  const result = await readBeads(root, fake("[]").runner);
+  assert.deepEqual(result, { state: "ok", issues: [] });
 });
 
 test("a record missing a required field is skipped, the rest stay honest", async () => {
