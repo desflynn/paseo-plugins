@@ -10,15 +10,17 @@ import { SectionTitle } from "./section-title";
 import { raised } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Platform, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { finishedToFold, isFinished, shortTitle, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { TicketStatus } from "../shared/events";
 import { formatEstimate, formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
-import { markPanelOpened } from "../shared/rpc";
+import { type BeadsResult } from "../server/beads.ts";
+import { markPanelOpened, getBeads } from "../shared/rpc";
 import { useDashboard } from "./dashboard-query";
 import { STATUS_LABEL } from "./status-badge";
 import { TicketDialogs } from "./ticket-dialog";
-import { PressableRow } from "./row";
+import { BeadsView } from "./beads";
+import { PressableRow, RefChip } from "./row";
 import { TabStrip } from "./tabs";
 import { ShowMoreRow, usePaged } from "./show-more";
 import { notePanelOpened } from "./panel-opened";
@@ -40,10 +42,13 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
   // agent waiting on background subagents counts as idle, so those subagents record
   // progress themselves (see the skill).
   const agentRunning = useWorkspace(workspaceId, (workspace) => workspace.status === "running") ?? false;
-  const query = useDashboard(host.id, workspaceId, directory);
+  // The header control folds the run: this workspace's run or the whole file ("All" is 0.4.0).
+  const [scope, setScope] = useState<Scope>(DEFAULT_SCOPE);
+  const query = useDashboard(host.id, workspaceId, directory, scope);
   const result = query.data ?? null;
   useMarkPanelOpened(workspaceId, directory, Boolean(result?.configured && !result.panelOpened));
   const [narrow, setNarrow] = useState(false);
+  const beads = useBeads(workspaceId, result?.root);
 
   return (
     <NarrowProvider value={narrow}>
@@ -61,7 +66,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
       <Presence show={Boolean(result && !result.configured)}>{result && !result.configured ? <EmptyState colors={colors} file={result.file} /> : null}</Presence>
       {/* Keyed by run: a new run starts with fresh tabs, pages and dialogs. */}
       {result?.configured ? <DashboardView key={result.dashboard.run?.startedAt ?? "none"} colors={colors} dashboard={result.dashboard} agentRunning={agentRunning} compact={layout.compact}
-        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} /> : null}
+        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} beads={beads} /> : null}
       {result?.inRepo && directory ? <HistoryRow colors={colors} workspaceId={workspaceId} directory={directory} savedTo={result.savedTo} /> : null}
     </ScrollView>
     </NarrowProvider>
@@ -81,6 +86,23 @@ function useMarkPanelOpened(workspaceId: string, directory: string | null, neede
       .then(() => notePanelOpened(workspaceId))
       .catch(() => { sent.current = false; });
   }, [needed, directory, workspaceId, mark]);
+}
+
+// One readonly beads read per panel mount (per repo root). Beads changes
+// rarely; the tab is a view of the record, not a live feed. A failure lands
+// in the result, so the tab stays calm either way.
+function useBeads(workspaceId: string, root: string | undefined): BeadsResult | null {
+  const fetchBeads = useRpc(getBeads);
+  const [beads, setBeads] = useState<BeadsResult | null>(null);
+  useEffect(() => {
+    if (!root) return;
+    let stale = false;
+    fetchBeads({ workspaceId, workspaceDirectory: root })
+      .then((result) => { if (!stale) setBeads(result as BeadsResult); })
+      .catch(() => { if (!stale) setBeads({ state: "error", message: "Could not read beads" }); });
+    return () => { stale = true; };
+  }, [fetchBeads, workspaceId, root]);
+  return beads;
 }
 
 function EmptyState({ colors, file }: { colors: Colors; file: string }) {
@@ -131,7 +153,7 @@ function useNow(intervalMs: number): number {
 
 const WIDE_MIN = 760;
 
-function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation }: {
+function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, beads }: {
   colors: Colors;
   dashboard: Dashboard;
   agentRunning: boolean;
@@ -140,11 +162,16 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   workspaceDirectory: string;
   file: string;
   navigation: PluginWorkspacePanelProps["navigation"];
+  scope: Scope;
+  onScopeChange(scope: Scope): void;
+  beads: BeadsResult | null;
 }) {
   const now = useNow(15_000);
   // Quiet isn't stale while an agent in the workspace is still running.
   const stale = dashboard.stale && !agentRunning;
   const hasHistory = dashboard.activity.length + dashboard.questions.answered.length + dashboard.deliverables.length > 0;
+  // The Beads tab shows beside the run's history as soon as its read lands.
+  const showHistory = hasHistory || beads !== null;
   const live = !stale;
   // Two columns when opened as a wide tab; one in the narrow Explorer pane.
   const [wide, setWide] = useState(false);
@@ -154,9 +181,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
     <StaggerRoot>
       <Presence show order={0}>
       <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
-          {dashboard.run?.title ?? "Progress"}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+            {dashboard.run?.title ?? "Progress"}
+          </Text>
+          <ScopeControl colors={colors} scope={scope} onChange={onScopeChange} />
+        </View>
         {dashboard.run?.subtitle ? (
           <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{dashboard.run.subtitle}</Text>
         ) : null}
@@ -231,8 +261,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           </Presence>
         </View>
         <View style={{ flex: wide ? 2 : undefined, alignSelf: "stretch", minWidth: 0 }}>
-          <Presence show={hasHistory} order={5}>
-            {hasHistory ? (
+          <Presence show={showHistory} order={5}>
+            {showHistory ? (
               <HistoryCard colors={colors} workspaceId={workspaceId} tabs={[
                 { id: "activity", label: "Activity", icon: "Activity", count: dashboard.activity.length, empty: "No activity yet.",
                   content: <ActivityList colors={colors} activity={dashboard.activity} now={now} /> },
@@ -241,6 +271,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
                 { id: "deliverables", label: "Deliverables", icon: "Package", count: dashboard.deliverables.length, empty: "No deliverables yet.",
                   content: <DeliverablesList colors={colors} deliverables={dashboard.deliverables} now={now} workspaceId={workspaceId}
                     workspaceDirectory={workspaceDirectory} navigation={navigation} /> },
+                beadsTab(colors, beads),
               ]} />
             ) : null}
           </Presence>
@@ -250,8 +281,9 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   );
 }
 
-type HistoryTab = "activity" | "answered" | "deliverables";
-type HistoryTabEntry = { id: HistoryTab; label: string; icon: string; count: number; empty: string; content: React.ReactNode };
+type HistoryTab = "activity" | "answered" | "deliverables" | "beads";
+type Scope = "workspace" | "all";
+type HistoryTabEntry = { id: HistoryTab; label: string; icon: string; count?: number; empty: string; content: React.ReactNode };
 // Below this width the tab icons drop, so all three labels fit in the Explorer pane.
 const TAB_ICONS_MIN = 370;
 
@@ -489,6 +521,7 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables }: { colors
           <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
         ) : null}
         {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
+        <RefChip colors={colors} ref={ticket.ref} />
       </View>
       {/* Fixed slots so the Package icon and estimates line up down the list, whether or not a row has deliverables; they're listed in its dialog. The estimate slot fits "45 min" and "10.5 h"; longer ones grow rather than clip. */}
       <View accessibilityLabel={deliverables ? (deliverables === 1 ? "Has a deliverable" : `Has ${deliverables} deliverables`) : undefined} style={{ width: 12, height: 18, justifyContent: "center" }}>
@@ -517,3 +550,40 @@ function StatusIcon({ colors, status, live, waiting }: { colors: Colors; status:
   }
 }
 
+
+// The panel header's scope control: fold this workspace's run or the whole
+// file. "All" shows exactly what 0.4.0 showed.
+export const DEFAULT_SCOPE: Scope = "workspace";
+
+export function ScopeControl({ colors, scope, onChange }: { colors: Colors; scope: Scope; onChange(scope: Scope): void }) {
+  const choices = [
+    { id: "workspace" as const, label: "This workspace" },
+    { id: "all" as const, label: "All" },
+  ];
+  return (
+    <View style={{ flexDirection: "row", gap: 6 }} accessibilityRole="tablist">
+      {choices.map((choice) => {
+        const selected = choice.id === scope;
+        return (
+          <Pressable key={choice.id} accessibilityRole="tab" accessibilityState={{ selected }} accessibilityLabel={choice.label} onPress={() => onChange(choice.id)}
+            style={({ pressed }) => ({ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, backgroundColor: selected || pressed ? colors.surface2 : colors.surface1 })}>
+            <Text style={{ color: selected ? colors.foreground : colors.foregroundMuted, fontSize: 11, lineHeight: 16, fontWeight: "600" }}>{choice.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// The Beads tab: the repo's recorded work, read-only, beside the run's
+// history. No count badge until a read lands with beads on it.
+export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined): HistoryTabEntry {
+  return {
+    id: "beads",
+    label: "Beads",
+    icon: "CircleDot",
+    count: beads?.state === "ok" ? beads.issues.length : undefined,
+    empty: "No beads in this repo",
+    content: beads ? <BeadsView colors={colors} result={beads} /> : null,
+  };
+}
