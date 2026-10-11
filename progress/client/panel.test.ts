@@ -123,3 +123,85 @@ test("the Beads tab entry stays calm when there is nothing to list", () => {
   assert.equal(pending.count, undefined);
   assert.equal(pending.content, null, "an absent result says nothing at all");
 });
+
+// OWNER RETAB (revision 4): the top-level section row is Tickets, Beads,
+// GH Issues, where the tickets section sits; the body below the row swaps.
+const DASH = {
+  run: { itemLabel: "Ticket" },
+  tickets: [{ id: "T01" }, { id: "T02" }],
+  activity: [], questions: { open: [], answered: [] }, deliverables: [], stuck: [],
+} as never;
+
+function sectionRow(beads: unknown = OK_BEADS) {
+  const { sectionTabs } = load("client/panel.tsx");
+  const marker = { marker: "tickets-body" };
+  return { sections: sectionTabs(colors, DASH, beads, marker) as Array<{ id: string; label: string; count?: number; content: unknown }>, marker };
+}
+
+test("the top section row is Tickets, Beads, GH Issues, in that order", () => {
+  const { sections, marker } = sectionRow();
+  assert.equal(sections.length, 3, "three tabs");
+  assert.equal(sections[0].id, "tickets");
+  assert.equal(sections[1].id, "beads");
+  assert.equal(sections[2].id, "gh");
+  assert.equal(sections[0].label, "Tickets");
+  assert.equal(sections[1].label, "Beads");
+  assert.equal(sections[2].label, "GH Issues");
+  assert.equal(sections[0].count, 2, "the Tickets tab carries the ticket count");
+  assert.equal(sections[1].count, 2, "the Beads tab carries the bead count");
+  assert.equal(sections[2].count, undefined, "GH Issues is a no-op: no count");
+  assert.equal(sections[0].content, marker, "the Tickets body is the ticket panel, unchanged");
+});
+
+test("the section row swaps the body: the Beads body lists the repo's beads", () => {
+  const { sections } = sectionRow();
+  const tree = treeOf(sections[1].content);
+  assert.ok(tree.texts.includes("rvr-12"), "bead id missing from the Beads body");
+  assert.ok(tree.texts.includes("Swap the pump relay"), "bead title missing from the Beads body");
+  assert.equal(tree.presses.length, 0, "the Beads body stays read-only");
+});
+
+test("the GH Issues body is a calm no-op placeholder", () => {
+  const { sections } = sectionRow();
+  const tree = treeOf(sections[2].content);
+  assert.equal(tree.presses.length, 0, "no buttons in the GH placeholder");
+  assert.ok(!tree.nodes.some((node) => node.type === rn.ActivityIndicator), "never a spinner");
+  const lines = tree.texts.filter((text) => text.trim());
+  assert.equal(lines.length, 1, "one quiet line, not a stack");
+  assert.match(lines[0], /github issues: not yet\./i);
+});
+
+// OWNER TOGGLE (revision 4): the two scope chips become ONE card-like WS/GIT
+// toggle — fixed size either way, tap to flip, default WS; GIT-only in a
+// worktree, where the workspace fold no-ops.
+test("the scope toggle is one card: WS by default, tapping flips to GIT and back", () => {
+  const { ScopeToggle } = load("client/panel.tsx");
+  const seen: Array<"workspace" | "all"> = [];
+  const ws = treeOf(ScopeToggle({ colors, scope: "workspace", onChange: (scope: "workspace" | "all") => seen.push(scope) }));
+  assert.deepEqual(ws.texts, ["WS"], "the workspace side reads WS");
+  const wsButton = ws.nodes.find((node) => node.props?.onPress);
+  (wsButton!.props!.onPress as () => void)();
+  const git = treeOf(ScopeToggle({ colors, scope: "all", onChange: (scope: "workspace" | "all") => seen.push(scope) }));
+  assert.deepEqual(git.texts, ["GIT"], "the all side reads GIT");
+  const gitButton = git.nodes.find((node) => node.props?.onPress);
+  (gitButton!.props!.onPress as () => void)();
+  assert.deepEqual(seen, ["all", "workspace"], "tapping toggles to the other view");
+});
+
+test("the toggle is a fixed size either way", () => {
+  const { ScopeToggle } = load("client/panel.tsx");
+  const widthOf = (scope: "workspace" | "all") => {
+    const tree = treeOf(ScopeToggle({ colors, scope, onChange: () => {} }));
+    const button = tree.nodes.find((node) => node.props?.onPress);
+    return (button?.props?.style as (state: unknown) => { minWidth?: number })({ pressed: false })?.minWidth;
+  };
+  assert.equal(widthOf("workspace"), widthOf("all"), "WS and GIT render at the same size");
+  assert.ok(widthOf("workspace"), "the fixed width is set");
+});
+
+test("inside a worktree the toggle shows GIT only and stays still", () => {
+  const { ScopeToggle } = load("client/panel.tsx");
+  const tree = treeOf(ScopeToggle({ colors, scope: "workspace", onChange: () => {}, gitOnly: true }));
+  assert.deepEqual(tree.texts, ["GIT"], "GIT alone, no WS");
+  assert.equal(tree.presses.length, 0, "nothing to toggle to in a worktree");
+});

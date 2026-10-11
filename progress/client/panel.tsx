@@ -65,7 +65,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
       <Presence show={Boolean(result && !result.configured)}>{result && !result.configured ? <EmptyState colors={colors} file={result.file} /> : null}</Presence>
       {/* Keyed by run: a new run starts with fresh tabs, pages and dialogs. */}
       {result?.configured ? <DashboardView key={result.dashboard.run?.startedAt ?? "none"} colors={colors} dashboard={result.dashboard} agentRunning={agentRunning} compact={layout.compact}
-        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} beads={beads} /> : null}
+        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} gitOnly={Boolean(directory && result.root && directory !== result.root)} beads={beads} /> : null}
       {result?.inRepo && directory ? <HistoryRow colors={colors} workspaceId={workspaceId} directory={directory} savedTo={result.savedTo} /> : null}
     </ScrollView>
     </NarrowProvider>
@@ -152,7 +152,7 @@ function useNow(intervalMs: number): number {
 
 const WIDE_MIN = 760;
 
-function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, beads }: {
+function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads }: {
   colors: Colors;
   dashboard: Dashboard;
   agentRunning: boolean;
@@ -163,19 +163,39 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   navigation: PluginWorkspacePanelProps["navigation"];
   scope: Scope;
   onScopeChange(scope: Scope): void;
+  // A workspace inside the repo but not at its root is a worktree (or a
+  // subdirectory): the workspace fold no-ops there, so the toggle shows GIT only.
+  gitOnly: boolean;
   beads: BeadsResult | null;
 }) {
   const now = useNow(15_000);
   // Quiet isn't stale while an agent in the workspace is still running.
   const stale = dashboard.stale && !agentRunning;
   const hasHistory = dashboard.activity.length + dashboard.questions.answered.length + dashboard.deliverables.length > 0;
-  // The Beads tab shows beside the run's history as soon as its read lands.
-  const showHistory = hasHistory || beads !== null;
+  // The top section row (owner retab): Tickets, Beads, GH Issues, where the
+  // tickets section sits. The history card is history only — beads moved up.
+  const showHistory = hasHistory;
   const live = !stale;
   // Two columns when opened as a wide tab; one in the narrow Explorer pane.
   const [wide, setWide] = useState(false);
+  const narrow = useNarrow();
   const attachmentContext = { workspaceId, workspaceDirectory, navigation };
   const [openTicket, setOpenTicket] = useState<string | null>(null);
+  // The section the top tab row shows; Tickets first, always.
+  const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
+  const ticketsBody = (
+    <Card colors={colors} icon="ListChecks" title={`${dashboard.run?.itemLabel ?? "Ticket"}s`}>
+      {dashboard.tickets.length === 0 ? (
+        <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
+          No {(dashboard.run?.itemLabel ?? "ticket").toLowerCase()}s yet.
+        </Text>
+      ) : (
+        <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />
+      )}
+      <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
+    </Card>
+  );
+  const sections = sectionTabs(colors, dashboard, beads, ticketsBody);
   return (
     <StaggerRoot>
       <Presence show order={0}>
@@ -186,7 +206,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600", flexShrink: 1 }}>
             {dashboard.run?.title ?? "Progress"}
           </Text>
-          <ScopeControl colors={colors} scope={scope} onChange={onScopeChange} />
+          <ScopeToggle colors={colors} scope={scope} onChange={onScopeChange} gitOnly={gitOnly} />
         </View>
         {dashboard.run?.subtitle ? (
           <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{dashboard.run.subtitle}</Text>
@@ -249,16 +269,14 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           ) : null}</Presence>
           <Presence show={Boolean(dashboard.stuck.length)} order={3}>{dashboard.stuck.length ? <StuckSection colors={colors} items={dashboard.stuck} now={now} /> : null}</Presence>
           <Presence show order={4}>
-          <Card colors={colors} icon="ListChecks" title={`${dashboard.run?.itemLabel ?? "Ticket"}s`}>
-            {dashboard.tickets.length === 0 ? (
-              <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
-                No {(dashboard.run?.itemLabel ?? "ticket").toLowerCase()}s yet.
-              </Text>
-            ) : (
-              <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />
-            )}
-            <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
-          </Card>
+          {/* The top-level section row: the body below it swaps between the
+              ticket panel, the read-only Beads view and the GH placeholder.
+              fit drops the icons when the row would wrap on a narrow header,
+              the same yield law the run title learned (W7). */}
+          <View>
+            <TabStrip colors={colors} narrow={narrow} fit tabs={sections} selected={section} onSelect={(next) => setSection(next as "tickets" | "beads" | "gh")} />
+            <View style={{ marginTop: 8 }}>{sections.find((entry) => entry.id === section)?.content ?? null}</View>
+          </View>
           </Presence>
         </View>
         <View style={{ flex: wide ? 2 : undefined, alignSelf: "stretch", minWidth: 0 }}>
@@ -272,7 +290,6 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
                 { id: "deliverables", label: "Deliverables", icon: "Package", count: dashboard.deliverables.length, empty: "No deliverables yet.",
                   content: <DeliverablesList colors={colors} deliverables={dashboard.deliverables} now={now} workspaceId={workspaceId}
                     workspaceDirectory={workspaceDirectory} navigation={navigation} /> },
-                beadsTab(colors, beads),
               ]} />
             ) : null}
           </Presence>
@@ -282,7 +299,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   );
 }
 
-type HistoryTab = "activity" | "answered" | "deliverables" | "beads";
+type HistoryTab = "activity" | "answered" | "deliverables" | "beads" | "tickets" | "gh";
 type Scope = "workspace" | "all";
 type HistoryTabEntry = { id: HistoryTab; label: string; icon: string; count?: number; empty: string; content: React.ReactNode };
 // Below this width the tab icons drop, so all three labels fit in the Explorer pane.
@@ -578,6 +595,8 @@ export function ScopeControl({ colors, scope, onChange }: { colors: Colors; scop
 
 // The Beads tab: the repo's recorded work, read-only, beside the run's
 // history. No count badge until a read lands with beads on it.
+// The Beads tab: the repo's recorded work, read-only, beside the run's
+// history. No count badge until a read lands with beads on it.
 export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined): HistoryTabEntry {
   return {
     id: "beads",
@@ -587,4 +606,37 @@ export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined):
     empty: "No beads in this repo",
     content: beads ? <BeadsView colors={colors} result={beads} /> : null,
   };
+}
+
+// The top-level section row (owner retab, revision 4): Tickets, Beads, GH
+// Issues, where the tickets section sits. The body below the row swaps
+// between them: the ticket panel stays exactly as it was, Beads shows the
+// read-only view, GH Issues is a calm no-op until it exists. Beads no longer
+// sits in the bottom history strip; the history entries stay there.
+export function sectionTabs(colors: Colors, dashboard: Dashboard, beads: BeadsResult | null | undefined, ticketsContent: React.ReactNode): HistoryTabEntry[] {
+  const itemLabel = dashboard.run?.itemLabel ?? "Ticket";
+  return [
+    { id: "tickets", label: `${itemLabel}s`, icon: "ListChecks", count: dashboard.tickets.length, empty: `No ${itemLabel.toLowerCase()}s yet.`, content: ticketsContent },
+    beadsTab(colors, beads),
+    { id: "gh", label: "GH Issues", icon: "Github", empty: "Not yet.", content: (
+      <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8 }}>
+        GitHub issues: not yet.
+      </Text>
+    ) },
+  ];
+}
+
+// The header's scope toggle (owner ruling): ONE card-like button showing WS
+// or GIT — fixed size either way, tap to flip. WS folds this workspace's run;
+// GIT folds the whole file ("All", exactly 0.4.0). Inside a worktree the
+// workspace fold no-ops, so GIT shows alone and stays still.
+export function ScopeToggle({ colors, scope, onChange, gitOnly = false }: { colors: Colors; scope: Scope; onChange(scope: Scope): void; gitOnly?: boolean }) {
+  const label = gitOnly || scope === "all" ? "GIT" : "WS";
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: scope === "all" }}
+      onPress={gitOnly ? undefined : () => onChange(scope === "workspace" ? "all" : "workspace")}
+      style={({ pressed }) => ({ minWidth: 44, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? colors.surface2 : colors.surface1 })}>
+      <Text style={{ color: colors.foreground, fontSize: 11, lineHeight: 16, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{label}</Text>
+    </Pressable>
+  );
 }
