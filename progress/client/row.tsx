@@ -1,8 +1,19 @@
 import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import React, { useState } from "react";
-import { Pressable, type PressableProps, type ViewStyle } from "react-native";
+import { Pressable, Text, View, type PressableProps, type ViewStyle } from "react-native";
 
 type Colors = PluginWorkspacePanelProps["theme"]["colors"];
+
+// The `ref` a ticket was created with (bead:<id>, gh:<repo>#<n>), as a small
+// muted mono chip on its row. Read-only: it names where the work came from.
+export function RefChip({ colors, ref: refValue }: { colors: Colors; ref?: string }) {
+  if (!refValue) return null;
+  return (
+    <View style={{ alignSelf: "flex-start", paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, backgroundColor: colors.surface2 }}>
+      <Text style={{ color: colors.foregroundMuted, fontSize: 10, lineHeight: 14, fontFamily: "monospace" }}>{refValue}</Text>
+    </View>
+  );
+}
 
 // One instant tint for every pressable row, so rows that look alike respond alike.
 // Each step moves one surface up; `onSurface1` rows (dialogs, the popover, the
