@@ -9,6 +9,7 @@ import { DELIVERABLE_KINDS, TICKET_STATUSES, type FileLink, type ProgressEvent }
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
 import { resolveWorkspaceId } from "./workspace.ts";
+import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { installLauncher } from "./launcher.ts";
 import { findStore, saveRunCopy } from "./store.ts";
 import { dashboardText } from "../shared/show.ts";
@@ -546,8 +547,9 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
         out("show --mine needs a Paseo agent id (run it from a Paseo seat).");
         return 1;
       }
-      // --all shows the All board; the other views stay in this workspace.
-      const { dashboard } = await readProgress(store.directory, now(), flags.all ? undefined : scope);
+      // --all folds every workspace's current run together (owner union);
+      // the other views stay in this workspace.
+      const { dashboard } = await readProgress(store.directory, now(), flags.all ? UNION_SCOPE : scope);
       let view = dashboard;
       if (flags.mine) {
         // Question ids never restart, so matching asked-by on the unscoped run

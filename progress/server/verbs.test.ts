@@ -148,3 +148,24 @@ test("show --json prints machine-readable output", async (t) => {
   const parsed = JSON.parse(text) as { worktree?: string; dashboard?: { run?: { title?: string }; tickets?: Array<{ id?: string }> } };
   assert.equal(parsed.dashboard?.run?.title, "Run");
 });
+
+// OWNER UNION call-site (revision 5 GO): show --all folds every workspace's
+// current run together — both scopes' tickets in one board.
+test("show --all shows both workspaces' tickets in one board", async (t) => {
+  const w = await worktree(t);
+  await seat("agent-a", "ws-a");
+  await seat("agent-b", "ws-b");
+  await w.runAs("agent-a", "start", "Workspace A");
+  await w.runAs("agent-a", "ticket", "add", "A ticket", "--estimate", "60");
+  await w.runAs("agent-b", "start", "Workspace B");
+  await w.runAs("agent-b", "ticket", "add", "B ticket", "--estimate", "30");
+  const all = await w.runAs("agent-a", "show", "--all");
+  assert.equal(all.code, 0, all.text);
+  assert.match(all.text, /A ticket/, "workspace A's ticket must show in All");
+  assert.match(all.text, /B ticket/, "workspace B's ticket must show in All");
+  assert.match(all.text, /0 of 2 tickets done/, "counts over the union, not one run");
+  // The workspace-scoped view stays its own run: A's board hides B's ticket.
+  const plain = await w.runAs("agent-a", "show");
+  assert.match(plain.text, /A ticket/);
+  assert.doesNotMatch(plain.text, /B ticket/);
+});
