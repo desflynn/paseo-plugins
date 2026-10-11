@@ -22,7 +22,12 @@ export function BeadsView({ colors, result }: { colors: Colors; result: BeadsRes
   }
   return (
     <View>
-      {result.issues.map((issue) => (
+      {/* An ok read with zero beads says so in its own calm line — never
+          nothing (proof fix D-3); distinct from the none text. */}
+      {result.issues.length === 0 ? (
+        <Text style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>No open beads</Text>
+      ) : (
+        result.issues.map((issue) => (
         <View key={issue.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
           {issue.priority !== undefined ? (
             <View style={{ minWidth: 18, paddingHorizontal: 4, borderRadius: 4, alignItems: "center", backgroundColor: colors.surface2 }}>
@@ -33,7 +38,8 @@ export function BeadsView({ colors, result }: { colors: Colors; result: BeadsRes
           <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, flexShrink: 1 }}>{issue.title}</Text>
           <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{issue.status}</Text>
         </View>
-      ))}
+        ))
+      )}
     </View>
   );
 }

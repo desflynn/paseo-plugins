@@ -109,6 +109,21 @@ test("an error surfaces as a calm message, never a stack", () => {
   assert.ok(!tree.texts.some((text) => text.includes("at ")), "no stack lines");
 });
 
+// PROOF FIX (revision 7, D-3): the ok state with ZERO issues renders its own
+// calm line, distinct from the none text — it never renders nothing.
+test("ok with zero issues renders its own calm line, distinct from none (D-3)", () => {
+  const { BeadsView } = load("client/beads.tsx");
+  const tree = treeOf(BeadsView({ colors, result: { state: "ok", issues: [] } }));
+  assert.deepEqual(
+    tree.texts.filter((text) => text.trim()),
+    ["No open beads"],
+    "ok with zero issues must render its own calm line, not nothing",
+  );
+  // The none line stays exactly as it was — the two states read differently.
+  const none = treeOf(BeadsView({ colors, result: { state: "none" } }));
+  assert.deepEqual(none.texts.filter((text) => text.trim()), ["No beads in this repo"]);
+});
+
 test("the ref chip shows the ref as muted mono and appears only when there is one", () => {
   const { RefChip } = load("client/row.tsx");
   const withRef = treeOf(RefChip({ colors, ref: "bead:rvr-1" }));
