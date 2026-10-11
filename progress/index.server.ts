@@ -1,13 +1,15 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { handleGetBeads } from "./server/beads";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./server/dashboard";
 import { handleInstallLauncher, handleLauncherStatus } from "./server/launcher";
 import { handleOpenDeliverable, handlePreviewDeliverable } from "./server/open";
 import { handleInstallSkill, handleSkillStatus } from "./server/skill";
-import { getAttention, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setHistoryFolder } from "./shared/rpc";
+import { getAttention, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setHistoryFolder } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(getDashboard, handleGetDashboard);
   server.handle(getAttention, handleGetAttention);
+  server.handle(getBeads, handleGetBeads);
   server.handle(markPanelOpened, handleMarkPanelOpened);
   server.handle(getLauncherStatus, handleLauncherStatus);
   server.handle(installLauncher, handleInstallLauncher);
