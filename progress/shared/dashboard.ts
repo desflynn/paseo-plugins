@@ -26,6 +26,8 @@ export interface Ticket {
   waitsFor?: string;
   // Where the ticket is written up: a spec file or an issue link.
   source?: FileLink;
+  // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
+  ref?: string;
   // The Paseo agent that last added or updated it, when written from Paseo.
   agentId?: string;
   // Every status, stage and note change, starting with when it was added.
@@ -201,12 +203,27 @@ export function latestRun(events: ParsedLine[]): ParsedLine[] {
   return events.slice(Math.max(start, 0));
 }
 
+// The events one workspace's scope shows, so two workspaces on one checkout
+// stop evicting each other. Two choices, separate on purpose:
+// - Run-slot: with a scope, the boundary is the last `run.start` carrying that
+//   `ws`; an unscoped start claims the slot only in a scope that has no scoped
+//   start of its own. With no scope, the boundary is the last `run.start` in
+//   the file, exactly as 0.4.0 did it.
+// - Content: inside the selected run, an event with no `ws` stays visible in
+//   every scope, so legacy events and unscoped writers are never filtered away.
+export function scopeEvents(events: ParsedLine[], scope?: string): ParsedLine[] {
+  if (scope === undefined) return latestRun(events);
+  let start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === scope);
+  if (start < 0) start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === undefined);
+  return events.slice(Math.max(start, 0)).filter(({ event }) => event.ws === undefined || event.ws === scope);
+}
+
 // Folds the events of the latest run into what the panel shows at `now`, how
 // long that stays true while the events don't change, and the ids new items get.
 // Everything before the last `run.start` belongs to earlier runs and is ignored.
-export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue[] }, now: Date): { dashboard: Dashboard; validUntil: number; nextIds: NextIds } {
+export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue[] }, now: Date, scope?: string): { dashboard: Dashboard; validUntil: number; nextIds: NextIds } {
   const time = clock(now);
-  const events = latestRun(parsed.events);
+  const events = scopeEvents(parsed.events, scope);
   const issues = [...parsed.issues];
   let run: Dashboard["run"] = null;
   const tickets = new Map<string, Ticket>();
@@ -238,6 +255,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           history: [{ at: event.ts, status: event.status ?? "not_started" }],
           waitsFor: event.waitsFor,
           source: event.source,
+          ref: event.ref,
           agentId: event.by,
         });
         break;
@@ -266,6 +284,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (event.note !== undefined) ticket.note = event.note || undefined;
         if (event.waitsFor !== undefined) ticket.waitsFor = event.waitsFor || undefined;
         if (event.source !== undefined) ticket.source = event.source || undefined;
+        if (event.ref !== undefined) ticket.ref = event.ref;
         if (event.by) ticket.agentId = event.by;
         break;
       }
