@@ -199,14 +199,14 @@ test("an epic's children nest inline under it, indented (o30)", () => {
   assert.ok(!indent.some((node) => treeTexts(node).includes("Orphan child")), "the orphan is not indented");
 });
 
-// Owner ruling (o6.1, revised 12 Oct): a row title shows at most 100
+// Owner ruling (o6.1, revised 12 Oct): a row title shows at most 120
 // characters, ending in an ellipsis, on every tab; the card has it in full.
-test("a row's title is cut at 100 characters with an ellipsis", () => {
+test("a row's title is cut at 120 characters with an ellipsis", () => {
   const { BeadsTab } = load("client/beads.tsx");
-  const long = { state: "ok", issues: [{ id: "rvr-1", title: "A very long bead title ".repeat(8), status: "open" }] } as const;
+  const long = { state: "ok", issues: [{ id: "rvr-1", title: "A very long bead title ".repeat(9), status: "open" }] } as const;
   const tree = treeOf(BeadsTab({ colors, result: long }));
   const shown = tree.texts.find((text) => text.includes("A very long bead title"))!;
-  assert.equal(shown.length, 100, "the row title is not cut at 100 characters");
+  assert.equal(shown.length, 120, "the row title is not cut at 120 characters");
   assert.ok(shown.endsWith("…"), "the cut title ends in an ellipsis");
 });
 

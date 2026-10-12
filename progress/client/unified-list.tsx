@@ -19,7 +19,7 @@ type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 export const POTENTIAL_OPACITY = 0.66;
 
 // The longest title a row shows, ellipsis included (owner ruling o6.1).
-export const TITLE_MAX = 100;
+export const TITLE_MAX = 120;
 
 // The not-running mark, one for every tab: the still, faded dot, or a ">" on
 // a nested row (owner ruling) so a child reads as hanging off the row above.
