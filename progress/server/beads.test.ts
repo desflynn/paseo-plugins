@@ -35,7 +35,7 @@ const failing = (error: Error & { code?: string | number }): BdRunner => async (
 
 const RECORDS = JSON.stringify([
   { id: "pp-1", title: "First", status: "open", priority: 1, issue_type: "bug", updated_at: "2026-10-11T00:00:00Z", extra: "dropped" },
-  { id: "pp-2", title: "Second", status: "closed", priority: 4 },
+  { id: "pp-2", title: "Second", status: "closed", priority: 4, close_reason: "done" },
 ]);
 
 // O3000 (o30): bd emits `parent` on child beads. If the mapper drops it, every
@@ -56,16 +56,18 @@ test("shells bd readonly over the repo root and returns ok with mapped issues", 
   const root = await repo();
   const { runner, calls } = fake(RECORDS);
   const result = await readBeads(root, runner);
+  // O2600 (o17): the list carries closed beads too (--all), so the panel's
+  // done-sink has the record to fold; the client does the sinking.
   assert.deepEqual(result, {
     state: "ok",
     issues: [
       { id: "pp-1", title: "First", status: "open", priority: 1, issue_type: "bug", updated_at: "2026-10-11T00:00:00Z" },
-      { id: "pp-2", title: "Second", status: "closed", priority: 4 },
+      { id: "pp-2", title: "Second", status: "closed", priority: 4, close_reason: "done" },
     ],
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].file, "bd");
-  assert.deepEqual(calls[0].args, ["--readonly", "-C", root, "list", "--json", "--limit", "0"]);
+  assert.deepEqual(calls[0].args, ["--readonly", "-C", root, "list", "--json", "--all", "--limit", "0"]);
   assert.deepEqual(calls[0].options, { timeout: 10_000, maxBuffer: 5 * 1024 * 1024 });
 });
 

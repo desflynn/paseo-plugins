@@ -152,6 +152,11 @@ const beadIssue = z.object({
   priority: z.number().optional(),
   issue_type: z.string().optional(),
   updated_at: z.string().optional(),
+  // Carried since O2600 so the panel's done-sink can split done from skipped.
+  close_reason: z.string().optional(),
+  // Carried since O3000 (o30): the epic a bead hangs under — bd emits it on
+  // children; absent on top-level beads. The panel nests children under it.
+  parent: z.string().optional(),
 });
 export type BeadIssue = z.infer<typeof beadIssue>;
 

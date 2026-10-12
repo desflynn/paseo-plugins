@@ -34,7 +34,7 @@ export function dashboardText(dashboard: Dashboard, nowMs: number): string {
       lines.push(`  ${item.title} (${detail}), since ${when(item.since)}`);
     }
   }
-  lines.push("", `${dashboard.run?.itemLabel ?? "Ticket"}s`);
+  lines.push("", `${dashboard.run?.itemLabel ?? "Objective"}s`);
   for (const ticket of dashboard.tickets) {
     const stage = ticket.status === "in_progress" && ticket.stage ? `, ${ticket.stage} stage` : "";
     const status = ticket.waitingFor ? `Waiting for ${ticket.waitingFor.id}`

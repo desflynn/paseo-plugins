@@ -43,6 +43,7 @@ function issueOf(raw: unknown): BeadIssue | null {
   if (typeof record.priority === "number") issue.priority = record.priority;
   if (typeof record.issue_type === "string") issue.issue_type = record.issue_type;
   if (typeof record.updated_at === "string") issue.updated_at = record.updated_at;
+  if (typeof record.close_reason === "string") issue.close_reason = record.close_reason;
   if (typeof record.parent === "string") issue.parent = record.parent;
   return issue;
 }
@@ -51,7 +52,9 @@ export async function readBeads(root: string, runner: BdRunner = defaultRunner):
   if (!existsSync(join(root, ".beads"))) return { state: "none" };
   let stdout: string;
   try {
-    ({ stdout } = await runner("bd", ["--readonly", "-C", root, "list", "--json", "--limit", "0"], {
+    // --all (O2600): closed beads ride along so the panel's done-sink has the
+    // record to fold; the client does the sinking, `bd list` stays the record.
+    ({ stdout } = await runner("bd", ["--readonly", "-C", root, "list", "--json", "--all", "--limit", "0"], {
       timeout: TIMEOUT_MS,
       maxBuffer: MAX_BUFFER,
     }));

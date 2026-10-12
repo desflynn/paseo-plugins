@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { displayId, parseProgress, reduceProgress, compareObjectives, ticketDepth, ticketRefs, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
+import { displayId, parseProgress, reduceProgress, compareObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
 import { runCli } from "./cli.ts";
 import { readProgress } from "./progress-file.ts";
 import { outsideDirectory } from "./store.ts";
@@ -343,4 +343,44 @@ test("the vocabulary keeps the math honest: progress counts closed done, skips c
   assert.equal(dashboard.progress.percent, 67);
   assert.deepEqual(dashboard.stuck.map((item) => item.kind), ["overdue"], "the in_progress ticket still goes overdue");
   assert.equal(dashboard.stuck[0].ticketId, "o3");
+});
+
+// ── O2600 (o17): one shared list ─────────────────────────────────────
+// The three panel views (objectives, beads, GH issues) render through one
+// list, one row style, one done-sink. These are the pure pieces the tree
+// tests pin; the panel glue is typed by typecheck.
+const bead = (id: string, status: string, extra: Record<string, unknown> = {}) => ({ id, title: `Bead ${id}`, status, ...extra });
+
+test("rowTone splits running from potential: only in_progress runs full-strength", () => {
+  assert.equal(rowTone("in_progress"), "running");
+  for (const status of ["open", "blocked", "deferred", "closed"]) {
+    assert.equal(rowTone(status), "potential", `${status} is not running`);
+  }
+});
+
+test("beads sort open-first, then priority high to low, then id", () => {
+  const list = [
+    bead("pp-1", "open", { priority: 1 }),
+    bead("pp-9", "closed"),
+    bead("pp-3", "open", { priority: 3 }),
+    bead("pp-2", "open"),
+  ];
+  assert.deepEqual([...list].sort(compareBeads).map((entry) => entry.id), ["pp-3", "pp-1", "pp-2", "pp-9"], "priority orders the open beads; the closed bead sinks");
+  const tied = [bead("pp-b", "open", { priority: 2 }), bead("pp-a", "open", { priority: 2 })];
+  assert.deepEqual([...tied].sort(compareBeads).map((entry) => entry.id), ["pp-a", "pp-b"], "ties break by id");
+});
+
+test("beads fold like the objectives' done-sink: two or more closed and open work remains", () => {
+  const one = [bead("pp-1", "open"), bead("pp-9", "closed")];
+  assert.deepEqual(beadsToFold(one), [], "a single closed bead isn't worth a fold row");
+  const two = [bead("pp-1", "open"), bead("pp-8", "closed"), bead("pp-9", "closed")];
+  assert.deepEqual(beadsToFold(two).map((entry) => entry.id), ["pp-8", "pp-9"]);
+  const all = [bead("pp-8", "closed"), bead("pp-9", "closed")];
+  assert.deepEqual(beadsToFold(all), [], "everything closed: the whole list is the record, nothing folds");
+});
+
+test("the fold count label reads done and skipped off the close reasons", () => {
+  assert.equal(beadDoneLabel([bead("a", "closed", { close_reason: "done" }), bead("b", "closed")]), "2 done", "a closed bead without a recorded reason reads as done");
+  assert.equal(beadDoneLabel([bead("a", "closed", { close_reason: "skipped" })]), "1 skipped");
+  assert.equal(beadDoneLabel([bead("a", "closed"), bead("b", "closed", { close_reason: "skipped" })]), "1 done, 1 skipped");
 });
