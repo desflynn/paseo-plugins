@@ -67,7 +67,9 @@ Earlier versions kept progress in `.scratch/` in each worktree, hidden by a `.sc
 
 A Paseo workspace is not a path. Two workspaces can work on one checkout — same folder, same repo — so a run cannot be told apart by where it happened. Every event written from a Paseo seat carries its workspace id next to the agent id, and the dashboard folds only the slice that belongs to yours. Events with no workspace id — runs recorded by 0.4.0, or a command run from a plain terminal — stay visible in every view.
 
-Nothing needs setting up. The command reads the workspace id from the agent's Paseo record; a seat it cannot resolve writes unscoped events and its runs show under GIT, exactly where 0.4.0 would have shown them. Plain `show`, and every call that resolves no workspace, folds the file the way 0.4.0 did: the latest `start` wins.
+Nothing needs setting up. The command reads the workspace id from the agent's Paseo record. A seat that resolves no workspace id — a plain terminal, or a record that carries none — writes unscoped events. Plain `show` from such a seat folds the file the way 0.4.0 did: the latest `start` wins. A seat that does resolve a workspace sees that workspace's run in plain `show`, whichever workspace started last.
+
+One known edge, recorded for the next hop: an unscoped writer shares every board, and its `ticket add` that lands on the same ticket number as a workspace's own ticket takes that ticket's place on the workspace's board. The workspace's ticket then drops out of the union view too. Seats that resolve a workspace never trip this.
 
 One progress file still holds the whole checkout. Scoping happens when the file is read, so moving from 0.4.0 resets nothing: old lines are still there and still show.
 
@@ -130,7 +132,7 @@ paseo-progress show --json
 - `start` begins a fresh dashboard. Earlier runs stay in the file. Question references stay unique across runs.
 - `finish "<outcome>"` closes the run once every ticket is done or skipped, no question is open, and nothing is flagged stuck; otherwise it says what is left. The run stays on the dashboard, marked Finished with its outcome, and takes no more updates, so the next agent in the worktree starts a new run instead of adding to it.
 - `ticket claim <id>` takes a ticket: status `working`, you stamped as the one on it. Same as `ticket update --status working`, one word shorter. `ticket done <id>` sets it `done`. Both take `--note`; claim also takes `--stage`.
-- `ticket add` and `ticket update` take an optional `--ref <ref>`: where the work came from, as free text like `bead:pp-91`, `gh:bank/loans#412` or `teams:<message id>`. The panel shows it as a small chip on the ticket row. `--ref` is not `--source`: `--source` is where the ticket is written up, `--ref` is where the work came from. `--ref ""` clears it.
+- `ticket add` and `ticket update` take an optional `--ref <ref>`: where the work came from, as free text like `bead:pp-91`, `gh:bank/loans#412` or `teams:<message id>`. The panel shows it as a small chip on the ticket row. `--ref` is not `--source`: `--source` is where the ticket is written up, `--ref` is where the work came from.
 - `show --mine` prints only your tickets and open questions in this run, matched on your agent id. `show --all` prints every workspace's current-run tickets together, with counts over all of them. `show --json` prints the dashboard as JSON instead of text, and combines with either: `--mine --json`, `--all --json`. Plain `show` is unchanged.
 
 ## The progress file
@@ -154,7 +156,7 @@ paseo plugin remove progress
 paseo plugin add npm:@stevecastaneda/paseo-progress
 ```
 
-`paseo plugin ls` then shows `progress` running from `~/.paseo/plugins`, and the panel loads from the published build (the npm build lags the registry build: 0.2.1 against 0.3.4 when this was checked; `paseo plugin add stevecastaneda/progress` installs the registry one). Both directions were exercised when this fork was built: removed, added back, checked, then the fork swapped in again with `npm run dev`, ending with the fork live.
+`paseo plugin ls` then shows `progress` running from `~/.paseo/plugins`, and the panel loads from the published build. For the registry build instead: `paseo plugin add stevecastaneda/progress`. Both directions were exercised when this fork was built: removed, added back, checked, then the fork swapped in again with `npm run dev`, ending with the fork live.
 
 ## Limitations
 
