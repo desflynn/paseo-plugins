@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { displayId, parseProgress, reduceProgress, compareObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
+import { displayId, parseProgress, reduceProgress, sortObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
 import { runCli } from "./cli.ts";
 import { readProgress } from "./progress-file.ts";
 import { outsideDirectory } from "./store.ts";
@@ -236,9 +236,12 @@ test("the CLI mints child ids with --under, any depth, and never reuses a remove
 });
 
 test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () => {
-  const make = (id: string, status: Ticket["status"] = "open"): Ticket => ({ id, title: "", estimateMin: 10, status, statusSince: at(0), history: [] });
+  const make = (id: string, status: Ticket["status"] = "open", priority?: number): Ticket => ({ id, title: "", estimateMin: 10, status, statusSince: at(0), history: [], priority });
   const list = [make("o10"), make("o2"), make("o1.1"), make("o1"), make("o1.1.2"), make("o3", "closed")];
-  assert.deepEqual([...list].sort(compareObjectives).map((ticket) => ticket.id), ["o1", "o1.1", "o1.1.2", "o2", "o10", "o3"], "slug order with the closed ticket sunk below the open ones");
+  assert.deepEqual(sortObjectives(list).map((ticket) => ticket.id), ["o1", "o1.1", "o1.1.2", "o2", "o10", "o3"], "slug order with the closed ticket sunk below the open ones");
+  const ranked = [make("o1", "open", 2), make("o2"), make("o3", "open", 0), make("o4", "open", 0), make("o3.1", "open", 1), make("o3.2", "open", 0), make("o1.1", "open", 0), make("o5", "closed", 0)];
+  assert.deepEqual(sortObjectives(ranked).map((ticket) => ticket.id), ["o3", "o3.2", "o3.1", "o4", "o1", "o1.1", "o2", "o5"], "P0 first, then P1 to P4, no priority last; o-number ascending in a band; children sort the same way under their parent; closed sink");
+  assert.equal(sortObjectives([make("o2"), make("o1", "open", 4)])[0].id, "o1", "P4 still sits above no priority");
   assert.equal(ticketDepth(make("o1.1.2")), 2);
   assert.equal(ticketDepth(make("o1")), 0);
 });
@@ -358,14 +361,14 @@ test("rowTone splits running from potential: only in_progress runs full-strength
   }
 });
 
-test("beads sort open-first, then priority high to low, then id", () => {
+test("beads sort open-first, then priority 0 (most urgent) to 4, then id", () => {
   const list = [
     bead("pp-1", "open", { priority: 1 }),
     bead("pp-9", "closed"),
     bead("pp-3", "open", { priority: 3 }),
     bead("pp-2", "open"),
   ];
-  assert.deepEqual([...list].sort(compareBeads).map((entry) => entry.id), ["pp-3", "pp-1", "pp-2", "pp-9"], "priority orders the open beads; the closed bead sinks");
+  assert.deepEqual([...list].sort(compareBeads).map((entry) => entry.id), ["pp-1", "pp-3", "pp-2", "pp-9"], "priority orders the open beads; the closed bead sinks");
   const tied = [bead("pp-b", "open", { priority: 2 }), bead("pp-a", "open", { priority: 2 })];
   assert.deepEqual([...tied].sort(compareBeads).map((entry) => entry.id), ["pp-a", "pp-b"], "ties break by id");
 });

@@ -11,7 +11,7 @@ import { raised } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { finishedToFold, isFinished, shortTitle, ticketName, compareObjectives, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, type BeadsResult } from "../shared/rpc";
@@ -469,7 +469,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
     setShown(!shown);
   };
   const narrow = useNarrow();
-  const sorted = [...dashboard.tickets].sort(compareObjectives);
+  const sorted = sortObjectives(dashboard.tickets);
   const finished = finishedToFold(sorted);
   const open = sorted.filter((ticket) => !isFinished(ticket));
   const row = (ticket: Ticket) => (

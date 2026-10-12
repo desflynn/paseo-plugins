@@ -867,18 +867,32 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
   return `https://github.com/${gh.owner}/${gh.repo}/issues/${gh.number}`;
 }
 
-// Numeric slug order (O1800): each dot-segment reads as a number, so o2 stays
-// above o10 and o1.1 sits between o1 and o2. Closed objectives sink below the
-// open ones; ties keep their recorded order.
-export function compareObjectives(a: Ticket, b: Ticket): number {
+// Objective order (owner spec, mirroring the Beads bands): open before
+// closed; then priority P0 to P4, an objective with none counting as 5; then
+// o-number, each dot-segment read as a number (o2 above o10). A child orders
+// the same way among its siblings and stays under its parent: every level of
+// the id compares its ancestor's band, then its number. Closed ones sink
+// below the open ones; ties keep their recorded order.
+export const NO_PRIORITY_BAND = 5;
+export function sortObjectives(tickets: Ticket[]): Ticket[] {
+  const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+  const key = (ticket: Ticket): number[] => {
+    const parts = ticket.id.split(".");
+    return parts.flatMap((part, index) => [
+      byId.get(parts.slice(0, index + 1).join("."))?.priority ?? NO_PRIORITY_BAND,
+      Number(part.replace(/\D/g, "") || 0),
+    ]);
+  };
   const sunk = (ticket: Ticket) => (isFinished(ticket) ? 1 : 0);
-  if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
-  const left = a.id.split("."), right = b.id.split(".");
-  for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const order = Number(left[index]?.replace(/\D/g, "") || 0) - Number(right[index]?.replace(/\D/g, "") || 0);
-    if (order) return order;
-  }
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return [...tickets].sort((a, b) => {
+    if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
+    const left = key(a), right = key(b);
+    for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      const order = (left[index] ?? -1) - (right[index] ?? -1);
+      if (order) return order;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 // How deep a ticket sits in the tree: one indent step per dot-segment.
@@ -953,12 +967,12 @@ export interface BeadLike {
 }
 
 // Bead order in the shared list: open first (closed sink below, like the
-// objectives' done-sink), then priority high to low (4 is most urgent),
-// then id, so the read is stable.
+// objectives' done-sink), then priority 0 (most urgent) to 4, no priority
+// last, then id, so the read is stable.
 export function compareBeads(a: BeadLike, b: BeadLike): number {
   const sunk = (bead: BeadLike) => (bead.status === "closed" ? 1 : 0);
   if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
-  const order = (b.priority ?? -1) - (a.priority ?? -1);
+  const order = (a.priority ?? 9) - (b.priority ?? 9);
   if (order) return order;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
