@@ -111,7 +111,7 @@ test("finish closes the run only once everything is settled, and keeps it on the
   await w.run("stuck", "set", "Staging is down");
   const refused = await w.run("finish", "Shipped");
   assert.equal(refused.code, 1);
-  assert.match(refused.text, /Can't finish yet\. Still open: open questions Q1 .*; tickets not done or skipped: o1; flagged blockers S1/);
+  assert.match(refused.text, /Can't finish yet\. Still open: open questions Q1 .*; objectives not done or skipped: o1; flagged blockers S1/);
 
   await w.run("question", "answer", "Q1", "CSV");
   await w.run("ticket", "update", "o1", "--status", "done");
@@ -238,8 +238,8 @@ test("tickets added and updated by the agent show up with ids, statuses, and the
 
   const { configured, dashboard } = await w.dashboard();
   assert.equal(configured, true);
-  assert.deepEqual(dashboard.run, { title: "Loan Options", subtitle: "Frozen links", itemLabel: "Ticket", startedAt: minutes(0).toISOString() });
-  assert.equal(headlineText(dashboard), "2 of 4 tickets done");
+  assert.deepEqual(dashboard.run, { title: "Loan Options", subtitle: "Frozen links", itemLabel: "Objective", startedAt: minutes(0).toISOString() });
+  assert.equal(headlineText(dashboard), "2 of 4 objectives done");
   assert.equal(dashboard.updatedAt, minutes(30).toISOString());
   assert.deepEqual(
     dashboard.tickets.map(({ id, status, estimateMin }) => [id, status, estimateMin]),
@@ -269,7 +269,7 @@ test("removed tickets leave the dashboard and their ids are never reused", async
   await w.run("ticket", "update", "o3", "--status", "skipped");
   const { dashboard } = await w.dashboard();
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id), ["o1", "o3"]);
-  assert.equal(headlineText(dashboard), "0 of 1 ticket done", "skipped tickets are not counted");
+  assert.equal(headlineText(dashboard), "0 of 1 objective done", "skipped tickets are not counted");
 });
 
 test("bad input fails with a clear message and writes nothing", async (t) => {
@@ -463,13 +463,13 @@ test("an agent hears about tickets another session added, once, on its next comm
   await w.runAs("b", "ticket", "remove", "o5");
 
   const shown = await w.runAs("a", "show");
-  assert.match(shown.text, /Another session added 2 tickets since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket\.$/);
+  assert.match(shown.text, /Another session added 2 objectives since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current objective\.$/);
   const told = await w.runAs("a", "ticker", "set", "Building");
-  assert.equal(told.text, "Ticker: Building\n\nAnother session added 2 tickets since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket.");
+  assert.equal(told.text, "Ticker: Building\n\nAnother session added 2 objectives since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current objective.");
   assert.equal((await w.runAs("a", "ticker", "set", "Still building")).text, "Ticker: Still building", "each alert shows once");
 
   await w.runAs("b", "ticket", "add", "Ticket 06: One more", "--estimate", "20");
-  assert.match((await w.runAs("a", "ticket", "update", "o1", "--stage", "Review")).text, /added a ticket since your last update:\n  o6  Ticket 06: One more\nIt is part of this run: work it in order after your current ticket\.$/);
+  assert.match((await w.runAs("a", "ticket", "update", "o1", "--stage", "Review")).text, /added an objective since your last update:\n  o6  Ticket 06: One more\nIt is part of this run: work it in order after your current objective\.$/);
 });
 
 test("an agent new to the run, a command outside Paseo, and a new run hear nothing", async (t) => {
@@ -683,7 +683,7 @@ test("a working ticket becomes stuck once it goes longer than its estimate witho
     kind: "overdue", key: "overdue:o3", ticketId: "o3", title: "Ticket 03",
     since: minutes(0).toISOString(), estimateMin: 120,
   }]);
-  assert.equal(headlineText(dashboard), "2 of 4 tickets done, 1 stuck");
+  assert.equal(headlineText(dashboard), "2 of 4 objectives done, 1 stuck");
   assert.deepEqual(dashboard.headline.at(-1), { text: "1 stuck", tone: "danger" });
 });
 
@@ -729,7 +729,7 @@ test("questions carry the agent's recommendation and wait for the answer, then a
   assert.deepEqual(ask, { code: 0, text: "Asked Q1 (Row spacing). You recommend A. Build no option before the answer: work only on what it doesn't affect, and if nothing else is left, stop and wait." });
   await w.run("question", "ask", "PDF check", "Do the PDFs match the page?", "--recommend", "Looks right");
   let { dashboard } = await w.dashboard();
-  assert.equal(headlineText(dashboard), "2 of 4 tickets done, 2 questions waiting for you");
+  assert.equal(headlineText(dashboard), "2 of 4 objectives done, 2 questions waiting for you");
   assert.deepEqual(dashboard.questions.open.map((question) => [question.id, question.recommended]), [["Q1", "A"], ["Q2", "Looks right"]]);
   assert.deepEqual(dashboard.questions.open[0].options[1], { letter: "B", label: "Leave it", consequence: "No change" });
   assert.deepEqual(dashboard.questions.open[0].files, [{ path: ".scratch/shots/row.png", label: "Before" }]);
@@ -750,7 +750,7 @@ test("questions carry the agent's recommendation and wait for the answer, then a
   assert.deepEqual(dashboard.questions.open, []);
   assert.deepEqual(dashboard.questions.answered.map((question) => question.id), ["Q2", "Q1"], "most recent answer first");
   assert.deepEqual(dashboard.questions.answered[1].answer, { choice: "B", words: "Leave it alone.", changedCourse: undefined, at: minutes(20).toISOString() });
-  assert.equal(headlineText(dashboard), "2 of 4 tickets done");
+  assert.equal(headlineText(dashboard), "2 of 4 objectives done");
 });
 
 test("questions from before recommendations show their default as the pick, and keep a changed course", async (t) => {
@@ -913,7 +913,7 @@ test("show prints the dashboard as text for the agent", async (t) => {
   assert.ok(text.startsWith(`Worktree: ${w.directory}\n`), "show names the worktree it read");
   for (const expected of [
     "Loan Options",
-    "2 of 4 tickets done, 1 question waiting for you, 1 stuck",
+    "2 of 4 objectives done, 1 question waiting for you, 1 stuck",
     "58% of estimated work done, 4 h 30 min of 7 h 45 min",
     "POSSIBLY STALE: no update for 10 h 17 min.",
     "Ticket 03 (no update for longer than its 2 h estimate)",

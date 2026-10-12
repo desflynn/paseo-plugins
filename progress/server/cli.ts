@@ -38,7 +38,7 @@ interface Command {
   usage: string;
   summary: string;
   options?: Record<string, { type: "string" | "boolean"; multiple?: boolean }>;
-  run(args: { positionals: string[]; values: Record<string, string | boolean | Array<string | boolean> | undefined>; state: State; cwd: string; root: string }): { event: EventDraft; message: string };
+  run(args: { positionals: string[]; values: Record<string, string | boolean | Array<string | boolean> | undefined>; state: State; cwd: string; root: string; scope?: string }): { event: EventDraft; message: string };
 }
 
 const USAGE_NAME = "paseo-progress";
@@ -185,7 +185,7 @@ function nextChildId(events: ProgressEvent[], parentPath: string): string {
 
 // What still has to be settled before a run can finish.
 function unfinishedWork(dashboard: Dashboard): string[] {
-  const label = (dashboard.run?.itemLabel ?? "Ticket").toLowerCase();
+  const label = (dashboard.run?.itemLabel ?? "Objective").toLowerCase();
   const tickets = dashboard.tickets.filter((ticket) => !isSettled(ticket));
   const flagged = dashboard.stuck.filter((item) => item.kind === "manual");
   return [
@@ -211,13 +211,13 @@ function addedByOthers(events: ProgressEvent[], dashboard: Dashboard, agentId: s
 
 function addedByOthersText(tickets: Ticket[], dashboard: Dashboard): string {
   if (!tickets.length) return "";
-  const label = (dashboard.run?.itemLabel ?? "Ticket").toLowerCase();
+  const label = (dashboard.run?.itemLabel ?? "Objective").toLowerCase();
   const one = tickets.length === 1;
   // Starts with a blank line, to follow the command's own output.
   return [
     "",
     "",
-    `Another session added ${one ? `a ${label}` : `${tickets.length} ${label}s`} since your last update:`,
+    `Another session added ${one ? `${/^[aeiou]/.test(label) ? "an" : "a"} ${label}` : `${tickets.length} ${label}s`} since your last update:`,
     ...tickets.map((ticket) => `  ${ticket.id}  ${ticket.title}`),
     `${one ? "It is" : "They are"} part of this run: work ${one ? "it" : "them"} in order after your current ${label}.`,
   ].join("\n");
@@ -335,6 +335,28 @@ const commands: Record<string, Command> = {
     run({ positionals, state }) {
       const ticket = existingTicket(state, positionals[0]);
       return { event: { type: "ticket.remove", id: ticket.id }, message: `Removed ${ticket.id}: ${ticket.title}` };
+    },
+  },
+  "ticket move": {
+    usage: `ticket move <id> --to <workspace-id>`,
+    summary: "Reallocate a ticket to another workspace: it leaves this workspace's board and renders only on the target's (and --all). Children follow the parent. Event-sourced: a correction is appended, nothing is rewritten.",
+    options: { to: { type: "string" } },
+    run({ positionals, values, state }) {
+      const ticket = existingTicket(state, positionals[0]);
+      const to = required(stringOption(values.to), "--to <workspace-id>");
+      if (to === UNION_SCOPE) throw new UsageError("--to names a workspace, not the All view.");
+      if (ticket.ws === to) throw new UsageError(`${ticket.id} is already on workspace ${to}.`);
+      return { event: { type: "ticket.move" as const, id: ticket.id, to }, message: `Moved ${ticket.id}: ${ticket.title} to ${to}` };
+    },
+  },
+  "ticket claim-from-all": {
+    usage: `ticket claim-from-all <id>`,
+    summary: "Claim a ticket visible in --all into your workspace: the same reallocation as ticket move with --to your workspace. Children follow the parent.",
+    run({ positionals, state, scope }) {
+      const ticket = existingTicket(state, positionals[0]);
+      if (!scope) throw new UsageError("claim-from-all needs a Paseo agent id that resolves to a workspace (run it from a Paseo seat).");
+      if (ticket.ws === scope) throw new UsageError(`${ticket.id} is already on workspace ${scope}.`);
+      return { event: { type: "ticket.move" as const, id: ticket.id, to: scope }, message: `Claimed ${ticket.id}: ${ticket.title} into ${scope}` };
     },
   },
   "question ask": {
@@ -659,19 +681,22 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     const store = await findStore(root);
     // Set when the command closes an objective: its bead refs cascade (O2100).
     let cascade: { refs: string[]; reason: string } | undefined;
+    // Move verbs resolve the ticket across every workspace (claim-from-all
+    // works from the All view), but the written event stamps this workspace.
+    const moveVerb = command === commands["ticket move"] || command === commands["ticket claim-from-all"];
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
       if (finished && command !== commands.start) {
         throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>"`);
       }
-      const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root });
+      const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root, scope });
       if (event.type === "ticket.update" && event.status === "closed") {
         const ticket = state.dashboard.tickets.find((candidate) => candidate.id === event.id);
         cascade = { refs: event.refs ?? ticket?.refs ?? [], reason: event.closeReason ?? "done" };
       }
       const added = command === commands.start ? "" : addedByOthersText(addedByOthers(state.events, state.dashboard, options.agentId), state.dashboard);
       return { event: { ...event, by: options.agentId, ws: scope }, result: `${message}${added}` };
-    }, (text) => saveRunCopy(root, text), scope);
+    }, (text) => saveRunCopy(root, text), moveVerb ? UNION_SCOPE : scope);
     if (cascade && cascade.refs.length) {
       // Fail soft: the close already landed; a bd fault is logged, never fatal.
       const failures = await closeBackingBeads(root, cascade.refs, cascade.reason);
