@@ -102,6 +102,45 @@ test("a name starting with two dots is inside the worktree", async (t) => {
   assert.deepEqual(await previewDeliverable(w.directory, "D1"), { kind: "text", text: "# A", bytes: 3, truncated: false });
 });
 
+test("ticket update --under moves a ticket and its children under another, keeping status, stage and notes", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Sprint");
+  await w.run("ticket", "add", "Heading", "--estimate", "10");
+  await w.run("ticket", "add", "Other", "--estimate", "10");
+  await w.run("ticket", "add", "Worker", "--estimate", "30");
+  await w.run("ticket", "add", "Worker's child", "--estimate", "5", "--under", "o3");
+  await w.run("ticket", "update", "o3", "--status", "in_progress", "--stage", "Build", "--note", "keep me");
+  const moved = await w.run("ticket", "update", "o3", "--under", "o1");
+  assert.equal(moved.code, 0, moved.text);
+  assert.match(moved.text, /o3 under o1/);
+  assert.match(moved.text, /id stays o3/, "the board says what happens to the old id");
+  const after = (await w.dashboard()).dashboard.tickets;
+  const worker = after.find((ticket) => ticket.id === "o3")!;
+  assert.equal(worker.under, "o1");
+  assert.equal(worker.status, "in_progress", "status survives the move");
+  assert.equal(worker.stage, "Build");
+  assert.equal(worker.note, "keep me");
+  assert.equal(after.find((ticket) => ticket.id === "o3.1")!.under, "o3", "its children follow it");
+  assert.equal((await w.run("ticket", "update", "o1", "--under", "o3")).code, 1, "never under its own child");
+  assert.equal((await w.run("ticket", "update", "o1", "--under", "o3.1")).code, 1, "never under its own grandchild");
+  assert.equal((await w.run("ticket", "update", "o3", "--under", "o3")).code, 1, "never under itself");
+  assert.equal((await w.run("ticket", "update", "o3", "--under", "o9")).code, 1, "an unknown parent is refused");
+  const lifted = await w.run("ticket", "update", "o3", "--under", "");
+  assert.equal(lifted.code, 0, lifted.text);
+  assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o3")!.under, undefined, "an empty --under lifts it to the top level");
+  assert.match((await w.run("ticket", "update", "--help")).text, /--under/);
+
+  // A closed ticket moves too, and keeps its status, reason and close time.
+  await w.run("ticket", "update", "o2", "--status", "closed", "--close-reason", "done", "--note", "shipped");
+  const before = (await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o2")!;
+  assert.equal((await w.run("ticket", "update", "o2", "--under", "o1")).code, 0);
+  const closed = (await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o2")!;
+  assert.equal(closed.under, "o1");
+  assert.equal(closed.status, "closed");
+  assert.equal(closed.closeReason, "done");
+  assert.equal(closed.statusSince, before.statusSince, "the close time is the close event's own, untouched by the move");
+});
+
 test("a write with no agent id to a finished run says the id is missing", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Export");

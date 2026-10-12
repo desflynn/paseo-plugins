@@ -568,6 +568,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (event.source !== undefined) ticket.source = event.source || undefined;
         if (event.ref !== undefined) ticket.ref = event.ref;
         if (event.refs !== undefined) ticket.refs = event.refs;
+        if (event.under !== undefined) ticket.under = event.under ? displayId(event.under) : undefined;
         if (union) ticket.ws = wsKey;
         else if (event.ws !== undefined) ticket.ws = event.ws;
         if (event.by) ticket.agentId = event.by;
@@ -877,13 +878,8 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
 export const NO_PRIORITY_BAND = 5;
 export function sortObjectives(tickets: Ticket[]): Ticket[] {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
-  const key = (ticket: Ticket): number[] => {
-    const parts = ticket.id.split(".");
-    return parts.flatMap((part, index) => {
-      const level = byId.get(parts.slice(0, index + 1).join("."));
-      return [level?.priority ?? NO_PRIORITY_BAND, level?.status === "in_progress" ? 0 : 1, Number(part.replace(/\D/g, "") || 0)];
-    });
-  };
+  const key = (ticket: Ticket): number[] =>
+    ancestry(ticket, byId).flatMap((level) => [level.priority ?? NO_PRIORITY_BAND, level.status === "in_progress" ? 0 : 1, Number(level.id.split(".").pop()!.replace(/\D/g, "") || 0)]);
   const sunk = (ticket: Ticket) => (isFinished(ticket) ? 1 : 0);
   return [...tickets].sort((a, b) => {
     if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
@@ -896,9 +892,19 @@ export function sortObjectives(tickets: Ticket[]): Ticket[] {
   });
 }
 
-// How deep a ticket sits in the tree: one indent step per dot-segment.
-export function ticketDepth(ticket: Pick<Ticket, "id">): number {
-  return ticket.id.split(".").length - 1;
+// The ticket and its parents, root first, by the `under` chain (a ticket can
+// be moved under another, so the id is not the path). A parent missing from
+// the list ends the chain; the guard stops a loop.
+function ancestry(ticket: Ticket, byId: Map<string, Ticket>): Ticket[] {
+  const chain = [ticket];
+  for (let next = ticket.under ? byId.get(ticket.under) : undefined; next && chain.length < 64 && !chain.includes(next); next = next.under ? byId.get(next.under) : undefined) chain.unshift(next);
+  return chain;
+}
+
+// How deep a ticket sits in the tree: one indent step per parent in its
+// `under` chain.
+export function ticketDepth(ticket: Ticket, tickets: Ticket[]): number {
+  return ancestry(ticket, new Map(tickets.map((entry) => [entry.id, entry]))).length - 1;
 }
 
 // The finished tickets (done or skipped) the panel folds into one row at the

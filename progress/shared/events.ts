@@ -98,6 +98,9 @@ export const eventSchema = z.discriminatedUnion("type", [
     ref: text.optional(),
     // Replaces the ticket's refs when given (see ticket.add).
     refs: z.array(text).optional(),
+    // Moves the ticket under another (and its children with it); empty lifts it
+    // back to the top level. The id never changes: the tree is this field.
+    under: z.string().trim().optional(),
   }),
   z.object({ ...base, type: z.literal("ticket.remove"), id: text }),
   // A reallocation correction (o21): from here on the ticket renders on the

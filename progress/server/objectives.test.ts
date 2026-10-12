@@ -236,7 +236,8 @@ test("the CLI mints child ids with --under, any depth, and never reuses a remove
 });
 
 test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () => {
-  const make = (id: string, status: Ticket["status"] = "open", priority?: number): Ticket => ({ id, title: "", estimateMin: 10, status, statusSince: at(0), history: [], priority });
+  // A dotted id is always added under its parent, so the fixture carries `under` too.
+  const make = (id: string, status: Ticket["status"] = "open", priority?: number): Ticket => ({ id, title: "", estimateMin: 10, status, statusSince: at(0), history: [], priority, under: id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : undefined });
   const list = [make("o10"), make("o2"), make("o1.1"), make("o1"), make("o1.1.2"), make("o3", "closed")];
   assert.deepEqual(sortObjectives(list).map((ticket) => ticket.id), ["o1", "o1.1", "o1.1.2", "o2", "o10", "o3"], "slug order with the closed ticket sunk below the open ones");
   const ranked = [make("o1", "open", 2), make("o2"), make("o3", "open", 0), make("o4", "open", 0), make("o3.1", "open", 1), make("o3.2", "open", 0), make("o1.1", "open", 0), make("o5", "closed", 0)];
@@ -246,8 +247,12 @@ test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () =
   assert.deepEqual(sortObjectives(running).map((ticket) => ticket.id), ["o7", "o5", "o6", "o9", "o8"], "inside a band in-progress goes first, then o-number; a P1 in progress still sits below every P0");
   const family = [make("o1", "open", 0), make("o1.1"), make("o1.2", "in_progress"), make("o1.3")];
   assert.deepEqual(sortObjectives(family).map((ticket) => ticket.id), ["o1", "o1.2", "o1.1", "o1.3"], "children follow the same rule under their parent");
-  assert.equal(ticketDepth(make("o1.1.2")), 2);
-  assert.equal(ticketDepth(make("o1")), 0);
+  const kid = (id: string, under?: string, priority?: number, status: Ticket["status"] = "open"): Ticket => ({ ...make(id, status, priority), under });
+  const grouped = [kid("o1", undefined, 0), kid("o2", undefined, 0), kid("o93", "o1", 3), kid("o94", "o1", 0), kid("o95", "o93")];
+  assert.deepEqual(sortObjectives(grouped).map((ticket) => ticket.id), ["o1", "o94", "o93", "o95", "o2"], "a moved ticket sits under its parent whatever its id says, ordered among its siblings");
+  assert.equal(ticketDepth(grouped[3], grouped), 1);
+  assert.equal(ticketDepth(grouped[4], grouped), 2, "depth follows the under chain");
+  assert.equal(ticketDepth(grouped[0], grouped), 0);
 });
 
 test("the linkage parses into chips: the bead slug and the GitHub issue", () => {

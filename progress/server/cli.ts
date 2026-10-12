@@ -268,9 +268,9 @@ const commands: Record<string, Command> = {
     },
   },
   "ticket update": {
-    usage: `ticket update <id> [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
-    summary: `Change a ticket. Statuses: open, in_progress, blocked, closed; a close carries --close-reason done|skipped (default done). --priority is how urgent it is, 0-4. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --source is where the ticket is written up ("" clears it). --ref is where the work came from; repeat it to replace all links at once.`,
-    options: { status: { type: "string" }, priority: { type: "string" }, "close-reason": { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string", multiple: true } },
+    usage: `ticket update <id> [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--under <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
+    summary: `Change a ticket. Statuses: open, in_progress, blocked, closed; a close carries --close-reason done|skipped (default done). --priority is how urgent it is, 0-4. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --under moves the ticket, with its children, under another ticket ("" lifts it back to the top level); its id stays the same, and a move under its own child is refused. --source is where the ticket is written up ("" clears it). --ref is where the work came from; repeat it to replace all links at once.`,
+    options: { status: { type: "string" }, priority: { type: "string" }, "close-reason": { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, under: { type: "string" }, source: { type: "string" }, ref: { type: "string", multiple: true } },
     run({ positionals, values, state, cwd, root }) {
       const ticket = existingTicket(state, positionals[0]);
       const rawWaitsFor = values["waits-for"] === undefined ? undefined : String(values["waits-for"]).trim();
@@ -281,10 +281,23 @@ const commands: Record<string, Command> = {
         if (next.waitsFor === ticket.id) throw new UsageError(`${ticket.id} can't wait for ${waitsFor}: ${next.id} already waits for ${ticket.id}, so neither could start.`);
         next = state.dashboard.tickets.find((entry) => entry.id === next!.waitsFor);
       }
+      // --under moves the ticket (its children follow); "" lifts it to the top
+      // level. The id stays: the tree is the `under` field, not the id.
+      const rawUnder = values.under === undefined ? undefined : String(values.under).trim();
+      const under = rawUnder === undefined || rawUnder === "" ? rawUnder : existingTicket(state, rawUnder).id;
+      if (under) {
+        if (under === ticket.id) throw new UsageError(`${ticket.id} can't go under itself.`);
+        // Refuse a move under its own child, grandchild or any descendant.
+        const byId = new Map(state.dashboard.tickets.map((entry) => [entry.id, entry]));
+        for (let up = byId.get(under), seen = 0; up && seen < 1000; seen++, up = up.under ? byId.get(up.under) : undefined) {
+          if (up.id === ticket.id) throw new UsageError(`${ticket.id} can't go under ${under}: ${under} is inside ${ticket.id}.`);
+        }
+      }
       const status = statusOption(values.status);
       const event = {
         type: "ticket.update" as const,
         id: ticket.id,
+        under,
         title: stringOption(values.title),
         estimateMin: minutesOption(values.estimate, "estimate"),
         status: status?.status,
@@ -297,9 +310,12 @@ const commands: Record<string, Command> = {
         refs: refsOption(values),
       };
       const changes = Object.entries(event).filter(([key, value]) => key !== "type" && key !== "id" && value !== undefined);
-      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --priority, --stage, --title, --estimate, --note, --waits-for, --source, or --ref.");
+      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --priority, --stage, --title, --estimate, --note, --waits-for, --under, --source, or --ref.");
       const shown = (value: unknown) => (typeof value === "object" && !Array.isArray(value) ? (value as FileLink).path ?? (value as FileLink).url : Array.isArray(value) ? value.join(", ") : value);
-      return { event, message: `Updated ${ticket.id}: ${changes.map(([key, value]) => `${key} ${shown(value)}`).join(", ")}` };
+      const others = changes.filter(([key]) => key !== "under");
+      const moved = under === undefined ? "" : under ? `Moved ${ticket.id} under ${under}` : `Lifted ${ticket.id} to the top level`;
+      const updated = others.length ? `Updated ${ticket.id}: ${others.map(([key, value]) => `${key} ${shown(value)}`).join(", ")}` : "";
+      return { event, message: [moved && `${moved} (the id stays ${ticket.id}; its children go with it)`, updated].filter(Boolean).join(". ") };
     },
   },
   "ticket claim": {

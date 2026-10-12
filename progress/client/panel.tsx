@@ -473,7 +473,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
   const finished = finishedToFold(sorted);
   const open = sorted.filter((ticket) => !isFinished(ticket));
   const row = (ticket: Ticket) => (
-    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket)}
+    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />
   );
   const done = finished.filter((ticket) => ticket.closeReason !== "skipped").length;
