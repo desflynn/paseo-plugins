@@ -868,20 +868,21 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
 }
 
 // Objective order (owner spec, mirroring the Beads bands): open before
-// closed; then priority P0 to P4, an objective with none counting as 5; then
-// o-number, each dot-segment read as a number (o2 above o10). A child orders
-// the same way among its siblings and stays under its parent: every level of
-// the id compares its ancestor's band, then its number. Closed ones sink
+// closed; then priority P0 to P4, an objective with none counting as 5; then,
+// inside a band, in progress before not in progress (open, held, blocked);
+// then o-number, each dot-segment read as a number (o2 above o10). A child
+// orders the same way among its siblings and stays under its parent: every
+// level of the id compares its ancestor's band, running state, then number. Closed ones sink
 // below the open ones; ties keep their recorded order.
 export const NO_PRIORITY_BAND = 5;
 export function sortObjectives(tickets: Ticket[]): Ticket[] {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const key = (ticket: Ticket): number[] => {
     const parts = ticket.id.split(".");
-    return parts.flatMap((part, index) => [
-      byId.get(parts.slice(0, index + 1).join("."))?.priority ?? NO_PRIORITY_BAND,
-      Number(part.replace(/\D/g, "") || 0),
-    ]);
+    return parts.flatMap((part, index) => {
+      const level = byId.get(parts.slice(0, index + 1).join("."));
+      return [level?.priority ?? NO_PRIORITY_BAND, level?.status === "in_progress" ? 0 : 1, Number(part.replace(/\D/g, "") || 0)];
+    });
   };
   const sunk = (ticket: Ticket) => (isFinished(ticket) ? 1 : 0);
   return [...tickets].sort((a, b) => {

@@ -242,6 +242,10 @@ test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () =
   const ranked = [make("o1", "open", 2), make("o2"), make("o3", "open", 0), make("o4", "open", 0), make("o3.1", "open", 1), make("o3.2", "open", 0), make("o1.1", "open", 0), make("o5", "closed", 0)];
   assert.deepEqual(sortObjectives(ranked).map((ticket) => ticket.id), ["o3", "o3.2", "o3.1", "o4", "o1", "o1.1", "o2", "o5"], "P0 first, then P1 to P4, no priority last; o-number ascending in a band; children sort the same way under their parent; closed sink");
   assert.equal(sortObjectives([make("o2"), make("o1", "open", 4)])[0].id, "o1", "P4 still sits above no priority");
+  const running = [make("o5", "open", 0), make("o7", "in_progress", 0), make("o6", "blocked", 0), make("o9", "in_progress", 1), make("o8", "open", 1)];
+  assert.deepEqual(sortObjectives(running).map((ticket) => ticket.id), ["o7", "o5", "o6", "o9", "o8"], "inside a band in-progress goes first, then o-number; a P1 in progress still sits below every P0");
+  const family = [make("o1", "open", 0), make("o1.1"), make("o1.2", "in_progress"), make("o1.3")];
+  assert.deepEqual(sortObjectives(family).map((ticket) => ticket.id), ["o1", "o1.2", "o1.1", "o1.3"], "children follow the same rule under their parent");
   assert.equal(ticketDepth(make("o1.1.2")), 2);
   assert.equal(ticketDepth(make("o1")), 0);
 });
