@@ -284,6 +284,18 @@ test("potential rows sit muted; running rows run full-strength (o17)", () => {
   assert.equal(styleOf("running"), 1, "in-progress runs full-strength");
 });
 
+test("the priority pill rides the title line instead of taking its own row", () => {
+  const { UnifiedRow } = load("client/unified-list.tsx");
+  const tree = treeOf(UnifiedRow({ colors, icon: null, id: "o3", title: "Daemon RPC workspace resolver leg", tone: "potential", priority: 3 }));
+  const title = tree.nodes.find((node) => node.type === rn.Text && Array.isArray(node.props?.children));
+  const kids = (title?.props?.children ?? []) as Array<{ props?: { children?: unknown } } | string>;
+  assert.ok(kids.some((kid) => typeof kid === "object" && kid?.props?.children === "P3"), "the pill sits inside the title text");
+  const own = tree.nodes.filter((node) => node.type === rn.View && (node.props?.style as { alignSelf?: string } | undefined)?.alignSelf === "flex-start");
+  assert.equal(own.length, 0, "no row of its own for the pill");
+  const bare = treeOf(UnifiedRow({ colors, icon: null, id: "o4", title: "No priority", tone: "potential" }));
+  assert.ok(!bare.texts.some((text) => /^P\d$/.test(text)), "no pill without a priority");
+});
+
 test("the ref chip shows the ref as muted mono and appears only when there is one", () => {
   const { RefChip } = load("client/row.tsx");
   const withRef = treeOf(RefChip({ colors, ref: "bead:rvr-1" }));

@@ -89,12 +89,12 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
             revised 12 Oct); the card has the title in full. */}
         <Text style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
           {id}  {clip(title, TITLE_MAX)}
+          {/* The priority rides the name (owner ruling): 0 is most urgent. */}
+          {priority !== undefined ? " " : null}
+          {priority !== undefined ? (
+            <Text style={{ backgroundColor: colors.surface2, color: colors.foregroundMuted, fontSize: 10, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{`P${priority}`}</Text>
+          ) : null}
         </Text>
-        {priority !== undefined ? (
-          <View style={{ alignSelf: "flex-start", minWidth: 18, paddingHorizontal: 4, borderRadius: 4, alignItems: "center", backgroundColor: colors.surface2 }}>
-            <Text style={{ color: colors.foregroundMuted, fontSize: 10, lineHeight: 14, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{`P${priority}`}</Text>
-          </View>
-        ) : null}
         {detail}
         {chips}
       </View>
