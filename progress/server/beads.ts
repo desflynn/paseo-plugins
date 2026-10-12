@@ -43,6 +43,7 @@ function issueOf(raw: unknown): BeadIssue | null {
   if (typeof record.priority === "number") issue.priority = record.priority;
   if (typeof record.issue_type === "string") issue.issue_type = record.issue_type;
   if (typeof record.updated_at === "string") issue.updated_at = record.updated_at;
+  if (typeof record.parent === "string") issue.parent = record.parent;
   return issue;
 }
 

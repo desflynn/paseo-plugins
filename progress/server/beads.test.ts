@@ -38,6 +38,20 @@ const RECORDS = JSON.stringify([
   { id: "pp-2", title: "Second", status: "closed", priority: 4 },
 ]);
 
+// O3000 (o30): bd emits `parent` on child beads. If the mapper drops it, every
+// bead reaches the panel parentless and no list can ever nest — exactly the
+// defect that shipped flat lists everywhere while the client code was right.
+test("a bd record's parent link survives the read (o30)", async () => {
+  const root = await repo();
+  const { runner } = fake(JSON.stringify([
+    { id: "hhc3-epic", title: "Sprint: mail ingest reliability", status: "in_progress", priority: 1 },
+    { id: "hhc3-deor", title: "Clear stale parser fields", status: "open", priority: 1, parent: "hhc3-epic" },
+  ]));
+  const result = await readBeads(root, runner);
+  assert.equal(result.state, "ok");
+  assert.equal(result.issues[1]?.parent, "hhc3-epic", "the parent field must ride through to the panel");
+});
+
 test("shells bd readonly over the repo root and returns ok with mapped issues", async () => {
   const root = await repo();
   const { runner, calls } = fake(RECORDS);
