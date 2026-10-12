@@ -4,22 +4,24 @@ import { DeliverablesList } from "./deliverables";
 import { LauncherBanner, SkillBanner } from "./launcher";
 import { HistoryRow } from "./history";
 import { AnsweredQuestionsList, QuestionsSection } from "./questions";
-import { Spinner, StalledPulse, WaitingDot } from "./spinner";
+import { Spinner, StalledPulse } from "./spinner";
 import { IconSwap, Presence, StaggerRoot, nativeDriver } from "./motion";
 import { SectionTitle } from "./section-title";
 import { raised } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { finishedToFold, isFinished, shortTitle, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
-import type { TicketStatus } from "../shared/events";
-import { formatEstimate, formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
+import { finishedToFold, isFinished, shortTitle, ticketName, compareObjectives, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import type { BoardStatus } from "../shared/events";
+import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, type BeadsResult } from "../shared/rpc";
 import { useDashboard } from "./dashboard-query";
-import { STATUS_LABEL } from "./status-badge";
+import { statusLabel } from "./status-badge";
 import { TicketDialogs } from "./ticket-dialog";
 import { BeadsView } from "./beads";
-import { PressableRow, RefChip } from "./row";
+import { BeadsSheet } from "./beads-sheet";
+import { RefChips } from "./row";
+import { DoneSinkRow, PendingMark, UnifiedList, UnifiedRow } from "./unified-list";
 import { TabStrip } from "./tabs";
 import { ShowMoreRow, usePaged } from "./show-more";
 import { notePanelOpened } from "./panel-opened";
@@ -184,18 +186,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // The section the top tab row shows; Tickets first, always.
   const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
   const ticketsBody = (
-    <Card colors={colors} icon="ListChecks" title={`${dashboard.run?.itemLabel ?? "Ticket"}s`}>
-      {dashboard.tickets.length === 0 ? (
-        <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
-          No {(dashboard.run?.itemLabel ?? "ticket").toLowerCase()}s yet.
-        </Text>
-      ) : (
-        <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />
-      )}
+    <View>
+      <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />
       <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
-    </Card>
+    </View>
   );
-  const sections = sectionTabs(colors, dashboard, beads, ticketsBody);
+  const sections = sectionTabs(colors, dashboard, beads, ticketsBody, workspaceId, workspaceDirectory);
   return (
     <StaggerRoot>
       <Presence show order={0}>
@@ -269,14 +265,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           ) : null}</Presence>
           <Presence show={Boolean(dashboard.stuck.length)} order={3}>{dashboard.stuck.length ? <StuckSection colors={colors} items={dashboard.stuck} now={now} /> : null}</Presence>
           <Presence show order={4}>
-          {/* The top-level section row: the body below it swaps between the
-              ticket panel, the read-only Beads view and the GH placeholder.
-              fit drops the icons when the row would wrap on a narrow header,
-              the same yield law the run title learned (W7). */}
-          <View>
-            <TabStrip colors={colors} narrow={narrow} fit tabs={sections} selected={section} onSelect={(next) => setSection(next as "tickets" | "beads" | "gh")} />
-            <View style={{ marginTop: 8 }}>{sections.find((entry) => entry.id === section)?.content ?? null}</View>
-          </View>
+          {/* Panel B (owner ruling): the tabs live in the panel's own header —
+              Objectives, Beads, GH Issues — and the chosen list renders under
+              them inside the one panel. No dashboard-level tab strip. */}
+          <Card colors={colors} header={<TabStrip colors={colors} narrow={narrow} fit tabs={sections} selected={section} onSelect={(next) => setSection(next as "tickets" | "beads" | "gh")} />}>
+            {sections.find((entry) => entry.id === section)?.content ?? null}
+          </Card>
           </Presence>
         </View>
         <View style={{ flex: wide ? 2 : undefined, alignSelf: "stretch", minWidth: 0 }}>
@@ -365,10 +359,10 @@ function IssuesNotice({ colors, issues, file }: { colors: Colors; issues: FileIs
   );
 }
 
-function Card({ colors, icon, title, children }: { colors: Colors; icon: string; title: string; children: React.ReactNode }) {
+function Card({ colors, icon, title, header, children }: { colors: Colors; icon?: string; title?: string; header?: React.ReactNode; children: React.ReactNode }) {
   return (
     <View style={{ margin: 12, marginBottom: 0, ...raised(colors), borderRadius: 6, overflow: "hidden" }}>
-      <SectionTitle colors={colors} icon={icon} title={title} />
+      {header ?? <SectionTitle colors={colors} icon={icon ?? "SquareList"} title={title ?? ""} />}
       {children}
     </View>
   );
@@ -397,8 +391,8 @@ function ProgressBar({ colors, progress, live }: { colors: Colors; progress: Das
 }
 
 function Segment({ colors, segment, live }: { colors: Colors; segment: ProgressSegment; live: boolean }) {
-  const working = segment.status === "working";
-  const color = segment.status === "done" ? colors.accent
+  const working = segment.status === "in_progress";
+  const color = segment.status === "closed" ? colors.accent
     : working ? colors.accent
     : segment.status === "blocked" && !segment.waiting ? colors.statusDanger
     : colors.surface2;
@@ -455,116 +449,106 @@ function StuckSection({ colors, items, now }: { colors: Colors; items: StuckItem
 // the app session like the history tab.
 const finishedShown = new Map<string, boolean>();
 
-// Finished tickets fold into one row at the top, so the work still ahead is
-// near the top without scrolling (see finishedToFold).
+// The objectives list through the shared list (O2600): the open rows in plan
+// order, the finished ones folded behind a count header that opens, the
+// whole list flat when everything is finished. Nested objectives (O1800)
+// keep their numeric slug order and their depth indent.
 function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { colors: Colors; dashboard: Dashboard; live: boolean; now: number; workspaceId: string; onOpen(id: string): void }) {
   const [shown, setShown] = useState(() => finishedShown.get(workspaceId) ?? false);
   const toggle = () => {
     finishedShown.set(workspaceId, !shown);
     setShown(!shown);
   };
-  const finished = finishedToFold(dashboard.tickets);
+  const narrow = useNarrow();
+  const sorted = [...dashboard.tickets].sort(compareObjectives);
+  const finished = finishedToFold(sorted);
+  const open = sorted.filter((ticket) => !isFinished(ticket));
   const row = (ticket: Ticket) => (
-    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)}
+    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />
   );
-  if (!finished.length) return <>{dashboard.tickets.map(row)}</>;
+  const done = finished.filter((ticket) => ticket.closeReason !== "skipped").length;
+  const skipped = finished.length - done;
   return (
-    <>
-      <FinishedRow colors={colors} tickets={finished} shown={shown} onPress={toggle} />
-      {shown ? finished.map(row) : null}
-      {dashboard.tickets.filter((ticket) => !isFinished(ticket)).map(row)}
-    </>
+    <UnifiedList
+      colors={colors}
+      narrow={narrow}
+      openRows={open.map(row)}
+      closedRows={finished.map(row)}
+      foldLabel={finished.length ? [done ? `${done} done` : "", skipped ? `${skipped} skipped` : ""].filter(Boolean).join(", ") : ""}
+      foldDone={done}
+      foldEstimateMin={finished.reduce((sum, ticket) => sum + (ticket.closeReason !== "skipped" ? ticket.estimateMin : 0), 0)}
+      shown={shown}
+      onToggleFold={toggle}
+      empty={`No ${(dashboard.run?.itemLabel ?? "ticket").toLowerCase()}s yet.`}
+    />
   );
 }
 
-// Sits on the ticket rows' columns: status icon, label, estimate, then the
-// chevron, which points the way the list will move, like "Show 10 older".
-function FinishedRow({ colors, tickets, shown, onPress }: { colors: Colors; tickets: Ticket[]; shown: boolean; onPress(): void }) {
-  const done = tickets.filter((ticket) => ticket.status === "done").length;
-  const skipped = tickets.length - done;
-  const label = [done ? `${done} done` : "", skipped ? `${skipped} skipped` : ""].filter(Boolean).join(", ");
-  const estimateMin = tickets.reduce((sum, ticket) => sum + (ticket.status === "done" ? ticket.estimateMin : 0), 0);
-  const chevron = shown ? "ChevronUp" : "ChevronDown";
-  const narrow = useNarrow();
-  return (
-    <PressableRow colors={colors} accessibilityRole="button" accessibilityState={{ expanded: shown }}
-      accessibilityLabel={`${shown ? "Hide" : "Show"} ${label}`} onPress={onPress}
-      style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
-      <View style={{ width: 16, paddingTop: 2, alignItems: "center" }}>
-        <Icon name={done ? "Check" : "CircleSlash"} size={14} color={done ? colors.statusSuccess : colors.foregroundMuted} />
-      </View>
-      <Text style={{ flex: 1, minWidth: 0, color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{label}</Text>
-      {/* Narrow ticket rows drop their chevron, so this total would sit off their estimate column. */}
-      {narrow ? null : <>
-        <View style={{ width: 12 }} />
-        <Text style={{ minWidth: 40, flexShrink: 0, textAlign: "right", color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{estimateMin ? formatEstimate(estimateMin) : ""}</Text>
-      </>}
-      <View style={{ paddingTop: 2 }}>
-        <IconSwap swapKey={chevron} size={14}><Icon name={chevron} size={14} color={colors.foregroundMuted} /></IconSwap>
-      </View>
-    </PressableRow>
-  );
-}
-
-// Press for the ticket's story. Hover and press only tint the row: it's a list, pressed often.
-function TicketRow({ colors, ticket, live, now, onOpen, deliverables }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number }) {
-  const muted = ticket.status === "skipped";
-  const working = ticket.status === "working";
+// One objective in the shared row style (O2600): the status mark, the tight
+// id + title, the priority pill, the stage/started/waiting/note lines, the
+// linkage chips — and the estimate, the one view that carries hours.
+function TicketRow({ colors, ticket, live, now, onOpen, deliverables, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; depth?: number }) {
+  const muted = ticket.status === "closed" && ticket.closeReason === "skipped";
+  const working = ticket.status === "in_progress";
   // Narrow: tighter gaps and no chevron (the whole row still presses), so the title keeps its width.
   const narrow = useNarrow();
   return (
-    <PressableRow colors={colors} onSurface1={working} transparentAtRest={!working}
-      accessibilityRole="button" accessibilityLabel={`${ticket.id} details`} onPress={onOpen}
-      style={{ flexDirection: "row", alignItems: "flex-start", gap: narrow ? 6 : 10, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
-      {/* The icon is the only status mark on the row; the ticket dialog spells it out in a badge. */}
-      <View accessible accessibilityLabel={ticket.waitingFor ? "Waiting" : STATUS_LABEL[ticket.status]} style={{ width: 16, paddingTop: 2, alignItems: "center", marginRight: narrow ? 2 : 0 }}>
-        <IconSwap swapKey={ticket.waitingFor || ticket.status === "not_started" ? "waiting" : ticket.status === "working" ? `working-${live}` : ticket.status} size={14}><StatusIcon colors={colors} status={ticket.status} live={live} waiting={Boolean(ticket.waitingFor)} /></IconSwap>
-      </View>
-      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text style={{ color: muted ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, textDecorationLine: muted ? "line-through" : "none" }}>
-          {ticket.title}
-        </Text>
-        {ticket.status === "working" && ticket.stage && ticket.stageSince ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-            {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} now={now} />
-          </Text>
-        ) : null}
-        {ticket.status === "working" && ticket.workingSince ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-            {narrow ? "Started working " : "Working since "}<When colors={colors} iso={ticket.workingSince} now={now} />
-          </Text>
-        ) : null}
-        {ticket.waitingFor ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
-        ) : null}
-        {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
-        <RefChip colors={colors} ref={ticket.ref} />
-      </View>
-      {/* Fixed slots so the Package icon and estimates line up down the list, whether or not a row has deliverables; they're listed in its dialog. The estimate slot fits "45 min" and "10.5 h"; longer ones grow rather than clip. */}
-      <View accessibilityLabel={deliverables ? (deliverables === 1 ? "Has a deliverable" : `Has ${deliverables} deliverables`) : undefined} style={{ width: 12, height: 18, justifyContent: "center" }}>
-        {deliverables ? <Icon name="Package" size={12} color={colors.foregroundMuted} /> : null}
-      </View>
-      <Text style={{ minWidth: 40, flexShrink: 0, textAlign: "right", color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{formatEstimate(ticket.estimateMin)}</Text>
-      {narrow ? null : <View style={{ paddingTop: 2 }}><Icon name="ChevronRight" size={14} color={colors.foregroundMuted} /></View>}
-    </PressableRow>
+    <UnifiedRow
+      colors={colors}
+      narrow={narrow}
+      depth={depth}
+      icon={
+        <IconSwap swapKey={ticket.waitingFor || ticket.status === "open" ? "waiting" : working ? `working-${live}` : ticket.status} size={14}>
+          <StatusIcon colors={colors} status={ticket.status} live={live} waiting={Boolean(ticket.waitingFor)} nested={depth > 0} />
+        </IconSwap>
+      }
+      iconLabel={ticket.waitingFor ? "Waiting" : statusLabel(ticket.status, ticket.closeReason)}
+      id={ticket.id}
+      title={ticket.title}
+      tone={rowTone(ticket.status)}
+      dim={!muted && !working}
+      strike={muted}
+      priority={ticket.priority}
+      detail={
+        <>
+          {working && ticket.stage && ticket.stageSince ? (
+            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
+              {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} now={now} />
+            </Text>
+          ) : null}
+          {working && ticket.startedAt ? (
+            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
+              {narrow ? "Started " : "Working since "}<When colors={colors} iso={ticket.startedAt} now={now} />
+            </Text>
+          ) : null}
+          {ticket.waitingFor ? (
+            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
+          ) : null}
+          {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
+        </>
+      }
+      chips={<RefChips colors={colors} ticket={ticket} />}
+      estimateMin={ticket.estimateMin}
+      deliverables={deliverables}
+      onOpen={onOpen}
+      accessibilityLabel={`${ticket.id} details`}
+    />
   );
 }
 
-function StatusIcon({ colors, status, live, waiting }: { colors: Colors; status: TicketStatus; live: boolean; waiting: boolean }) {
-  if (waiting) return <WaitingDot color={colors.foregroundMuted} size={14} />;
+function StatusIcon({ colors, status, live, waiting, nested = false }: { colors: Colors; status: BoardStatus; live: boolean; waiting: boolean; nested?: boolean }) {
+  if (waiting) return <PendingMark colors={colors} nested={nested} />;
   switch (status) {
-    case "done":
+    case "closed":
       return <Icon name="Check" size={14} color={colors.statusSuccess} />;
-    case "working":
+    case "in_progress":
       return live ? <Spinner color={colors.accent} size={14} /> : <StalledPulse color={colors.statusWarning} size={14} />;
     case "blocked":
       return <Icon name="Ban" size={14} color={colors.statusDanger} />;
-    case "skipped":
-      return <Icon name="CircleSlash" size={14} color={colors.foregroundMuted} />;
     default:
-      // Every step still ahead gets the same dot; "Waits for" says which ones are held up.
-      return <WaitingDot color={colors.foregroundMuted} size={14} />;
+      // Open, and every step still ahead gets the same dot (a ">" when nested); "Waits for" says which ones are held up.
+      return <PendingMark colors={colors} nested={nested} />;
   }
 }
 
@@ -593,35 +577,44 @@ export function ScopeControl({ colors, scope, onChange }: { colors: Colors; scop
   );
 }
 
-// The Beads tab: the repo's recorded work, read-only, beside the run's
-// history. No count badge until a read lands with beads on it.
-// The Beads tab: the repo's recorded work, read-only, beside the run's
-// history. No count badge until a read lands with beads on it.
-export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined): HistoryTabEntry {
+// The Beads section (O2600): the repo's recorded work through the same shared
+// card frame the objectives list uses. The badge counts the OPEN beads — the
+// work still ahead; closed ones ride in the read and fold behind the
+// done-sink. With the workspace identity the section is read-write: rows tap
+// open the detail sheet (beads-sheet.tsx). Without one it stays the pure
+// read-only view.
+export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined, workspaceId?: string, workspaceDirectory?: string): HistoryTabEntry {
   return {
     id: "beads",
     label: "Beads",
     icon: "CircleDot",
-    count: beads?.state === "ok" ? beads.issues.length : undefined,
+    count: beads?.state === "ok" ? beads.issues.filter((issue) => issue.status !== "closed").length : undefined,
     empty: "No beads in this repo",
-    content: beads ? <BeadsView colors={colors} result={beads} /> : null,
+    content: beads ? (
+      <View>
+        {workspaceId && workspaceDirectory
+          ? <BeadsSheet colors={colors} result={beads} workspaceId={workspaceId} workspaceDirectory={workspaceDirectory} />
+          : <BeadsView colors={colors} result={beads} />}
+      </View>
+    ) : null,
   };
 }
 
-// The top-level section row (owner retab, revision 4): Tickets, Beads, GH
-// Issues, where the tickets section sits. The body below the row swaps
-// between them: the ticket panel stays exactly as it was, Beads shows the
-// read-only view, GH Issues is a calm no-op until it exists. Beads no longer
-// sits in the bottom history strip; the history entries stay there.
-export function sectionTabs(colors: Colors, dashboard: Dashboard, beads: BeadsResult | null | undefined, ticketsContent: React.ReactNode): HistoryTabEntry[] {
-  const itemLabel = dashboard.run?.itemLabel ?? "Ticket";
+// The three sections (owner retab, tabs in Panel B's header, O2600):
+// Objectives, Beads, GH Issues. The panel's own header hosts the tabs; the
+// body renders the chosen list inside the one panel. GH Issues is a calm
+// placeholder until the GitHub integration lands.
+export function sectionTabs(colors: Colors, dashboard: Dashboard, beads: BeadsResult | null | undefined, ticketsContent: React.ReactNode, workspaceId?: string, workspaceDirectory?: string): HistoryTabEntry[] {
+  const itemLabel = dashboard.run?.itemLabel ?? "Objective";
   return [
-    { id: "tickets", label: `${itemLabel}s`, icon: "ListChecks", count: dashboard.tickets.length, empty: `No ${itemLabel.toLowerCase()}s yet.`, content: ticketsContent },
-    beadsTab(colors, beads),
+    { id: "tickets", label: `${itemLabel}s`, icon: "ListChecks", count: dashboard.tickets.filter((ticket) => !isFinished(ticket)).length, empty: `No ${itemLabel.toLowerCase()}s yet.`, content: ticketsContent },
+    beadsTab(colors, beads, workspaceId, workspaceDirectory),
     { id: "gh", label: "GH Issues", icon: "Github", empty: "Not yet.", content: (
-      <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8 }}>
-        GitHub issues: not yet.
-      </Text>
+      <View>
+        <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8 }}>
+          GitHub issues: not yet.
+        </Text>
+      </View>
     ) },
   ];
 }
