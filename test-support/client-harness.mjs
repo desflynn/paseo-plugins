@@ -25,9 +25,12 @@ export function clientHarness(pluginDirectory, modules = {}) {
     if (cache.has(path)) return cache.get(path).exports;
     const module = { exports: {} };
     cache.set(path, module);
+    // import.meta is illegal in the vm context once transpiled to CommonJS;
+    // cli.ts's main-module guard is the only user — point the token at the
+    // transpiled module's own file URL so it parses and answers truthfully.
     const source = ts.transpileModule(readFileSync(path, 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
-    }).outputText;
+    }).outputText.replaceAll('import.meta.url', '__importMetaUrl');
     const localRequire = (name) => {
       if (name.startsWith('.')) return load(resolve(dirname(path), name));
       if (Object.hasOwn(modules, name)) return modules[name];
@@ -38,7 +41,8 @@ export function clientHarness(pluginDirectory, modules = {}) {
       return require(name);
     };
     vm.runInNewContext(`(function(require,module,exports){${source}\n})`, {
-      console, Date, setTimeout: timer, setInterval: (callback, delay) => timer(callback, delay, true),
+      console, Date, process, __importMetaUrl: require('node:url').pathToFileURL(path).href,
+      setTimeout: timer, setInterval: (callback, delay) => timer(callback, delay, true),
       clearTimeout: (id) => timers.delete(id), clearInterval: (id) => timers.delete(id),
     })(localRequire, module, module.exports);
     return module.exports;
