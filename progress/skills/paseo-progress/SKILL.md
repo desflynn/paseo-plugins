@@ -32,8 +32,10 @@ Record each change as it happens, on the ticket's id from `show` (o1, o2, ...):
 | Something reviewable lands (a screenshot folder, a report, a preview URL) | `deliverable add "<what it shows>" <path or URL> --ticket o3`, with `--kind file`, `folder`, `report`, `screenshot` or `link` when the path alone doesn't say which |
 | A milestone the user would want in the story | `activity add "<one line>" --ticket o3` |
 | Between bigger events | `ticker set "<what you are doing right now>"`, then `ticker clear` when it no longer applies |
-| The ticket is finished | `ticket done o3` (closes it with reason done), then start the next one |
+| The ticket is finished | `ticket done o3 --note "<the proof>"` (closes with reason done). The close note is where the proof goes: the test count, the SHA, or the check that passed — no proof, no done. Then start the next one |
 | The plan drops it but it should stay visible | `ticket update o3 --status closed --close-reason skipped --note "<why>"` |
+| The ticket belongs on another workspace | `ticket move o3 --to <workspace-id>` — it leaves this workspace's board and renders only on the target's (and `show --all`). Children follow the parent. Nothing is rewritten; a correction event is appended |
+| A ticket from another workspace's board should be yours | `ticket claim-from-all o3` — the same reallocation, with the target defaulting to your workspace |
 
 Pass `--ticket` on every activity, deliverable and question that belongs to a ticket. The user presses a ticket to see its story: each stage and how long it took, with the activity, deliverables and questions tagged to it. Leave it off only for run-wide notes. Stage changes and notes are timed from your `ticket update` calls, so make them when the change happens.
 
@@ -77,7 +79,7 @@ paseo-progress question ask "<short title>" "<the question, in one or two senten
 ## 4. Flag what is stuck
 
 - A ticket that has to wait for another ticket in this run is not stuck; that's just the order of work. Record it with `ticket add ... --waits-for o3` (or `ticket update o5 --waits-for o3`) and leave its status alone. The dashboard shows it calmly as waiting until o3 is done.
-- A ticket held up by something outside the run (a service, access, a decision nobody has made): `ticket update o3 --status blocked --note "<what it waits on>"`. That shows as stuck. Set it back to `in_progress` when it moves again.
+- A ticket held up by something outside the run (a service, access, a decision nobody has made): `ticket update o3 --status blocked --note "<what it waits on>"`. That shows as stuck. Set it back to `in_progress` when it moves again. A parent objective never shows stuck while a sub-objective under it is live (in progress, or active after the parent was marked): the parent shows as running until nothing under it is live.
 - A blocker outside any ticket (a failing service, a missing key): `stuck set "<reason>" [--ticket o3]`, then `stuck clear S1` once it is gone.
 
 ## 5. Finish

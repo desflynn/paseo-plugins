@@ -100,6 +100,10 @@ export const eventSchema = z.discriminatedUnion("type", [
     refs: z.array(text).optional(),
   }),
   z.object({ ...base, type: z.literal("ticket.remove"), id: text }),
+  // A reallocation correction (o21): from here on the ticket renders on the
+  // `to` workspace only (and --all). Append-only — the fold honours it at
+  // read time, nothing is rewritten — and children follow the parent.
+  z.object({ ...base, type: z.literal("ticket.move"), id: text, to: text }),
   // A blocker that is not a ticket status, like a failing external service.
   z.object({ ...base, type: z.literal("stuck.set"), id: text, reason: text, ticket: text.optional() }),
   z.object({ ...base, type: z.literal("stuck.clear"), id: text }),
