@@ -1,6 +1,6 @@
 ---
 name: paseo-progress
-description: Record progress on the Paseo Progress dashboard with the paseo-progress command. Use when implementing a spec or a set of tickets, running any job with more than 5 steps or over 30 minutes, or when the user asks for a progress dashboard.
+description: Record progress on the Paseo Progress dashboard with the paseo-progress command. Use when your task names an objective on the board, when the sponsor or the user asks you to start a run or add objectives, or when the user asks for a progress dashboard. Your own steps stay on your task list; the board holds objectives only.
 ---
 
 # Paseo progress
@@ -17,10 +17,12 @@ One setup command sits outside any run: `install-launcher [path]` writes the `pa
 
 To change the board's name later, use `paseo-progress rename "<title>" [--subtitle <text>]` (`--subtitle ""` clears the subtitle); it works on a finished run too and leaves ids and history alone.
 
-Run `paseo-progress show`. When it shows an open run for this job, continue it. A run marked Finished is closed, even if it looks like your job; start a new one. Otherwise:
+The board holds objectives, the outcomes the user watches, and nothing else. Your own steps stay on your own task list. Starting a run and adding objectives is for the sponsor that launched you, or for when the user asks you to: never because a job is long. When your task names an objective, run `paseo-progress show`, find it and claim it (section 2). A run marked Finished is closed; start a new one only when the sponsor or the user tells you to.
+
+When you are the sponsor, or the user asked you to set up the board, run `paseo-progress show`. When it shows an open run for this job, continue it. Otherwise:
 
 1. `paseo-progress start "<job title>"`, with `--subtitle` naming the spec or ticket folder.
-2. Add every ticket in order with `paseo-progress ticket add "<title>" --estimate <minutes>`, with `--waits-for o2` on any that can't start before another finishes. Tickets carry the Beads vocabulary: `open` until work begins, `in_progress` while it runs, `closed` with a close reason (`--close-reason done|skipped`) when it ends. Pass `--priority <0-4>` when urgency matters. Nest a sub-objective with `--under o1`: it becomes o1.1, the next child number, any depth. To group an objective that already exists, move it with `ticket update o93 --under o95` (`--under ""` lifts it back to the top level): it keeps its id, status, claim and notes, its children go with it, and a move under its own child is refused. To group an objective that already exists, move it with `ticket update o93 --under o95` (`--under ""` lifts it back to the top level): it keeps its id, status, claim and notes, its children go with it, and a move under its own child is refused. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. When it comes from a tracked item, name where with `--ref bead:<id>`, `--ref gh:<owner>/<repo>#<n>` or `--ref teams:<messageId>`; repeat `--ref` to link more than one, and the ticket's name composes from the links. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
+2. Add every ticket in order with `paseo-progress ticket add "<title>" --estimate <minutes>`, with `--waits-for o2` on any that can't start before another finishes. Tickets carry the Beads vocabulary: `open` until work begins, `in_progress` while it runs, `closed` with a close reason (`--close-reason done|skipped`) when it ends. Pass `--priority <0-4>` when urgency matters. Nest a sub-objective with `--under o1`: it becomes o1.1, the next child number, any depth. To group an objective that already exists, move it with `ticket update o93 --under o95` (`--under ""` lifts it back to the top level): it keeps its id, status, claim and notes, its children go with it, and a move under its own child is refused. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. When it comes from a tracked item, name where with `--ref bead:<id>`, `--ref gh:<owner>/<repo>#<n>` or `--ref teams:<messageId>`; repeat `--ref` to link more than one, and the ticket's name composes from the links. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
 3. `paseo-progress activity add "<one line: what this run will do>"`.
 
 Done when `show` lists every ticket with an estimate.
@@ -45,7 +47,7 @@ Pass `--ticket` on every activity, deliverable and question that belongs to a ti
 
 `ticket update o3 --note "<text>"` adds a note without changing status. `activity update A2 "<text>"` rewords a note; `activity remove A2` takes it off the feed. `deliverable remove D1` and `ticket remove o3` take an item off the dashboard — use `--status closed --close-reason skipped` instead when a ticket should stay visible with its reason.
 
-Other sessions may add tickets (or steps) to the same run. When a command's output says another session added one, it is part of the plan: work it in order after your current one, the same as the ones you added.
+Other sessions may add tickets to the same run. When a command's output says another session added one, that is awareness, not an order: work it only when it is yours or your task names it. A ticket another agent added stays with them.
 
 A working ticket turns stuck on its own once it goes longer than its estimate without an update: a status, stage or note change, or activity tagged to it. When a ticket will run long, keep updating its stage, or raise its estimate with `--estimate`.
 
