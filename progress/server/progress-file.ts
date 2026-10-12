@@ -7,8 +7,20 @@ import { join } from "node:path";
 import { EMPTY_DASHBOARD, latestRun, parseProgress, reduceProgress, scopeEvents, type Dashboard, type NextIds } from "../shared/dashboard.ts";
 import { EVENT_VERSION, eventSchema, PANEL_OPENED_NAME, PROGRESS_FILE_NAME, type ProgressEvent } from "../shared/events.ts";
 import { withLock } from "./lock.ts";
+import { agentWorkspaceMap, defaultPaseoHome } from "./registry.ts";
 
 const LOCK_NAME = `${PROGRESS_FILE_NAME}.lock`;
+
+// The agent-to-workspace map that attributes unscoped legacy events to their
+// author's workspace (O2900). Kept warm briefly: panels re-read every few
+// seconds and the registry rarely moves.
+let registryCache: { at: number; map: Map<string, string> } | null = null;
+function currentAgentWs(): Map<string, string> {
+  if (!registryCache || Date.now() - registryCache.at > 30_000) {
+    registryCache = { at: Date.now(), map: agentWorkspaceMap(defaultPaseoHome()) };
+  }
+  return registryCache.map;
+}
 
 // An event as a command builds it; `append` stamps the version and time.
 export type EventDraft = { [K in ProgressEvent["type"]]: Omit<Extract<ProgressEvent, { type: K }>, "v" | "ts"> }[ProgressEvent["type"]];
@@ -43,7 +55,7 @@ export async function readProgress(directory: string, now = new Date(), scope?: 
   let cached = dashboards.get(parsed)?.get(scope);
   // A backwards clock jump must also re-evaluate stale/overdue state.
   if (!cached || now.getTime() < cached.from || now.getTime() >= cached.until) {
-    const { dashboard, validUntil } = reduceProgress(parsed, now, scope);
+    const { dashboard, validUntil } = reduceProgress(parsed, now, scope, currentAgentWs());
     cached = { dashboard, from: now.getTime(), until: validUntil };
     const perScope = dashboards.get(parsed) ?? new Map();
     perScope.set(scope, cached);
@@ -74,6 +86,9 @@ export async function appendProgress<T>(
   return withLock(join(directory, LOCK_NAME), async () => {
     const text = (await readText(directory)) ?? "";
     const parsed = parseProgress(text);
+    // Writes mint ids from the file-global fold: attribution would give
+    // concurrent writers in different workspaces different nextIds and they
+    // would collide (pinned by the concurrent-writers test).
     const { dashboard, nextIds } = reduceProgress(parsed, now(), scope);
     const { event, result } = write({ dashboard, nextIds, events: scopeEvents(parsed.events, scope).map((line) => line.event) });
     const checked = eventSchema.safeParse({ v: EVENT_VERSION, ts: now().toISOString(), ...withoutUndefined(event) });
