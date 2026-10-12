@@ -7,7 +7,7 @@ description: Record progress on the Paseo Progress dashboard with the paseo-prog
 
 The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. Every command reads and writes the board of the workspace it runs in. `show --all` folds every workspace's current run into one view; `show --mine` shows only your own work, and needs a Paseo agent id, so run it from a Paseo seat; `show --json` prints machine-readable output. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
 
-Run `paseo-progress` from your plain shell tool. Do not run it through `ctx_execute` or `rtk`: they strip the `PASEO_*` environment variables, and the command needs `PASEO_AGENT_ID` to find your workspace. Without it the command reads the unscoped board and can show a closed run that is not yours.
+Run `paseo-progress` from the plain shell tool, never inside a context-mode sandbox (`ctx_execute`, `ctx_batch_execute`) and never through `rtk`: they strip every `PASEO_*` variable, so the command cannot tell who you are (it needs `PASEO_AGENT_ID` to find your workspace) and reads the wrong board. Symptom: a claim says "This run is closed" and your objective shows as an unknown ticket, while the same command from the plain shell works.
 
 The user answers questions by reference ("Q7 A") and reads everything else at a glance, so every line you record is written for a product manager: plain words, no jargon.
 
@@ -56,6 +56,22 @@ Record progress on the Paseo dashboard as you work:
 ```
 
 The `cd` puts the updates on this worktree's dashboard even when the subagent works in another checkout. When the subagent reports back, mark the ticket done.
+
+## Priorities: how the board is ordered, and how to work it
+
+Give an objective a priority when urgency matters: `--priority <0-4>` on `ticket add` or `ticket update`. The scale mirrors Beads:
+
+| Priority | Meaning |
+| --- | --- |
+| P0 | Most urgent: drop what you can and take it |
+| P1 to P4 | Less and less urgent |
+| none | Counts as 5: it sits after P4, at the bottom |
+
+The panel and `show` order objectives the same way Beads are ordered: by priority band first (P0, then P1, down to P4, then none), and inside a band by o-number, lowest first. A sub-objective orders the same way among its siblings and stays under its parent. Closed objectives sink below the open ones.
+
+Work the list from the top down. Finish the P0s first. When there are no P0s left, the P1s are next, then the P2s, and so on. Do not skip ahead to a lower band because it looks easier or more interesting.
+
+This is guidance, not automation. Nothing triages for you: do not re-rank other people's objectives, and do not start work that is not yours because it sits high in the list. Take what your task names. The ordering and the priority numbers are there so that auto-triage can be switched on for an agent later; until someone does that, use priorities to say how urgent your own objectives are, and to read the order of the board.
 
 ## 3. Ask questions, and work around them
 
