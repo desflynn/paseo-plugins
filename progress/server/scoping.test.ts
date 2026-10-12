@@ -43,6 +43,19 @@ test("two workspaces on one checkout each fold to their own run; neither board g
   assert.equal(b.dashboard.progress.totalMin, 60);
 });
 
+test("a board rename shows in a workspace that has no run.start of its own, and in All", () => {
+  const text = [
+    line({ type: "run.start", title: "Legacy run", by: "agent-gone" }),
+    add("T01", "A ticket", { ws: "ws-a", by: "agent-a" }),
+    line({ type: "run.rename", title: "DHG's board", ws: "ws-a", by: "agent-a" }),
+    "",
+  ].join("\n");
+  assert.equal(foldWith(text, "ws-a").dashboard.run?.title, "DHG's board", "the workspace view takes the new name");
+  assert.equal(foldWith(text, UNION_SCOPE).dashboard.run?.title, "DHG's board", "All shows it too");
+  assert.equal(foldWith(text, "ws-b").dashboard.run, null, "another workspace's board is not renamed");
+  assert.equal(foldWith(text, "ws-a").dashboard.tickets.length, 1, "tickets are untouched");
+});
+
 test("each workspace mints its own next ticket id from its own run", () => {
   const text = [
     line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),

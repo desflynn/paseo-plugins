@@ -505,10 +505,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         ticker = null;
         break;
       case "run.rename":
-        if (run) {
-          if (event.title !== undefined) run.title = event.title;
-          if (event.subtitle !== undefined) run.subtitle = event.subtitle || undefined;
-        }
+        // A workspace whose slice holds no run.start of its own (its run header
+        // is a legacy start another workspace owns) still takes the new name:
+        // the rename itself gives the board its header.
+        if (!run) run = { title: "Progress", itemLabel: "Objective", startedAt: event.ts };
+        if (event.title !== undefined) run.title = event.title;
+        if (event.subtitle !== undefined) run.subtitle = event.subtitle || undefined;
         break;
       case "ticket.add": {
         const k = ticketKey(parsed.moved, event.id);
