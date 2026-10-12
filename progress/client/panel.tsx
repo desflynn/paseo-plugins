@@ -89,19 +89,31 @@ function useMarkPanelOpened(workspaceId: string, directory: string | null, neede
   }, [needed, directory, workspaceId, mark]);
 }
 
-// One readonly beads read per panel mount (per repo root). Beads changes
-// rarely; the tab is a view of the record, not a live feed. A failure lands
-// in the result, so the tab stays calm either way.
+// How often the Beads tab re-reads the record (owner ruling: added, renamed,
+// closed and reopened beads must show up without reopening the panel).
+export const BEADS_REFRESH_MS = 10_000;
+
+// A readonly beads read on mount, then every BEADS_REFRESH_MS. An unchanged
+// read keeps the same object, so the list does not re-render; a failed
+// refresh keeps the last good list, and only a first-read failure shows.
 function useBeads(workspaceId: string, root: string | undefined): BeadsResult | null {
   const fetchBeads = useRpc(getBeads);
   const [beads, setBeads] = useState<BeadsResult | null>(null);
   useEffect(() => {
     if (!root) return;
     let stale = false;
-    fetchBeads({ workspaceId, workspaceDirectory: root })
-      .then((result) => { if (!stale) setBeads(result as BeadsResult); })
-      .catch(() => { if (!stale) setBeads({ state: "error", message: "Could not read beads" }); });
-    return () => { stale = true; };
+    let last = "";
+    const read = () => fetchBeads({ workspaceId, workspaceDirectory: root })
+      .then((result) => {
+        const text = JSON.stringify(result);
+        if (stale || text === last) return;
+        last = text;
+        setBeads(result as BeadsResult);
+      })
+      .catch(() => { if (!stale && !last) setBeads({ state: "error", message: "Could not read beads" }); });
+    void read();
+    const timer = setInterval(read, BEADS_REFRESH_MS);
+    return () => { stale = true; clearInterval(timer); };
   }, [fetchBeads, workspaceId, root]);
   return beads;
 }
