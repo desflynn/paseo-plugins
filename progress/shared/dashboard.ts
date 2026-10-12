@@ -280,23 +280,24 @@ function movedTargets(events: ParsedLine[]): Map<string, string> {
   return moved;
 }
 
-// The home workspace of each unscoped ticket event, by file line: the ws of
-// the latest stamped add of its ticket before it, or else the first stamped
-// event naming that ticket after it. Ids go through the T→o migration. An
-// event with no stamped relative gets no home and falls back to its writer.
+// The home workspace of each unscoped ticket event, by file line. A stamped
+// add sets its ticket's home; a ticket added unscoped takes its home from the
+// first stamped event naming it, and keeps it for every later unscoped event.
+// Earlier unscoped events wait for that first stamped one. Ids go through the
+// T→o migration. An event with no stamped relative falls back to its writer.
 function ticketHomes(events: ParsedLine[]): Map<number, string> {
   const homes = new Map<number, string>();
-  const addWs = new Map<string, string>();
+  const home = new Map<string, string>();
   const waiting = new Map<string, number[]>();
   for (const { line, event } of events) {
     if (!isTicketEvent(event)) continue;
     const id = displayId(event.id);
     if (event.ws !== undefined) {
-      if (event.type === "ticket.add") addWs.set(id, event.ws);
+      if (event.type === "ticket.add" || !home.has(id)) home.set(id, event.ws);
       for (const earlier of waiting.get(id) ?? []) homes.set(earlier, event.ws);
       waiting.delete(id);
-    } else if (addWs.has(id)) {
-      homes.set(line, addWs.get(id)!);
+    } else if (home.has(id)) {
+      homes.set(line, home.get(id)!);
     } else {
       waiting.set(id, [...(waiting.get(id) ?? []), line]);
     }

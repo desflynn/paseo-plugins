@@ -341,6 +341,22 @@ test("an unscoped add joins the workspace whose stamped events name its ticket (
   assert.deepEqual(foldWith(text, "ws-b").dashboard.tickets, [], "the add follows its ticket home, not its writer");
 });
 
+// o29 on the same board: the add was unscoped, a stamped update gave it its
+// home, and a later unscoped close by B's agent must still land there.
+test("a home learned from a stamped update holds for later unscoped events (o20)", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T29", "Tail fix", { by: "agent-b", status: "in_progress" }),
+    line({ type: "ticket.update", id: "T29", note: "stray note", ws: "ws-a", by: "agent-a" }),
+    line({ type: "ticket.update", id: "T29", status: "done", by: "agent-b" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    "",
+  ].join("\n");
+  assert.deepEqual(foldWith(text, "ws-a").dashboard.tickets.map((ticket) => [ticket.id, ticket.status]), [["o29", "closed"]],
+    "the unscoped close after the stamped update was lost");
+  assert.deepEqual(foldWith(text, "ws-b").dashboard.tickets, []);
+});
+
 test("an unscoped event by this workspace's agent stays in its view (o20)", () => {
   const text = [
     line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
