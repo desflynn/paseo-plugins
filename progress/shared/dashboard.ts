@@ -158,6 +158,9 @@ export interface ParsedLine {
   // keys a run by this, not by each event's own ws, so a run's continuation
   // stays part of that run whatever ws later events carry.
   foldScope?: string;
+  // A line a move correction re-homed (o21): the fold keys its ticket apart,
+  // so it never merges with a ticket the target minted under the same id.
+  moved?: boolean;
 }
 
 // Reads the JSONL text. A last line without a newline may be half written by
@@ -253,31 +256,61 @@ export function latestRun(events: ParsedLine[]): ParsedLine[] {
 const isTicketEvent = (event: ProgressEvent): event is Extract<ProgressEvent, { type: "ticket.add" | "ticket.update" | "ticket.remove" }> =>
   event.type === "ticket.add" || event.type === "ticket.update" || event.type === "ticket.remove";
 
-// The reallocations the fold honours (o21): display id → target workspace,
-// last move wins, read from the current run. Children follow the parent: a
-// ticket added under a moved parent moves with it, any depth. The event log
-// is never rewritten — this map is the whole correction, applied at read time.
-function movedTargets(events: ParsedLine[]): Map<string, string> {
-  const run = latestRun(events);
-  const moved = new Map<string, string>();
-  for (const { event } of run) {
-    if (event.type === "ticket.move") moved.set(displayId(event.id), event.to);
+// One reallocation (o21): the target workspace and, when the target later
+// mints its own ticket under the same id, the line of that add — from there
+// on, the target's stamped events are its own ticket, not the moved one.
+type Move = { to: string; ownMint?: number };
+type Moves = { moves: Map<string, Move>; from: number };
+
+// The reallocations the fold honours (o21): display id → move, last move
+// wins, read from the oldest run still on screen (the latest unscoped run and
+// each workspace's latest run), so a target starting its own run after the
+// move never drops it. Children follow the parent: a ticket added under a
+// moved parent moves with it, any depth. The event log is never rewritten —
+// this map is the whole correction, applied at read time.
+function movedTargets(events: ParsedLine[]): Moves {
+  const starts = new Map<string, number>();
+  events.forEach(({ event }, index) => { if (event.type === "run.start") starts.set(event.ws ?? "", index); });
+  const window = events.slice(starts.size ? Math.min(...starts.values()) : 0);
+  const from = window[0]?.line ?? 0;
+  const moves = new Map<string, Move>();
+  const movedAt = new Map<string, number>();
+  for (const { line, event } of window) {
+    if (event.type !== "ticket.move") continue;
+    moves.set(displayId(event.id), { to: event.to });
+    movedAt.set(displayId(event.id), line);
   }
-  if (!moved.size) return moved;
+  if (!moves.size) return { moves, from };
+  for (const { line, event } of window) {
+    if (event.type !== "ticket.add" || event.ws === undefined) continue;
+    const move = moves.get(displayId(event.id));
+    if (move && move.ownMint === undefined && event.ws === move.to && line > movedAt.get(displayId(event.id))!) move.ownMint = line;
+  }
   let grew = true;
   while (grew) {
     grew = false;
-    for (const { event } of run) {
+    for (const { event } of window) {
       if (event.type !== "ticket.add" || event.under === undefined) continue;
-      const target = moved.get(displayId(event.under));
+      const parent = moves.get(displayId(event.under));
       const id = displayId(event.id);
-      if (target !== undefined && !moved.has(id)) {
-        moved.set(id, target);
+      if (parent !== undefined && !moves.has(id)) {
+        moves.set(id, { to: parent.to });
         grew = true;
       }
     }
   }
-  return moved;
+  return { moves, from };
+}
+
+// The move that re-homes this line, if any: ticket events of a moved id
+// inside the window, except the target's own stamped events after it minted
+// its own ticket under that id.
+function moveOf({ line, event }: ParsedLine, { moves, from }: Moves): Move | undefined {
+  if (line < from || !(isTicketEvent(event) || event.type === "ticket.move")) return undefined;
+  const move = moves.get(displayId(event.id));
+  if (!move) return undefined;
+  if (move.ownMint !== undefined && line >= move.ownMint && event.ws === move.to) return undefined;
+  return move;
 }
 
 // The home workspace of each unscoped ticket event, by file line. A stamped
@@ -331,11 +364,12 @@ export function scopeEvents(events: ParsedLine[], scope?: string, agentWs?: Agen
   if (scope === undefined) return latestRun(events);
   const moved = movedTargets(events);
   // Work reallocated into this workspace (o21) renders here wherever its
-  // events sit in the file — even when this workspace never started a run.
+  // events sit in the window — even when this workspace never started a run.
+  // The move lines come along, so the board re-stamps the ticket's home.
   const movedIn = new Map<number, ParsedLine>();
-  if (moved.size) {
+  if (moved.moves.size) {
     for (const parsed of events) {
-      if (isTicketEvent(parsed.event) && moved.get(displayId(parsed.event.id)) === scope) movedIn.set(parsed.line, parsed);
+      if (moveOf(parsed, moved)?.to === scope) movedIn.set(parsed.line, { ...parsed, moved: true });
     }
   }
   let start = events.findLastIndex(({ event }) => event.type === "run.start" && event.ws === scope);
@@ -351,17 +385,11 @@ export function scopeEvents(events: ParsedLine[], scope?: string, agentWs?: Agen
   const slice: ParsedLine[] = [];
   for (const parsed of events.slice(start)) {
     const { event } = parsed;
-    if (moved.size && isTicketEvent(event)) {
-      const target = moved.get(displayId(event.id));
-      if (target !== undefined) {
-        // Moved elsewhere: every other scope loses the event. Moved here: it
-        // keeps its file place (movedIn holds it for the merge below).
-        if (target === scope) slice.push(movedIn.get(parsed.line)!);
-        continue;
-      }
-    } else if (event.type === "ticket.move") {
-      // The correction line itself renders on the workspace it moved the work to.
-      if (moved.get(displayId(event.id)) === scope) slice.push(parsed);
+    // Moved elsewhere: every other scope loses the event. Moved here: it keeps
+    // its file place (movedIn holds it for the merge below). A move line
+    // outside the window corrects nothing and renders nowhere.
+    if (event.type === "ticket.move" || moveOf(parsed, moved)) {
+      if (movedIn.has(parsed.line)) slice.push(movedIn.get(parsed.line)!);
       continue;
     }
     if (event.ws === scope
@@ -407,26 +435,21 @@ function unionEvents(events: ParsedLine[], agentWs?: AgentWorkspaces): ParsedLin
   for (const scope of scopes) take(scopeEvents(events, scope, agentWs), scope);
   // The global bucket: whatever the slices left behind. Stray unscoped
   // `run.start`s stay out — D-1 keeps them out of the union as before.
+  // Only from the runs still on screen: an earlier run's leftovers are history.
   if (agentWs !== undefined) {
     take(events.filter(({ line, event }) =>
-      !seen.has(line) && event.type !== "run.start" && event.ws === undefined), "");
+      line >= moved.from && !seen.has(line) && event.type !== "run.start" && event.ws === undefined), "");
   }
   // Moved work whose target has no run of its own (o21): the slices left it
   // behind, so this bucket keeps it visible in --all, homed on the target
   // below. The move lines ride along once, for the audit trail.
-  if (moved.size) {
-    take(events.filter(({ line, event }) =>
-      !seen.has(line) && event.type !== "run.start"
-      && (event.type === "ticket.move" || (isTicketEvent(event) && moved.has(displayId(event.id))))), "");
-  }
-  // o21: a moved ticket's events carry the target's key, so the union board
-  // homes the ticket on the workspace it was moved to.
-  if (moved.size) {
+  if (moved.moves.size) {
+    take(events.filter((parsed) => !seen.has(parsed.line) && moveOf(parsed, moved)), "");
+    // o21: a moved ticket's events carry the target's key, so the union board
+    // homes the ticket on the workspace it was moved to.
     for (const parsed of union) {
-      if (isTicketEvent(parsed.event) || parsed.event.type === "ticket.move") {
-        const target = moved.get(displayId(parsed.event.id));
-        if (target !== undefined) parsed.foldScope = target;
-      }
+      const move = moveOf(parsed, moved);
+      if (move) Object.assign(parsed, { foldScope: move.to, moved: true });
     }
   }
   return union.sort((a, b) => a.line - b.line);
@@ -448,6 +471,11 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     const migrated = displayId(id);
     return union ? `${ws ?? ""}/${migrated}` : migrated;
   };
+  // A moved ticket (o21) keys apart, so it never merges with a ticket the
+  // target minted under the same id; `wsKey` is set per line below.
+  let wsKey: string | undefined;
+  const movedTickets = new WeakSet<Ticket>();
+  const ticketKey = (moved: boolean | undefined, id: string) => `${moved ? ">" : ""}${key(wsKey, id)}`;
   const issues = [...parsed.issues];
   let run: Dashboard["run"] = null;
   const tickets = new Map<string, Ticket>();
@@ -466,7 +494,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     // In the union fold a run's continuation is that run whatever ws later
     // events carry, so every id is keyed by the slice's scope, not the
     // event's own ws (proof fix D-2). Outside the union, the event's own ws.
-    const wsKey = union ? parsed.foldScope : event.ws;
+    wsKey = union ? parsed.foldScope : event.ws;
     updatedAt = event.ts;
     switch (event.type) {
       case "run.start":
@@ -477,7 +505,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         ticker = null;
         break;
       case "ticket.add": {
-        const k = key(wsKey, event.id);
+        const k = ticketKey(parsed.moved, event.id);
         // D-4 (O1000): an unscoped writer's add must not take a scoped
         // ticket's place (design A.5, owner ruling). Nothing scoped is ever
         // minted in a file with no ws events, so such a file folds exactly as
@@ -503,10 +531,11 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           ws: wsKey,
           agentId: event.by,
         });
+        if (parsed.moved) movedTickets.add(tickets.get(k)!);
         break;
       }
       case "ticket.update": {
-        const ticket = tickets.get(key(wsKey, event.id));
+        const ticket = tickets.get(ticketKey(parsed.moved, event.id));
         if (!ticket) {
           issues.push({ line, reason: `unknown ticket ${event.id}` });
           break;
@@ -545,7 +574,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         break;
       }
       case "ticket.remove": {
-        const k = key(wsKey, event.id);
+        const k = ticketKey(parsed.moved, event.id);
         if (tickets.delete(k)) scopedMints.delete(k);
         else issues.push({ line, reason: `unknown ticket ${event.id}` });
         break;
@@ -553,7 +582,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
       case "ticket.move": {
         // The reallocation itself is applied by the scope filter; here it
         // re-stamps the ticket's home workspace on this board.
-        const ticket = tickets.get(key(wsKey, event.id));
+        const ticket = tickets.get(ticketKey(parsed.moved, event.id));
         if (!ticket) issues.push({ line, reason: `unknown ticket ${event.id}` });
         else ticket.ws = event.to;
         break;
@@ -660,7 +689,10 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     if (ticket.status === "blocked") ticket.status = "in_progress";
   }
   for (const ticket of list) {
-    const other = ticket.waitsFor ? tickets.get(key(ticket.ws, ticket.waitsFor)) : undefined;
+    // A moved ticket waits on its moved sibling first, then on the board's own.
+    const waitKey = ticket.waitsFor ? key(ticket.ws, ticket.waitsFor) : undefined;
+    const other = waitKey === undefined ? undefined
+      : (movedTickets.has(ticket) ? tickets.get(`>${waitKey}`) : undefined) ?? tickets.get(waitKey);
     ticket.waitingFor = other && !isSettled(other) && !isSettled(ticket)
       ? { id: other.id, title: other.title }
       : undefined;
@@ -695,9 +727,9 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
   // reallocated away (o21), so a move never frees a spent number. Rendered
   // on the target, counted here.
   const moved = movedTargets(parsed.events);
-  const idRun = moved.size
-    ? [...events, ...latestRun(parsed.events).filter(({ line, event }) =>
-        event.type === "ticket.add" && moved.has(displayId(event.id)) && !events.some((kept) => kept.line === line))]
+  const idRun = moved.moves.size
+    ? [...events, ...latestRun(parsed.events).filter((line) =>
+        line.event.type === "ticket.add" && moveOf(line, moved) && !events.some((kept) => kept.line === line.line))]
     : events;
   return { dashboard, validUntil: time.validUntil, nextIds: nextIds(parsed.events.map(({ event }) => event), idRun.map(({ event }) => event)) };
 }

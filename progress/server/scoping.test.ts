@@ -489,6 +489,30 @@ test("a moved ticket's subtree follows the parent", () => {
   assert.ok(all.dashboard.tickets.every((ticket) => ticket.ws === "ws-b"), "the subtree renders homed on the target in --all");
 });
 
+// The dci-harness board: 16 moves landed in the shared run, then the target
+// started its own run (and minted its own o1) minutes later. The moves must
+// still hold, each moved ticket keeps the status it had (a close before the
+// move counts), and the target's own o1 stays a separate row.
+test("a move before the target's own run still holds, keeps status, and never merges with the target's own id", () => {
+  const text = [
+    line({ type: "run.start", title: "Shared run" }),
+    add("T01", "Legacy one", { ws: "ws-a" }),
+    line({ type: "ticket.update", id: "T01", status: "done", by: "agent-x" }),
+    add("T02", "Legacy two", { ws: "ws-a" }),
+    move("o1", "ws-b"),
+    move("o2", "ws-b"),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("o1", "B's own one", { ws: "ws-b" }),
+    "",
+  ].join("\n");
+  const rows = (scope: string) => foldWith(text, scope).dashboard.tickets.map((ticket) => `${ticket.id} ${ticket.title} ${ticket.status}`).sort();
+  assert.deepEqual(rows("ws-a"), [], "the source keeps the moved tickets");
+  assert.deepEqual(rows("ws-b"), ["o1 B's own one open", "o1 Legacy one closed", "o2 Legacy two open"],
+    "the moves were dropped, lost a status, or merged with B's own o1");
+  assert.deepEqual(foldWith(text, UNION_SCOPE).dashboard.tickets.map((ticket) => `${ticket.ws} ${ticket.title} ${ticket.status}`).sort(),
+    ["ws-b B's own one open", "ws-b Legacy one closed", "ws-b Legacy two open"]);
+});
+
 test("a move correction never frees the spent objective number on the source", () => {
   const text = [
     line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
