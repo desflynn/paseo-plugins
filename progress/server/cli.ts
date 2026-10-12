@@ -247,6 +247,19 @@ const commands: Record<string, Command> = {
       return { event: { type: "run.finish", outcome }, message: `Finished run: ${state.dashboard.run.title}` };
     },
   },
+  rename: {
+    usage: `rename ["<title>"] [--subtitle <text>]`,
+    summary: `Rename the board: change the run's title and/or subtitle ("" clears the subtitle). Works on a finished run too. Ids, objectives and history stay as they are.`,
+    options: { subtitle: { type: "string" } },
+    run({ positionals, values, state }) {
+      if (!state.dashboard.run) throw new UsageError("No run to rename.");
+      const title = positionals[0] === undefined ? undefined : required(positionals[0], "run title");
+      const subtitle = values.subtitle === undefined ? undefined : String(values.subtitle).trim();
+      if (title === undefined && subtitle === undefined) throw new UsageError("Nothing to change. Pass a new title, --subtitle, or both.");
+      const parts = [title === undefined ? "" : `Renamed the board to: ${title}`, subtitle === undefined ? "" : subtitle ? `subtitle: ${subtitle}` : "subtitle cleared"].filter(Boolean);
+      return { event: { type: "run.rename", title, subtitle }, message: parts.join(", ") };
+    },
+  },
   "ticket add": {
     usage: `ticket add "<title>" --estimate <minutes> [--under <id>] [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
     summary: `Add a ticket. Prints its id (o1, o2, ...). --under nests it as the next child of another ticket, any depth (o1.1, o1.1.2). Statuses: open, in_progress, blocked, closed, with --close-reason done|skipped when closing. --priority is how urgent it is, 0-4. --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>; repeat it to link more than one, and the name composes from the links.`,
@@ -702,7 +715,7 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     const moveVerb = command === commands["ticket move"] || command === commands["ticket claim-from-all"];
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
-      if (finished && command !== commands.start) {
+      if (finished && command !== commands.start && command !== commands.rename) {
         // No agent id means the unscoped board, whose latest run may be one
         // another workspace finished. A sandbox that strips PASEO_* variables
         // (context-mode's ctx_execute) lands an agent here; say so.

@@ -15,6 +15,8 @@ One setup command sits outside any run: `install-launcher [path]` writes the `pa
 
 ## 1. Set up the run
 
+To change the board's name later, use `paseo-progress rename "<title>" [--subtitle <text>]` (`--subtitle ""` clears the subtitle); it works on a finished run too and leaves ids and history alone.
+
 Run `paseo-progress show`. When it shows an open run for this job, continue it. A run marked Finished is closed, even if it looks like your job; start a new one. Otherwise:
 
 1. `paseo-progress start "<job title>"`, with `--subtitle` naming the spec or ticket folder.

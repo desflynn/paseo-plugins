@@ -504,6 +504,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (run) run.finished = { at: event.ts, outcome: event.outcome };
         ticker = null;
         break;
+      case "run.rename":
+        if (run) {
+          if (event.title !== undefined) run.title = event.title;
+          if (event.subtitle !== undefined) run.subtitle = event.subtitle || undefined;
+        }
+        break;
       case "ticket.add": {
         const k = ticketKey(parsed.moved, event.id);
         // D-4 (O1000): an unscoped writer's add must not take a scoped

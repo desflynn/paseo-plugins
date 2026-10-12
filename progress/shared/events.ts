@@ -54,6 +54,9 @@ export const eventSchema = z.discriminatedUnion("type", [
   }),
   // Closes the run. Nothing more is recorded on it; new work needs `run.start`.
   z.object({ ...base, type: z.literal("run.finish"), outcome: text }),
+  // Renames the run in place: a correction, not a new run. Each field applies
+  // when present; an empty subtitle clears it. Tickets and history are untouched.
+  z.object({ ...base, type: z.literal("run.rename"), title: text.optional(), subtitle: z.string().trim().optional() }),
   z.object({
     ...base,
     type: z.literal("ticket.add"),

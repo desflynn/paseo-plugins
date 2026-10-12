@@ -141,6 +141,35 @@ test("ticket update --under moves a ticket and its children under another, keepi
   assert.equal(closed.statusSince, before.statusSince, "the close time is the close event's own, untouched by the move");
 });
 
+test("rename changes the board's title and subtitle, and nothing else", async (t) => {
+  const w = await worktree(t);
+  const none = await w.run("rename", "Anything");
+  assert.equal(none.code, 1);
+  assert.match(none.text, /No run to rename/);
+  await w.run("start", "Old name", "--subtitle", "old sub");
+  await w.run("ticket", "add", "Keep me", "--estimate", "10");
+  await w.run("ticket", "update", "o1", "--status", "in_progress", "--note", "mid-flight");
+  const before = (await w.dashboard()).dashboard.tickets[0];
+  const renamed = await w.run("rename", "New name");
+  assert.equal(renamed.code, 0, renamed.text);
+  assert.match(renamed.text, /Renamed the board to: New name/);
+  let { dashboard } = await w.dashboard();
+  assert.equal(dashboard.run?.title, "New name");
+  assert.equal(dashboard.run?.subtitle, "old sub", "the subtitle stays unless asked");
+  assert.deepEqual(dashboard.tickets[0], before, "ids, status, notes and history are untouched");
+  assert.match((await w.run("show")).text, /^Worktree: .*\n\nNew name\nold sub\n/);
+  assert.equal((await w.run("rename", "--subtitle", "new sub")).code, 0, "a subtitle alone renames nothing else");
+  assert.equal((await w.run("rename", "Third", "--subtitle", "")).code, 0);
+  ({ dashboard } = await w.dashboard());
+  assert.equal(dashboard.run?.title, "Third");
+  assert.equal(dashboard.run?.subtitle, undefined, "an empty --subtitle clears it");
+  assert.equal((await w.run("rename")).code, 1, "nothing to change is refused");
+  await w.run("ticket", "update", "o1", "--status", "closed");
+  await w.run("finish", "Done");
+  assert.equal((await w.run("rename", "Archive name")).code, 0, "a finished board can be renamed");
+  assert.equal((await w.dashboard()).dashboard.run?.title, "Archive name");
+});
+
 test("a write with no agent id to a finished run says the id is missing", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Export");
