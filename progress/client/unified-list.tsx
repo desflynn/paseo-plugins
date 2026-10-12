@@ -18,6 +18,9 @@ type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 // 75% left too little differential between running and open).
 export const POTENTIAL_OPACITY = 0.66;
 
+// The longest title a row shows, ellipsis included (owner ruling o6.1).
+export const TITLE_MAX = 100;
+
 // The not-running mark, one for every tab: the still, faded dot, or a ">" on
 // a nested row (owner ruling) so a child reads as hanging off the row above.
 export function PendingMark({ colors, nested = false }: { colors: Colors; nested?: boolean }) {
@@ -77,9 +80,10 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
         {icon}
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        {/* One line with an ellipsis (owner ruling o6.1); the card has it in full. */}
-        <Text numberOfLines={1} style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
-          {id}  {title}
+        {/* At most 100 characters, ending in an ellipsis (owner ruling o6.1,
+            revised 12 Oct); the card has the title in full. */}
+        <Text style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
+          {id}  {title.length > TITLE_MAX ? `${title.slice(0, TITLE_MAX - 1)}…` : title}
         </Text>
         {priority !== undefined ? (
           <View style={{ alignSelf: "flex-start", minWidth: 18, paddingHorizontal: 4, borderRadius: 4, alignItems: "center", backgroundColor: colors.surface2 }}>
