@@ -280,6 +280,30 @@ function movedTargets(events: ParsedLine[]): Map<string, string> {
   return moved;
 }
 
+// The home workspace of each unscoped ticket event, by file line: the ws of
+// the latest stamped add of its ticket before it, or else the first stamped
+// event naming that ticket after it. Ids go through the T→o migration. An
+// event with no stamped relative gets no home and falls back to its writer.
+function ticketHomes(events: ParsedLine[]): Map<number, string> {
+  const homes = new Map<number, string>();
+  const addWs = new Map<string, string>();
+  const waiting = new Map<string, number[]>();
+  for (const { line, event } of events) {
+    if (!isTicketEvent(event)) continue;
+    const id = displayId(event.id);
+    if (event.ws !== undefined) {
+      if (event.type === "ticket.add") addWs.set(id, event.ws);
+      for (const earlier of waiting.get(id) ?? []) homes.set(earlier, event.ws);
+      waiting.delete(id);
+    } else if (addWs.has(id)) {
+      homes.set(line, addWs.get(id)!);
+    } else {
+      waiting.set(id, [...(waiting.get(id) ?? []), line]);
+    }
+  }
+  return homes;
+}
+
 // The events one workspace's scope shows, so two workspaces on one checkout
 // stop evicting each other. Three choices, separate on purpose:
 // - Run-slot: with a scope, the boundary is the last `run.start` carrying that
@@ -294,7 +318,9 @@ function movedTargets(events: ParsedLine[]): Map<string, string> {
 //   agent registry, an unscoped event keeps its place in this scope only if
 //   its `by` agent belongs to this workspace; everything else falls to the
 //   global bucket (--all only). A file with no ws events at all never
-//   attributes: the no-ws class keeps the byte-identical 0.4.0 fold.
+//   attributes: the no-ws class keeps the byte-identical 0.4.0 fold. An
+//   unscoped ticket event follows its ticket's home first (ticketHomes), so a
+//   seat from another workspace closing this workspace's ticket lands here.
 // - Reallocation (o21): a `ticket.move` correction re-homes its ticket's
 //   events — every other scope loses them, the target gains them wherever
 //   they sit in the file, even when the target never started a run here. The
@@ -320,6 +346,7 @@ export function scopeEvents(events: ParsedLine[], scope?: string, agentWs?: Agen
   // stray unscoped events.
   if (start < 0) return [...movedIn.values()].sort((a, b) => a.line - b.line);
   const attribute = agentWs !== undefined && events.some(({ event }) => event.ws !== undefined);
+  const homes = attribute ? ticketHomes(events) : new Map<number, string>();
   const slice: ParsedLine[] = [];
   for (const parsed of events.slice(start)) {
     const { event } = parsed;
@@ -338,7 +365,7 @@ export function scopeEvents(events: ParsedLine[], scope?: string, agentWs?: Agen
     }
     if (event.ws === scope
       || (event.ws === undefined && !(ownRun && event.type === "run.start")
-        && (!attribute || agentWs?.get(event.by ?? "") === scope))) slice.push(parsed);
+        && (!attribute || (homes.get(parsed.line) ?? agentWs?.get(event.by ?? "")) === scope))) slice.push(parsed);
   }
   // Moved-in events from before this scope's run.start join the front, so
   // the fold sees the ticket from its add.
