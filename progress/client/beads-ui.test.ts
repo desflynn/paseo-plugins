@@ -210,6 +210,17 @@ test("a row's title is cut at 120 characters with an ellipsis", () => {
   assert.ok(shown.endsWith("…"), "the cut title ends in an ellipsis");
 });
 
+// Owner ruling (12 Oct): a row's description (the note under the title)
+// shows at most 200 characters, ending in an ellipsis; short ones are untouched.
+test("a row description is cut at 200 characters with an ellipsis", () => {
+  const { clip, NOTE_MAX } = load("client/unified-list.tsx") as unknown as { clip(text: string, max: number): string; NOTE_MAX: number };
+  assert.equal(NOTE_MAX, 200);
+  const cut = clip("word ".repeat(60), NOTE_MAX);
+  assert.equal(cut.length, 200, "the description is not cut at 200 characters");
+  assert.ok(cut.endsWith("…"));
+  assert.equal(clip("short note", NOTE_MAX), "short note");
+});
+
 // Owner ruling: on every tab, a nested row's waiting dot becomes a ">".
 // Running and closed marks stay — they carry state the chevron would hide.
 test("a nested waiting row marks with > instead of the dot; top-level keeps the dot", () => {

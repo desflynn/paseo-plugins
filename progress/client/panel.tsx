@@ -21,7 +21,7 @@ import { TicketDialogs } from "./ticket-dialog";
 import { BeadsView } from "./beads";
 import { BeadsSheet } from "./beads-sheet";
 import { RefChips } from "./row";
-import { DoneSinkRow, PendingMark, UnifiedList, UnifiedRow } from "./unified-list";
+import { DoneSinkRow, NOTE_MAX, PendingMark, UnifiedList, UnifiedRow, clip } from "./unified-list";
 import { TabStrip } from "./tabs";
 import { ShowMoreRow, usePaged } from "./show-more";
 import { notePanelOpened } from "./panel-opened";
@@ -534,8 +534,8 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, depth = 0 
           {ticket.waitingFor ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
           ) : null}
-          {/* Two lines at most on the row (o6.1); the card shows the whole note. */}
-          {ticket.note ? <Text numberOfLines={2} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
+          {/* At most NOTE_MAX characters on the row; the card shows the whole note. */}
+          {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{clip(ticket.note, NOTE_MAX)}</Text> : null}
         </>
       }
       chips={<RefChips colors={colors} ticket={ticket} />}

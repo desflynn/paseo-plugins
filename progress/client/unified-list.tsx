@@ -18,8 +18,13 @@ type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 // 75% left too little differential between running and open).
 export const POTENTIAL_OPACITY = 0.66;
 
-// The longest title a row shows, ellipsis included (owner ruling o6.1).
+// The longest title and description (note) a row shows, ellipsis included
+// (owner rulings, 12 Oct); the card has both in full.
 export const TITLE_MAX = 120;
+export const NOTE_MAX = 200;
+export function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 // The not-running mark, one for every tab: the still, faded dot, or a ">" on
 // a nested row (owner ruling) so a child reads as hanging off the row above.
@@ -83,7 +88,7 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
         {/* At most 100 characters, ending in an ellipsis (owner ruling o6.1,
             revised 12 Oct); the card has the title in full. */}
         <Text style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
-          {id}  {title.length > TITLE_MAX ? `${title.slice(0, TITLE_MAX - 1)}…` : title}
+          {id}  {clip(title, TITLE_MAX)}
         </Text>
         {priority !== undefined ? (
           <View style={{ alignSelf: "flex-start", minWidth: 18, paddingHorizontal: 4, borderRadius: 4, alignItems: "center", backgroundColor: colors.surface2 }}>
