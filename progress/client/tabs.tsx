@@ -33,7 +33,7 @@ export function TabStrip<Id extends string>({ colors, tabs, selected, onSelect, 
     <View accessibilityRole="tablist"
       // One row is 32px (8 + 18 + 6); anything taller wrapped.
       onLayout={fit ? (event) => { if (!iconless && event.nativeEvent.layout.height > 40) setWrappedFor(ids); } : undefined}
-      style={[{ flexDirection: "row", flexWrap: "wrap", columnGap: narrow ? 10 : 16, borderBottomWidth: 1, borderBottomColor: colors.border }, style]}>
+      style={[{ flexDirection: "row", flexWrap: "wrap", columnGap: narrow ? 10 : 16, paddingLeft: narrow ? 8 : 10, borderBottomWidth: 1, borderBottomColor: colors.border }, style]}>
       {tabs.map((entry) => (
         <Tab key={entry.id} colors={colors} narrow={narrow} entry={iconless ? { ...entry, icon: null } : entry} selected={entry.id === selected} onPress={() => onSelect(entry.id)} />
       ))}
