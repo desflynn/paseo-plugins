@@ -102,6 +102,19 @@ test("a name starting with two dots is inside the worktree", async (t) => {
   assert.deepEqual(await previewDeliverable(w.directory, "D1"), { kind: "text", text: "# A", bytes: 3, truncated: false });
 });
 
+test("a write with no agent id to a finished run says the id is missing", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Export");
+  await w.run("finish", "Shipped");
+  const bare = await w.runAs(undefined, "ticket", "add", "More", "--estimate", "10");
+  assert.equal(bare.code, 1);
+  assert.match(bare.text, /is finished\. Start new work with: paseo-progress start/);
+  assert.match(bare.text, /No PASEO_AGENT_ID reached this command/, "an agent shell that lost its id is told why it sees the closed run");
+  const seated = await w.runAs("agent-without-record", "ticket", "add", "More", "--estimate", "10");
+  assert.equal(seated.code, 1);
+  assert.doesNotMatch(seated.text, /PASEO_AGENT_ID/, "a call that carried an id gets no hint");
+});
+
 test("finish closes the run only once everything is settled, and keeps it on the dashboard", async (t) => {
   const w = await worktree(t);
   assert.equal((await w.run("finish", "Nothing yet")).code, 1, "no run to finish");

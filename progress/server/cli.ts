@@ -687,7 +687,11 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
       if (finished && command !== commands.start) {
-        throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>"`);
+        // No agent id means the unscoped board, whose latest run may be one
+        // another workspace finished. A sandbox that strips PASEO_* variables
+        // (context-mode's ctx_execute) lands an agent here; say so.
+        const noId = options.agentId ? "" : " No PASEO_AGENT_ID reached this command, so it read the unscoped board. A Paseo agent runs it from its own shell, not a sandbox that strips PASEO_* variables.";
+        throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>".${noId}`);
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root, scope });
       if (event.type === "ticket.update" && event.status === "closed") {
