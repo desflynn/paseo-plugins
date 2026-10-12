@@ -8,13 +8,13 @@ A plugin for Paseo 0.11 and later that gives each worktree a live progress dashb
 
 The dashboard shows:
 
-- the run's title, a headline ("2 of 4 tickets done, 5 questions waiting for you, 1 stuck"), a one-line "now" ticker, and when it was last updated
-- a WS/GIT card beside the run title: **WS**, the default, shows this workspace's run; **GIT** shows every workspace's current tickets together on one board, with counts over all of them. Inside a git worktree it shows GIT only, because a worktree is already its own checkout
-- a tab row above the tickets — **Tickets · Beads · GH Issues**. Tickets is the board below; Beads shows this repo's beads, read-only; GH Issues is a calm "not yet" placeholder
+- the run's title and when it was last updated (owner ruling, 12 Oct: the title only — the subtitle and headline lines left the header)
+- a tab row — the board, **Beads**, **GH** — with the WS/GIT card at its end: **WS**, the default, shows this workspace's run; **GIT** shows every workspace's current objectives together on one board, with counts over all of them. Inside a git worktree it shows GIT only, because a worktree is already its own checkout. The board's tab is named after the run's item label, **Objectives** by default (`start --item-label` changes it); GH is a calm "GitHub issues: not yet." placeholder
+- o-numbered objectives: `o1`, `o1.1`, any depth, indented one step per dot. Numbers are positions in the tree and never renumber; closed items sink below the open ones, sorted by slug with `o2` above `o10`; a parent never shows stuck while any descendant is live. A row's title shows at most 120 characters and its description 200, each ending in an ellipsis; boards recorded with the old `T01` ids display as `o1`, and history files are never rewritten
 - a "possibly stale" warning after 15 minutes with no update while tickets remain, unless Paseo shows an agent in the workspace still running, and never once every ticket is done or skipped or the run is finished; working items swap their spinner for a pulsing amber warning
 - percent of estimated work done, time done of time estimated (like "1 h 30 min of 2 h"; once everything is done, how long it really took), and a bar with one segment per ticket
 - **Stuck:** blocked tickets, working tickets with no update for longer than their estimate, and blockers the agent flags
-- **Tickets:** estimate, status, and the working ticket's stage. A ticket that waits for another (`--waits-for T03`) shows "Waits for Ticket 03" under its title until that one is done; waiting is the order of work, so it never counts as stuck, even if the agent also marked it blocked. Press a ticket for its story in a dialog. A summary on top shows its status and stage, time worked against the estimate as a bar that turns red past it, the agent's latest status line while it's working, and the agent on it. Tabs below hold the rest, each only when it has something: the ticket's write-up when it has a `--source` file (the start of it, with the rest a press away), a timeline of its stages and statuses with how long each took, and the activity, questions and deliverables that belong to it. The agent on a ticket shows by its chat title; pressing it opens that chat. Items tagged with `--ticket` belong exactly; older, untagged ones are matched by when they happened and marked "by time"
+- **Objectives:** estimate, priority, status, and the working item's stage. Statuses are Beads' terms: open, in_progress, blocked, closed, with the close's reason (done or skipped) beside it. An item that waits for another (`--waits-for o3`) shows it under its title until that one closes; nested waiting rows carry a `>` mark on every tab. Press an item for its story in a dialog. A summary on top shows its status and stage, time worked against the estimate as a bar that turns red past it, the agent's latest status line while it's working, and the agent on it. Tabs below hold the rest, each only when it has something: the item's write-up when it has a `--source` file (the start of it, with the rest a press away), a timeline of its stages and statuses with how long each took, and the activity, questions and deliverables that belong to it. The agent on an item shows by its chat title; pressing it opens that chat. Items tagged with `--ticket` belong exactly; older, untagged ones are matched by when they happened and marked "by time". Where the work came from shows as chips at the bottom of the card — a bead chip and a GitHub chip that opens the issue — each only when present
 - **Questions:** each with a permanent reference (Q1, Q2, ...), lettered options, and the option the agent recommends. The agent builds nothing a question affects until you answer; it works on other things meanwhile, and stops when nothing else is left. Press a question to open it in a dialog, then press **Copy Q2 B** to copy `Q2 (title): B` for your reply. Files and links the agent attached (`--file`) open like deliverables: images and text files preview in Paseo (with **Back** to the question), links open in Paseo's browser, and other files open in their default app. From the pill's popover, the preview opens over the popover, which stays open so you can go back to it. Answers stay listed under the same reference.
 - **Activity**, **Answered** questions and **Deliverables** (press one to open it), sharing one card with a tab for each; the panel remembers the tab you picked. Each shows the newest 10, with **Show 10 older** below
 
@@ -67,9 +67,9 @@ Earlier versions kept progress in `.scratch/` in each worktree, hidden by a `.sc
 
 A Paseo workspace is not a path. Two workspaces can work on one checkout — same folder, same repo — so a run cannot be told apart by where it happened. Every event written from a Paseo seat carries its workspace id next to the agent id, and the dashboard folds only the slice that belongs to yours. Events with no workspace id — runs recorded by 0.4.0, or a command run from a plain terminal — stay visible in every view.
 
-Nothing needs setting up. The command reads the workspace id from the agent's Paseo record. A seat that resolves no workspace id — a plain terminal, or a record that carries none — writes unscoped events. Plain `show` from such a seat folds the file the way 0.4.0 did: the latest `start` wins. A seat that does resolve a workspace sees that workspace's run in plain `show`, whichever workspace started last.
+Nothing needs setting up. The command reads the workspace id from the agent's Paseo record and stamps it on every event, and every event also carries its author's agent id. When the file is folded, an event with no workspace id is attributed to its author's workspace, resolved through Paseo's agent registry — so a missed stamp lands the work where it belongs anyway. A command run from a plain terminal, with no agent id at all, stays unscoped: it folds the file the way 0.4.0 did, the latest `start` winning, and its events show in every view.
 
-One known edge, recorded for the next hop: an unscoped writer shares every board, and its `ticket add` that lands on the same ticket number as a workspace's own ticket takes that ticket's place on the workspace's board. The workspace's ticket then drops out of the union view too. Seats that resolve a workspace never trip this.
+An item also learns its home: once a workspace owns it, later unscoped events on it fold into that workspace. A workspace stamped on events but with no run of its own still shows in the All view rather than vanishing. And work moves between workspaces without forks: `ticket move` hands an item to another workspace (children follow), and `ticket claim-from-all` pulls one you can see in All into yours — both append a correction event; nothing already written is rewritten.
 
 One progress file still holds the whole checkout. Scoping happens when the file is read, so moving from 0.4.0 resets nothing: old lines are still there and still show.
 
@@ -91,63 +91,70 @@ for dir in ~/.agents/skills ~/.claude/skills ~/.codex/skills; do mkdir -p "$dir"
 Run `paseo-progress --help` for every command, and `paseo-progress <command> --help` for one. Commands find the worktree root from the current directory.
 
 ```sh
-paseo-progress start "Loan Options snapshots" --subtitle "4 tickets"
-paseo-progress ticket add "Ticket 01: Saved table" --estimate 120 \
-  --source specs/01-saved-table.md                                     # Added T01
-paseo-progress ticket update T01 --status working --stage Build
-paseo-progress ticket update T01 --stage Fixes
-paseo-progress ticket update T01 --status done
+paseo-progress start "Loan Options snapshots" --subtitle "4 objectives"
+paseo-progress ticket add "Fix the saved table" --estimate 120 --priority 2 \
+  --source specs/01-saved-table.md                                     # Added o1
+paseo-progress ticket add "Table tests" --estimate 60 --under o1        # Added o1.1
+paseo-progress ticket claim o1 --stage Build                            # Claimed o1
+paseo-progress ticket update o1 --stage Fixes
+paseo-progress ticket done o1 --note "Green in CI."
+paseo-progress ticket update o1.1 --status closed --close-reason skipped
 paseo-progress question ask "Row spacing" "Even out the card spacing?" \
   --option "A=Even it out | Cards look balanced" \
   --option "B=Leave it | No change" \
-  --recommend A --raised-by "Ticket 01 design review"                   # Asked Q1
+  --recommend A --raised-by "Saved table design review"                # Asked Q1
 paseo-progress question answer Q1 A --words "Even it out."
-paseo-progress deliverable add "Browser check screenshots" .scratch/shots/ --ticket T01
-paseo-progress activity add "Saved table matches the design now." --ticket T01
+paseo-progress deliverable add "Browser check screenshots" .scratch/shots/ --ticket o1
+paseo-progress activity add "Saved table matches the design now." --ticket o1
 paseo-progress ticker set "Running the browser check"
-paseo-progress stuck set "Staging is down" --ticket T01                 # Flagged S1
+paseo-progress stuck set "Staging is down" --ticket o1                  # Flagged S1
 paseo-progress show
 paseo-progress finish "Snapshots ship for all four tables"
 ```
 
-Claiming and finishing cost one call each, and a ticket can carry where its work came from:
+Claiming and closing cost one call each, an item can carry where its work came from, and work moves between workspaces without forks:
 
 ```sh
-paseo-progress ticket add "Ticket 02: Help text" --estimate 60 --ref gh:bank/loans#412   # Added T02
-paseo-progress ticket claim T02 --stage Build                            # Claimed T02
-paseo-progress ticket update T02 --ref bead:pp-91                        # Updated T02
-paseo-progress ticket done T02 --note "Green in CI."
+paseo-progress ticket add "Help text" --estimate 60 \
+  --ref bead:pp-ti5 --ref gh:bank/loans#412    # Added o2: ref bead:pp-ti5, gh:bank/loans#412
+paseo-progress ticket move o2 --to wks-billing                       # Moved o2 to wks-billing
+paseo-progress ticket claim-from-all o2        # Claimed o2 into your workspace
 paseo-progress show --mine
 paseo-progress show --all
 paseo-progress show --json
 ```
 
-- Statuses are `not_started`, `working`, `blocked`, `done`, and `skipped`. Skipped tickets leave the totals.
+- Statuses are Beads' terms: `open`, `in_progress`, `blocked`, `closed`. A close carries its reason — `done` (the default) or `skipped`; skipped items leave the totals. `ticket claim <id>` sets `in_progress` and stamps you as the one on it; `ticket done <id>` closes as done. Both take `--note`; claim also takes `--stage`.
+- Ids are o-numbers: `o1`, `o1.1`, any depth — the position in the tree. `--under <id>` nests an item as a child; numbers are stable once set, holes are fine, and nothing renumbers. `--priority <0-4>` says how urgent it is. `start --item-label <word>` names the board's items — Objective by default; the tab, the headline and `show` all use it.
 - `ticket add` and `ticket update` take an optional `--source <path or link>[=<label>]`: where the ticket is written up, like its spec file or issue. It shows under the ticket's status in its dialog and opens like a deliverable. `--source ""` clears it. Tickets without one are fine.
-- A working ticket is stuck once it goes longer than its estimate without an update, timed from its last status, stage or note change, or activity tagged to it. The ticket's dialog still shows total time worked against the estimate.
+- A working item is stuck once it goes longer than its estimate without an update, timed from its last status, stage or note change, or activity tagged to it. The dialog still shows total time worked against the estimate.
 - `question ask` needs `--recommend`, the agent's pick. The question dialog tags that option "Recommended".
 - Deliverable paths are stored relative to the worktree root. Web links open in Paseo's browser. Pressing an image (PNG, JPEG, GIF, WebP, up to 10 MB) or text deliverable (Markdown, text, logs, JSON, YAML, CSV; the first 256 KB) previews it in a dialog inside Paseo, which also works from a phone; **Open** there opens the file in its default app. Pressing any other local deliverable opens it with its default app on the machine running the Paseo daemon (for example HTML in your browser and folders in the file manager). On macOS, **Open** sends text files to your default browser. Only recorded deliverables inside the worktree open this way; otherwise the path is copied. The copy icon on each row copies the path.
-- Several agents can share one run. When another session adds a ticket, each agent sees it at the end of its next command's output (and in `show`), and the skill has it work that ticket in order after its current one. An agent only hears about tickets added since its own last update in the run, and only once.
+- Several agents can share one run. When another session adds an objective, each agent sees it at the end of its next command's output (and in `show`), and the skill has it work that objective in order after its current one. An agent only hears about objectives added since its own last update in the run, and only once.
 - Subagents record their own progress. Since Paseo 0.11, an agent waiting on background subagents shows as idle, so only the subagents' updates show the work is still going. The skill has the agent give each subagent the worktree path and ticket id, and the subagent records its stages and a ticker line on that worktree's dashboard.
 - `start` begins a fresh dashboard. Earlier runs stay in the file. Question references stay unique across runs.
 - `finish "<outcome>"` closes the run once every ticket is done or skipped, no question is open, and nothing is flagged stuck; otherwise it says what is left. The run stays on the dashboard, marked Finished with its outcome, and takes no more updates, so the next agent in the worktree starts a new run instead of adding to it.
-- `ticket claim <id>` takes a ticket: status `working`, you stamped as the one on it. Same as `ticket update --status working`, one word shorter. `ticket done <id>` sets it `done`. Both take `--note`; claim also takes `--stage`.
-- `ticket add` and `ticket update` take an optional `--ref <ref>`: where the work came from, as free text like `bead:pp-91`, `gh:bank/loans#412` or `teams:<message id>`. The panel shows it as a small chip on the ticket row. `--ref` is not `--source`: `--source` is where the ticket is written up, `--ref` is where the work came from.
-- `show --mine` prints only your tickets and open questions in this run, matched on your agent id. `show --all` prints every workspace's current-run tickets together, with counts over all of them. `show --json` prints the dashboard as JSON instead of text, and combines with either: `--mine --json`, `--all --json`. Plain `show` is unchanged.
+- `show --mine` prints only your objectives and open questions in this run, matched on your agent id. `show --all` prints every workspace's current-run objectives together, with counts over all of them. `show --json` prints the dashboard as JSON instead of text, and combines with either: `--mine --json`, `--all --json`. Plain `show` is unchanged.
+- `ticket move <id> --to <workspace-id>` hands an item to another workspace: it leaves your board and renders on the target's, children following the parent. `ticket claim-from-all <id>` claims an item you can see in `show --all` into your workspace — the same move, one word, from a seat that resolves a workspace. Both append a correction event; nothing already written is rewritten.
+- `ticket add` and `ticket update` take an optional `--ref <ref>` — `bead:<id>`, `gh:<owner>/<repo>#<n>`, `teams:<message id>` — and it repeats: each `--ref` adds a link. The panel shows the links as chips on the row. `--ref` is not `--source`: `--source` is where the item is written up, `--ref` is where the work came from. Closing an item closes the beads linked to it, through `bd`; a close that fails says so on the command's output, and you finish it.
 
 ## The progress file
 
-The progress file, `progress.jsonl`, holds one JSON event per line, each with a version (`v`), a UTC timestamp (`ts`) from the real clock, and a `type`. Events written by a Paseo agent also carry its agent id (`by`). It is only ever appended to, so you can read or diff the history. A half-written last line is ignored. Other bad lines are skipped and listed in a small notice in the panel while the rest still renders. A lock keeps two commands from writing at once or handing out the same id.
+The progress file, `progress.jsonl`, holds one JSON event per line, each with a version (`v`), a UTC timestamp (`ts`) from the real clock, and a `type`. Events written by a Paseo agent also carry its agent id (`by`). It is only ever appended to, so you can read or diff the history. A half-written last line is ignored. Other bad lines are skipped and listed in a small notice in the panel while the rest still renders. A lock keeps two commands from writing at once or handing out the same id. Events written from a Paseo seat may also carry its workspace id. Boards recorded with the old `T01`-style ids display as `o1` positionally — the translation happens when the file is read, and history is never rewritten.
 
 ## The Beads tab
 
-The Beads tab shows this repo's beads, read-only: one row per open or in-progress issue, with a priority pill (P0–P4), the issue id, its title and its status. Closed issues are not listed, because `bd list` without `--all` shows open work. The tab needs the `bd` command on the daemon host, and the only call it ever makes is `bd --readonly -C <repo-root> list --json --limit 0`. No button on the tab writes anything. Beads stays the record; the tab is a view of it, and the plugin never becomes a second store for beads.
+The Beads tab shows this repo's beads: one row per issue, with a priority pill (P0–P4), the issue id, its title and its status. Children nest under their parent, indented like the objectives board. Closed beads are listed too (`bd --all`) and sink behind a count header that opens to show them; a bead closed as skipped is struck through. The tab re-reads the record every 10 seconds, and it needs the `bd` command on the daemon host. Reads run `bd --readonly -C <repo-root> list --json --all --limit 0`.
+
+Press a bead for its detail: description, priority, status, the full record. From there you can change its status, or press **Upgrade** to promote it to an objective on the board — a new objective carrying `--ref bead:<id>`, estimated at an hour to start. Every write goes through `bd` itself (`bd update`, `bd close`); the plugin keeps no copy of the record. Beads stays the record.
 
 Two calm states, each in its own words: a repo with no `bd`, or no `.beads/` folder, says "No beads in this repo"; a repo whose `bd` answers with an empty list says "No open beads". If `bd` fails, the tab shows its message, never a stack.
 
-## This fork and how to roll it back
+## This fork, deploying it, and rolling it back
 
-This is the 0.4.0-df fork of the plugin, version 0.4.0-df.1: 0.4.0 plus workspaces, the Beads tab and the new verbs, all additive — every 0.4.0 verb, flag and output behaves as before. It runs live from this checkout: `npm run dev` in the plugin folder swaps it into Paseo, and `paseo plugin ls` shows `progress` running from the folder.
+This is the 0.4.0-df fork of the plugin, version 0.4.0-df.10 (df.2 through df.10 carried the objectives overhaul, one landing each). It runs live from this checkout: `npm run dev` in the plugin folder swaps it into Paseo, and `paseo plugin ls` shows `progress` running from the folder.
+
+Deploying a change is one move: bump the patch version, then `paseo plugin reload progress`. The reload is the whole deploy — the daemon recompiles the panel and the server from source, open apps pick up the new panel without a restart, and the `paseo-progress` launcher runs `server/cli.ts` directly. There is no build step and no `dist/`; the CLI and the panel always run the same source.
 
 To go back to the published plugin:
 
@@ -173,6 +180,19 @@ paseo plugin add npm:@stevecastaneda/paseo-progress
 - `show --mine` needs a Paseo agent id. From a plain terminal it exits with a note saying so, and prints nothing.
 
 ## Changelog
+
+### 0.4.0-df.10
+
+Versions df.2 to df.10, one landing each, carried the objectives overhaul:
+
+- The board became objectives: o-numbered ids (`o1`, `o1.1`, any depth, `--under` to nest), Beads' status vocabulary (`open`, `in_progress`, `blocked`, `closed`, with a close reason of `done` or `skipped`), priority 0–4, and a board label (`start --item-label`, default Objective). Old `T01` ids display as `o1`; history files are never rewritten.
+- Parents roll up liveness — never stuck while a descendant is live; closed items sink below the open ones; nested waiting rows carry a `>` mark on every tab; row titles clamp at 120 characters, descriptions at 200.
+- `--ref` repeats (bead, GitHub, Teams links) and shows as chips on the row; closing an objective closes its linked beads through `bd`.
+- The Beads tab lists closed beads too (they sink behind a count header), nests children, refreshes every 10 seconds, and gained a detail view: status changes and bead-to-objective upgrade, every write going through `bd`. Beads stays the record.
+- Work reallocates between workspaces: `ticket move <id> --to <workspace>` and `ticket claim-from-all <id>`; children follow, corrections are appended, nothing is rewritten.
+- Unscoped events are attributed to their author's workspace through Paseo's agent registry; an item keeps its learned home; the unscoped same-id shadowing defect (D-4) is fixed.
+- The CLI runs from source; the `dist/` snapshot is gone. Deploying is a version bump and a plugin reload — nothing else.
+- Panel polish: the header shows the title only, the WS/GIT toggle moved to the end of the tab strip, tighter rows and spacing.
 
 ### 0.4.0-df.1
 
