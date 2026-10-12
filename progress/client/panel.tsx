@@ -208,26 +208,11 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
     <StaggerRoot>
       <Presence show order={0}>
       <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {/* flexShrink: a long run title yields to the scope control on a
-              narrow (phone) header instead of pushing it off the right edge. */}
-          <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600", flexShrink: 1 }}>
-            {dashboard.run?.title ?? "Progress"}
-          </Text>
-          <ScopeToggle colors={colors} scope={scope} onChange={onScopeChange} gitOnly={gitOnly} />
-        </View>
-        {dashboard.run?.subtitle ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{dashboard.run.subtitle}</Text>
-        ) : null}
-        {dashboard.headline.length ? (
-          <Text accessibilityLiveRegion="polite" style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-            {dashboard.headline.map((part, index) => (
-              <Text key={part.text} style={part.tone === "danger" ? { color: colors.statusDanger } : undefined}>
-                {index ? ", " : ""}{part.text}
-              </Text>
-            ))}
-          </Text>
-        ) : null}
+        {/* Owner ruling (12 Oct): the title only — no subtitle or headline
+            line; the scope toggle lives at the end of the tab strip. */}
+        <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+          {dashboard.run?.title ?? "Progress"}
+        </Text>
         {/* One status slot: the icon morphs from spinner (or stalled pulse) to the check on finish. */}
         {dashboard.run?.finished || dashboard.ticker ? (
           <StatusLine icon={
@@ -248,8 +233,9 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
             )}
           </StatusLine>
         ) : null}
-        {/* A finished run takes no more updates, so its finish time already says this. */}
-        {dashboard.updatedAt && !dashboard.run?.finished ? (
+        {/* A finished run takes no more updates, so its finish time already says
+            this. With estimates, it rides the progress row instead. */}
+        {dashboard.updatedAt && !dashboard.run?.finished && !(dashboard.progress.totalMin > 0) ? (
           <StatusLine icon={<Icon name="Clock" size={12} color={colors.foregroundMuted} />}>
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
               Last updated <When colors={colors} iso={dashboard.updatedAt} now={now} />
@@ -268,7 +254,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
         </View>
       ) : null}</Presence>
       <Presence show={Boolean(dashboard.issues.length)} order={1}>{dashboard.issues.length ? <IssuesNotice colors={colors} issues={dashboard.issues} file={file} /> : null}</Presence>
-      <Presence show={Boolean(dashboard.progress.totalMin > 0)} order={2}>{dashboard.progress.totalMin > 0 ? <ProgressBar colors={colors} progress={dashboard.progress} live={live} /> : null}</Presence>
+      <Presence show={Boolean(dashboard.progress.totalMin > 0)} order={2}>{dashboard.progress.totalMin > 0 ? <ProgressBar colors={colors} progress={dashboard.progress} live={live}
+        updated={dashboard.updatedAt && !dashboard.run?.finished ? <When colors={colors} iso={dashboard.updatedAt} now={now} /> : null} /> : null}</Presence>
       <View onLayout={(event) => setWide(event.nativeEvent.layout.width >= WIDE_MIN)}
         style={{ flexDirection: wide ? "row" : "column", alignItems: "flex-start" }}>
         <View style={{ flex: wide ? 3 : undefined, alignSelf: "stretch", minWidth: 0 }}>
@@ -280,7 +267,15 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           {/* Panel B (owner ruling): the tabs live in the panel's own header —
               Objectives, Beads, GH Issues — and the chosen list renders under
               them inside the one panel. No dashboard-level tab strip. */}
-          <Card colors={colors} header={<TabStrip colors={colors} narrow={narrow} fit tabs={sections} selected={section} onSelect={(next) => setSection(next as "tickets" | "beads" | "gh")} />}>
+          <Card colors={colors} header={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <TabStrip colors={colors} narrow={narrow} fit tabs={sections} selected={section} onSelect={(next) => setSection(next as "tickets" | "beads" | "gh")} />
+              </View>
+              {/* The WS/GIT toggle closes the tab row (owner ruling, 12 Oct). */}
+              <View style={{ paddingEnd: 10 }}><ScopeToggle colors={colors} scope={scope} onChange={onScopeChange} gitOnly={gitOnly} /></View>
+            </View>
+          }>
             {sections.find((entry) => entry.id === section)?.content ?? null}
           </Card>
           </Presence>
@@ -344,8 +339,8 @@ function ActivityList({ colors, activity, now }: { colors: Colors; activity: Act
     <View>
       {paged.shown.map((entry, index) => (
         <View key={entry.id} style={{ paddingHorizontal: 10, paddingVertical: 8, gap: 1, borderTopWidth: index ? 1 : 0, borderTopColor: colors.border }}>
-          {/* Muted: a log to glance at, not something to act on. */}
-          <Text selectable style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{entry.text}</Text>
+          {/* Muted: a log to glance at, not something to act on. Two lines at most (o6.1). */}
+          <Text selectable numberOfLines={2} style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{entry.text}</Text>
           <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, opacity: 0.8 }}>
             <When colors={colors} iso={entry.at} now={now} />
           </Text>
@@ -380,13 +375,15 @@ function Card({ colors, icon, title, header, children }: { colors: Colors; icon?
   );
 }
 
-function ProgressBar({ colors, progress, live }: { colors: Colors; progress: Dashboard["progress"]; live: boolean }) {
+function ProgressBar({ colors, progress, live, updated }: { colors: Colors; progress: Dashboard["progress"]; live: boolean; updated?: React.ReactNode }) {
   const narrow = useNarrow();
   return (
     <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
       <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
         <Text style={{ flex: 1, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>
           <Text style={{ color: colors.foreground, fontWeight: "600" }}>{progress.percent}%</Text> {narrow ? "done" : "of estimated work done"}
+          {/* Last updated rides here (owner ruling, 12 Oct): one line less in the header. */}
+          {updated ? <Text style={{ fontSize: 12 }}>{" · updated "}{updated}</Text> : null}
         </Text>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
           {formatWorkDone(progress.doneMin, progress.totalMin, progress.tookMin)}
@@ -537,7 +534,8 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, depth = 0 
           {ticket.waitingFor ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
           ) : null}
-          {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
+          {/* Two lines at most on the row (o6.1); the card shows the whole note. */}
+          {ticket.note ? <Text numberOfLines={2} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{ticket.note}</Text> : null}
         </>
       }
       chips={<RefChips colors={colors} ticket={ticket} />}
@@ -621,7 +619,7 @@ export function sectionTabs(colors: Colors, dashboard: Dashboard, beads: BeadsRe
   return [
     { id: "tickets", label: `${itemLabel}s`, icon: "ListChecks", count: dashboard.tickets.filter((ticket) => !isFinished(ticket)).length, empty: `No ${itemLabel.toLowerCase()}s yet.`, content: ticketsContent },
     beadsTab(colors, beads, workspaceId, workspaceDirectory),
-    { id: "gh", label: "GH Issues", icon: "Github", empty: "Not yet.", content: (
+    { id: "gh", label: "GH", icon: "Github", empty: "Not yet.", content: (
       <View>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8 }}>
           GitHub issues: not yet.

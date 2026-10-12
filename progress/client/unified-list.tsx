@@ -77,7 +77,8 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
         {icon}
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
+        {/* One line with an ellipsis (owner ruling o6.1); the card has it in full. */}
+        <Text numberOfLines={1} style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
           {id}  {title}
         </Text>
         {priority !== undefined ? (

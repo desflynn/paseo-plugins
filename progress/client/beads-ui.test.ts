@@ -199,6 +199,16 @@ test("an epic's children nest inline under it, indented (o30)", () => {
   assert.ok(!indent.some((node) => treeTexts(node).includes("Orphan child")), "the orphan is not indented");
 });
 
+// Owner ruling (o6.1): a row title is one line with an ellipsis, on every
+// tab; the full title lives on the card.
+test("a row's title is clamped to one line", () => {
+  const { BeadsTab } = load("client/beads.tsx");
+  const long = { state: "ok", issues: [{ id: "rvr-1", title: "A very long bead title ".repeat(6), status: "open" }] } as const;
+  const tree = treeOf(BeadsTab({ colors, result: long }));
+  const title = tree.nodes.find((node) => node.type === rn.Text && treeTexts(node).some((text) => text.includes("A very long bead title")));
+  assert.equal((title?.props as { numberOfLines?: number } | undefined)?.numberOfLines, 1, "the row title wraps instead of clamping");
+});
+
 // Owner ruling: on every tab, a nested row's waiting dot becomes a ">".
 // Running and closed marks stay — they carry state the chevron would hide.
 test("a nested waiting row marks with > instead of the dot; top-level keeps the dot", () => {

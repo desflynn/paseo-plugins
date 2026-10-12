@@ -57,11 +57,11 @@ export function TicketStoryView({ colors, dashboard, ticket, now, live, context,
   const source = ticketSourceAttachment(ticket);
   // The ticker is run-wide: it's about this ticket when this ticket's agent set
   // it, or, without agents to go by, when this is the only ticket working.
-  const ticker = dashboard.ticker && ticket.status === "working" && (dashboard.ticker.by
+  const ticker = dashboard.ticker && ticket.status === "in_progress" && (dashboard.ticker.by
     ? dashboard.ticker.by === ticket.agentId
-    : dashboard.tickets.filter((candidate) => candidate.status === "working").length === 1) ? dashboard.ticker.text : null;
+    : dashboard.tickets.filter((candidate) => candidate.status === "in_progress").length === 1) ? dashboard.ticker.text : null;
   // What the badge doesn't say: the stage it's in, or what it waits for.
-  const detail = ticket.waitingFor ? `for ${ticket.waitingFor.id}: ${ticket.waitingFor.title}` : ticket.status === "working" ? ticket.stage : undefined;
+  const detail = ticket.waitingFor ? `for ${ticket.waitingFor.id}: ${ticket.waitingFor.title}` : ticket.status === "in_progress" ? ticket.stage : undefined;
   const timeline = story.timeline.map((step, index) => {
     const last = index === story.timeline.length - 1;
     // A current "Blocked" that's only waiting on another ticket reads as waiting, in the calm color.
@@ -79,7 +79,8 @@ export function TicketStoryView({ colors, dashboard, ticket, now, live, context,
       <View>
         {story.activity.map((entry) => (
           <View key={entry.id} style={{ flexDirection: "row", gap: 12, paddingVertical: 4 }}>
-            <Text style={{ flex: 1, color: colors.foreground, fontSize: 13, lineHeight: 19 }}>{entry.text}<LinkNote colors={colors} link={entry.link} /></Text>
+            {/* Two lines at most per entry (o6.1). */}
+            <Text numberOfLines={2} style={{ flex: 1, color: colors.foreground, fontSize: 13, lineHeight: 19 }}>{entry.text}<LinkNote colors={colors} link={entry.link} /></Text>
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 19, fontVariant: ["tabular-nums"] }}>{formatTimeOfDay(entry.at, now)}</Text>
           </View>
         ))}
@@ -121,7 +122,7 @@ export function TicketStoryView({ colors, dashboard, ticket, now, live, context,
       {/* The summary: where it stands, how its time compares to the estimate, and who's on it. */}
       <View style={{ gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <StatusBadge colors={colors} status={ticket.status} waiting={Boolean(ticket.waitingFor)} />
+          <StatusBadge colors={colors} status={ticket.status} closeReason={ticket.closeReason} waiting={Boolean(ticket.waitingFor)} />
           <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{detail}</Text>
           <Text accessibilityLabel={`Worked ${formatMinutes(story.workedMin)} of a ${formatMinutes(ticket.estimateMin)} estimate`}
             style={{ color: over ? colors.statusDanger : colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>
@@ -194,11 +195,11 @@ function LinkNote({ colors, link }: { colors: Colors; link: Link }) {
 // The same icons as the ticket rows, so a step reads like the status it was.
 // Past stage steps get an accent ringed dot: work that happened, now over.
 function Marker({ colors, step }: { colors: Colors; step: TimelineStep & { waiting?: boolean } }) {
-  if (step.waiting || (step.status === "not_started" && step.label !== "Added")) return <WaitingDot color={colors.foregroundMuted} />;
+  if (step.waiting || (step.status === "open" && step.label !== "Added")) return <WaitingDot color={colors.foregroundMuted} />;
   const icon = step.label === "Added" ? { name: "CirclePlus", color: colors.foregroundMuted }
-    : step.status === "done" ? { name: "CircleCheck", color: colors.statusSuccess }
+    : step.status === "closed" && step.closeReason !== "skipped" ? { name: "CircleCheck", color: colors.statusSuccess }
     : step.status === "blocked" ? { name: "Ban", color: colors.statusDanger }
-    : step.status === "skipped" ? { name: "CircleSlash", color: colors.foregroundMuted }
+    : step.status === "closed" ? { name: "CircleSlash", color: colors.foregroundMuted }
     : { name: "CircleDot", color: colors.accent };
   return <Icon name={icon.name} size={12} color={icon.color} />;
 }
@@ -207,7 +208,7 @@ function Marker({ colors, step }: { colors: Colors; step: TimelineStep & { waiti
 // it took. The step still going shows the live spinner.
 function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: TimelineStep & { waiting?: boolean }; last: boolean; now: number; live: boolean }) {
   const current = last && step.minutes !== null;
-  const working = current && step.status === "working";
+  const working = current && step.status === "in_progress";
   return (
     <View style={{ paddingVertical: 4, gap: 2 }}>
       {/* Same 14px slot and gap as attachment rows, so text lines up across sections. */}
@@ -225,7 +226,7 @@ function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: 
         </Text>
       </View>
       {step.notes.map((note, index) => (
-        <Text key={index} style={{ paddingStart: 20, color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{note}</Text>
+        <Text key={index} numberOfLines={2} style={{ paddingStart: 20, color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{note}</Text>
       ))}
     </View>
   );

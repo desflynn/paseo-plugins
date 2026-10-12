@@ -39,7 +39,7 @@ const colors = {
 type Node = { type?: unknown; props?: { children?: unknown; style?: unknown; onPress?: unknown; accessibilityState?: { selected?: boolean }; accessibilityLabel?: string } };
 
 function load(path: string) {
-  return clientHarness(directory, { "react-native": rn }).load(path) as Record<string, (...args: unknown[]) => unknown>;
+  return clientHarness(directory, { "react-native": rn, "@getpaseo/plugin/client/react-native": { Icon: (props: Record<string, unknown>) => null } }).load(path) as Record<string, (...args: unknown[]) => unknown>;
 }
 
 // Walks an element tree: every node, every text string, any onPress prop.
@@ -109,7 +109,8 @@ test("the Beads tab entry lists the repo's beads", () => {
   const tree = treeOf(entry.content);
   assert.ok(tree.texts.includes("rvr-12"), "bead id missing from the tab content");
   assert.ok(tree.texts.includes("Swap the pump relay"), "bead title missing from the tab content");
-  assert.ok(tree.texts.includes("open"), "bead status missing from the tab content");
+  // O2600: the status lives on the row's shared status mark, not a text column.
+  assert.ok(tree.nodes.some((node) => node.props?.accessibilityLabel === "open"), "the open bead's status is labelled on its mark");
 });
 
 test("the Beads tab entry stays calm when there is nothing to list", () => {
@@ -122,6 +123,53 @@ test("the Beads tab entry stays calm when there is nothing to list", () => {
   const pending = beadsTab(colors, null) as { count?: number; content: unknown };
   assert.equal(pending.count, undefined);
   assert.equal(pending.content, null, "an absent result says nothing at all");
+});
+
+// O2600 (o17): closed beads sink behind the done-sink, so the badge counts
+// the open beads — the work still ahead — not the whole record.
+const CLOSED_BEADS = {
+  state: "ok",
+  issues: [
+    { id: "rvr-12", title: "Swap the pump relay", status: "open", priority: 1 },
+    { id: "home-lab-3", title: "Log rotation writes twice", status: "in_progress" },
+    { id: "pp-8", title: "Shipped relay fix", status: "closed", close_reason: "done" },
+    { id: "pp-9", title: "Won't do", status: "closed", close_reason: "skipped" },
+  ],
+} as const;
+
+test("the Beads badge counts the open beads; closed ones sink behind the fold", () => {
+  const { beadsTab } = load("client/panel.tsx");
+  const entry = beadsTab(colors, CLOSED_BEADS) as { count?: number; content: unknown };
+  assert.equal(entry.count, 2, "closed beads stay out of the badge");
+  const tree = treeOf(entry.content);
+  assert.ok(tree.texts.includes("1 done, 1 skipped"), "the fold carries the done/skipped counts");
+  assert.ok(!tree.texts.includes("Shipped relay fix"), "closed beads stay folded until opened");
+  assert.ok(tree.texts.includes("rvr-12"), "the open beads stay in view");
+});
+
+// T13 handoff (o13 wiring): with the workspace identity wired, the tab body
+// is the live detail sheet, not the pure view — the identity rides on the
+// element so the sheet can read and write beads for this workspace. Without
+// an identity the pure BeadsView stays, exactly as it rendered before.
+test("the Beads tab swaps to the detail sheet once the workspace identity is wired", () => {
+  // One harness for both loads: comparing the element type against the
+  // BeadsSheet export only means something within one module world.
+  const h = clientHarness(directory, { "react-native": rn, "@getpaseo/plugin/client/react-native": { Icon: (props: Record<string, unknown>) => null } });
+  const panel = h.load("client/panel.tsx") as Record<string, (...args: unknown[]) => unknown>;
+  const { BeadsSheet } = h.load("client/beads-sheet.tsx") as { BeadsSheet: unknown };
+  // The body sits inside the shared card frame (O2600), so the sheet is the
+  // card's child.
+  const bodyOf = (content: { type?: unknown; props?: Record<string, unknown> }) => {
+    const children = Array.isArray(content.props?.children) ? (content.props?.children as unknown[]) : [content.props?.children];
+    return children.find((child) => typeof child === "object" && child !== null && "type" in child) as { type?: unknown; props?: Record<string, unknown> } | undefined;
+  };
+  const entry = panel.beadsTab(colors, OK_BEADS, "ws-1", "/repo") as { content: { type?: unknown; props?: Record<string, unknown> } };
+  const body = bodyOf(entry.content);
+  assert.equal(body?.type, BeadsSheet, "the identity turns the tab body into the live sheet");
+  assert.equal(body?.props?.workspaceId, "ws-1", "the sheet gets the workspace id");
+  assert.equal(body?.props?.workspaceDirectory, "/repo", "the sheet gets the workspace root");
+  const plain = panel.beadsTab(colors, OK_BEADS) as { content: { type?: unknown; props?: Record<string, unknown> } };
+  assert.notEqual(bodyOf(plain.content)?.type, BeadsSheet, "no identity, no sheet — the pure view stays");
 });
 
 // OWNER RETAB (revision 4): the top-level section row is Tickets, Beads,
@@ -146,11 +194,28 @@ test("the top section row is Tickets, Beads, GH Issues, in that order", () => {
   assert.equal(sections[2].id, "gh");
   assert.equal(sections[0].label, "Tickets");
   assert.equal(sections[1].label, "Beads");
-  assert.equal(sections[2].label, "GH Issues");
+  assert.equal(sections[2].label, "GH", "owner ruling: the short label leaves room for the WS toggle");
   assert.equal(sections[0].count, 2, "the Tickets tab carries the ticket count");
   assert.equal(sections[1].count, 2, "the Beads tab carries the bead count");
   assert.equal(sections[2].count, undefined, "GH Issues is a no-op: no count");
   assert.equal(sections[0].content, marker, "the Tickets body is the ticket panel, unchanged");
+});
+
+// The tab badge counts OPEN work only — done work already announces itself
+// in the sink label ("N done"), so a total here double-counts it (owner:
+// 21 total with 13 done must read 7, never 21).
+test("the Objectives tab count is the open count, not the total", () => {
+  const { sectionTabs } = load("client/panel.tsx");
+  const dash = {
+    ...(DASH as object),
+    tickets: [
+      { id: "T01", status: "closed", closeReason: "done" },
+      { id: "T02", status: "closed", closeReason: "skipped" },
+      { id: "T03" },
+    ],
+  } as never;
+  const sections = sectionTabs(colors, dash, OK_BEADS, { marker: "x" }) as Array<{ count?: number }>;
+  assert.equal(sections[0].count, 1, "the tab count is the open tickets only");
 });
 
 test("the section row swaps the body: the Beads body lists the repo's beads", () => {
@@ -161,14 +226,17 @@ test("the section row swaps the body: the Beads body lists the repo's beads", ()
   assert.equal(tree.presses.length, 0, "the Beads body stays read-only");
 });
 
-test("the GH Issues body is a calm no-op placeholder", () => {
+test("the GH Issues body is the shared panel with its calm empty state", () => {
   const { sections } = sectionRow();
   const tree = treeOf(sections[2].content);
   assert.equal(tree.presses.length, 0, "no buttons in the GH placeholder");
   assert.ok(!tree.nodes.some((node) => node.type === rn.ActivityIndicator), "never a spinner");
-  const lines = tree.texts.filter((text) => text.trim());
-  assert.equal(lines.length, 1, "one quiet line, not a stack");
-  assert.match(lines[0], /github issues: not yet\./i);
+  // The panel's own header hosts the tabs now, so the body carries no
+  // "GH Issues" title of its own — just the calm line (owner ruling, tabs
+  // in Panel B's header).
+  assert.ok(!tree.texts.includes("GH Issues"), "no duplicate title in the body");
+  assert.ok(tree.texts.includes("GitHub issues: not yet."), "the calm empty line");
+  assert.ok(tree.texts.filter((text) => text.trim()).every((text) => text === "GitHub issues: not yet."), "one quiet line, not a stack");
 });
 
 // OWNER TOGGLE (revision 4): the two scope chips become ONE card-like WS/GIT
@@ -204,4 +272,36 @@ test("inside a worktree the toggle shows GIT only and stays still", () => {
   const tree = treeOf(ScopeToggle({ colors, scope: "workspace", onChange: () => {}, gitOnly: true }));
   assert.deepEqual(tree.texts, ["GIT"], "GIT alone, no WS");
   assert.equal(tree.presses.length, 0, "nothing to toggle to in a worktree");
+});
+
+// NESTED CARDS (O1800): linkage renders as chips at the bottom of the card —
+// a bead-id chip, and a GitHub chip that opens the issue page on github.com.
+// RefChips is hook-free, so it renders directly under the stubbed react-native.
+const chipsHarness = clientHarness(directory, { "react-native": rn, "@getpaseo/plugin/client/react-native": { Icon: (props: Record<string, unknown>) => null } });
+const ROW_TICKET = {
+  id: "o1.1",
+  title: "Fix the widget",
+  estimateMin: 30,
+  status: "open",
+  statusSince: "",
+  history: [],
+  ref: "bead:paseo-plugins-ti5",
+  refs: ["gh:desflynn/widgets#42"],
+};
+
+test("the linkage renders as chips: a bead-id chip and a GitHub chip that opens the issue page", () => {
+  const { RefChips } = chipsHarness.load("client/row.tsx") as Record<string, (props: unknown) => unknown>;
+  const tree = treeOf(RefChips({ colors, ticket: ROW_TICKET }));
+  assert.ok(tree.texts.includes("paseo-plugins-ti5"), "the bead-id chip shows the slug");
+  assert.ok(tree.texts.includes("#42"), "the GitHub chip shows the issue number");
+  const gh = tree.nodes.find((node) => node.props?.accessibilityLabel === "GitHub issue 42");
+  assert.ok(gh, "the GitHub chip is pressable");
+  void (gh!.props!.onPress as () => void)();
+  assert.ok(chipsHarness.opened.includes("https://github.com/desflynn/widgets/issues/42"), "the chip opens the issue page on github.com");
+});
+
+test("a ticket with no linkage renders no chips", () => {
+  const { RefChips } = chipsHarness.load("client/row.tsx") as Record<string, (props: unknown) => unknown>;
+  const plain = { ...ROW_TICKET, ref: undefined, refs: undefined };
+  assert.equal(treeOf(RefChips({ colors, ticket: plain })).texts.length, 0, "nothing to show");
 });
