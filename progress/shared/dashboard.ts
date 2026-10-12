@@ -1,9 +1,9 @@
-import { EVENT_VERSION, eventSchema, type DELIVERABLE_KINDS, type FileLink, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
+import { CLOSE_REASONS, DELIVERABLE_KINDS, EVENT_VERSION, eventSchema, type BoardStatus, type CloseReason, type FileLink, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
 
 // One recorded change to a ticket, oldest first. `stage: ""` clears the stage.
 export interface TicketChange {
   at: string;
-  status?: TicketStatus;
+  status?: BoardStatus;
   stage?: string;
   note?: string;
 }
@@ -12,11 +12,17 @@ export interface Ticket {
   id: string;
   title: string;
   estimateMin: number;
-  status: TicketStatus;
+  // The Beads vocabulary: open/closed with a close reason, in_progress when
+  // work begins. Legacy event words were translated on the fold.
+  status: BoardStatus;
+  // Why it closed: done or skipped. Set whenever the ticket is closed.
+  closeReason?: CloseReason;
+  // How urgent it is, Beads-style: 0 lowest to 4 highest.
+  priority?: number;
   // When the ticket entered its current status.
   statusSince: string;
-  // When the ticket last started working.
-  workingSince?: string;
+  // When the ticket last began work (entered in_progress).
+  startedAt?: string;
   stage?: string;
   stageSince?: string;
   note?: string;
@@ -28,11 +34,16 @@ export interface Ticket {
   source?: FileLink;
   // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
   ref?: string;
+  // Newer tickets carry several refs at once (a bead and its GitHub issue);
+  // older ones carry the single `ref`.
+  refs?: string[];
   // The Paseo agent that last added or updated it, when written from Paseo.
   agentId?: string;
   // The ticket's owning workspace, so a union board can tell two scopes'
   // same-minted ids apart.
   ws?: string;
+  // The parent objective, when this one is nested (O1800). Migrated form.
+  under?: string;
   // Every status, stage and note change, starting with when it was added.
   history: TicketChange[];
 }
@@ -201,7 +212,25 @@ function clock(now: Date) {
 }
 
 export function isSettled(ticket: Ticket): boolean {
-  return ticket.status === "done" || ticket.status === "skipped";
+  return ticket.status === "closed";
+}
+
+// The Beads vocabulary (O1700): the fold translates the 0.4.0 words on the
+// way in, so historical files read as the same system the Beads tab shows.
+export function normalizeStatus(status: TicketStatus | undefined): { status: BoardStatus; closeReason?: CloseReason } {
+  switch (status) {
+    case undefined:
+    case "not_started":
+      return { status: "open" };
+    case "working":
+      return { status: "in_progress" };
+    case "done":
+      return { status: "closed", closeReason: "done" };
+    case "skipped":
+      return { status: "closed", closeReason: "skipped" };
+    default:
+      return { status };
+  }
 }
 
 // The union scope: All folds every scope's current run together into one
@@ -268,9 +297,13 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
   const events = scopeEvents(parsed.events, scope);
   // In the union fold, ids minted per scope may repeat, so every id is keyed
   // by its run's scope ("" for legacy events) and the ticket carries that
-  // scope as its ws. One board, both T01s.
+  // scope as its ws. One board, both T01s. Every key goes through the
+  // migration, so a legacy T02 and a new o2 name the same ticket everywhere.
   const union = scope === UNION_SCOPE;
-  const key = (ws: string | undefined, id: string) => (union ? `${ws ?? ""}/${id}` : id);
+  const key = (ws: string | undefined, id: string) => {
+    const migrated = displayId(id);
+    return union ? `${ws ?? ""}/${migrated}` : migrated;
+  };
   const issues = [...parsed.issues];
   let run: Dashboard["run"] = null;
   const tickets = new Map<string, Ticket>();
@@ -307,17 +340,22 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         // 0.4.0 did; a no-ws ticket.update still reaches the scoped ticket.
         if (scopedMints.has(k) && event.ws === undefined) break;
         if (event.ws !== undefined) scopedMints.add(k);
+        const added = normalizeStatus(event.status);
         tickets.set(k, {
-          id: event.id,
+          id: displayId(event.id),
           title: event.title,
           estimateMin: event.estimateMin,
-          status: event.status ?? "not_started",
+          status: added.status,
+          closeReason: added.closeReason,
+          priority: event.priority,
           statusSince: event.ts,
-          workingSince: event.status === "working" ? event.ts : undefined,
-          history: [{ at: event.ts, status: event.status ?? "not_started" }],
+          startedAt: added.status === "in_progress" ? event.ts : undefined,
+          history: [{ at: event.ts, status: added.status }],
           waitsFor: event.waitsFor,
           source: event.source,
           ref: event.ref,
+          refs: event.refs,
+          under: event.under ? displayId(event.under) : undefined,
           ws: wsKey,
           agentId: event.by,
         });
@@ -331,16 +369,23 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         }
         if (event.title !== undefined) ticket.title = event.title;
         if (event.estimateMin !== undefined) ticket.estimateMin = event.estimateMin;
+        const incoming = normalizeStatus(event.status);
         const change: TicketChange = { at: event.ts };
-        if (event.status !== undefined && event.status !== ticket.status) change.status = event.status;
+        if (event.status !== undefined && incoming.status !== ticket.status) change.status = incoming.status;
         if (event.stage !== undefined && event.stage !== (ticket.stage ?? "")) change.stage = event.stage;
         if (event.note) change.note = event.note;
         if (Object.keys(change).length > 1) ticket.history.push(change);
-        if (event.status !== undefined && event.status !== ticket.status) {
-          ticket.status = event.status;
+        if (event.status !== undefined && incoming.status !== ticket.status) {
+          ticket.status = incoming.status;
           ticket.statusSince = event.ts;
-          if (event.status === "working") ticket.workingSince = event.ts;
+          if (incoming.status === "in_progress") ticket.startedAt = event.ts;
+          if (incoming.status !== "closed") ticket.closeReason = undefined;
         }
+        // Closing carries a reason: the event's own, the translated legacy
+        // one, or the default when a bare `closed` arrives.
+        if (event.closeReason !== undefined) ticket.closeReason = event.closeReason;
+        else if (event.status !== undefined && incoming.status === "closed") ticket.closeReason = incoming.closeReason ?? ticket.closeReason ?? "done";
+        if (event.priority !== undefined) ticket.priority = event.priority;
         if (event.stage !== undefined && event.stage !== (ticket.stage ?? "")) {
           ticket.stage = event.stage || undefined;
           ticket.stageSince = event.stage ? event.ts : undefined;
@@ -349,6 +394,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (event.waitsFor !== undefined) ticket.waitsFor = event.waitsFor || undefined;
         if (event.source !== undefined) ticket.source = event.source || undefined;
         if (event.ref !== undefined) ticket.ref = event.ref;
+        if (event.refs !== undefined) ticket.refs = event.refs;
         if (union) ticket.ws = wsKey;
         else if (event.ws !== undefined) ticket.ws = event.ws;
         if (event.by) ticket.agentId = event.by;
@@ -370,7 +416,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           background: event.background,
           files: event.files ?? [],
           raisedBy: event.raisedBy,
-          ticketId: event.ticket,
+          ticketId: event.ticket ? displayId(event.ticket) : undefined,
           askedAt: event.ts,
         });
         break;
@@ -400,7 +446,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           title: event.title,
           path: event.path,
           url: event.url,
-          ticketId: event.ticket,
+          ticketId: event.ticket ? displayId(event.ticket) : undefined,
           kind: event.kind,
           addedAt: event.ts,
         });
@@ -409,7 +455,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (!deliverables.delete(key(wsKey, event.id))) issues.push({ line, reason: `unknown deliverable ${event.id}` });
         break;
       case "activity.add":
-        activity.set(key(wsKey, event.id), { id: event.id, text: event.text, ticketId: event.ticket, at: event.ts });
+        activity.set(key(wsKey, event.id), { id: event.id, text: event.text, ticketId: event.ticket ? displayId(event.ticket) : undefined, at: event.ts });
         break;
       case "activity.update": {
         const entry = activity.get(key(wsKey, event.id));
@@ -427,7 +473,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         ticker = null;
         break;
       case "stuck.set":
-        manualStuck.set(key(wsKey, event.id), { id: event.id, reason: event.reason, ticket: event.ticket, since: event.ts });
+        manualStuck.set(key(wsKey, event.id), { id: event.id, reason: event.reason, ticket: event.ticket ? displayId(event.ticket) : undefined, since: event.ts });
         break;
       case "stuck.clear":
         if (!manualStuck.delete(key(wsKey, event.id))) issues.push({ line, reason: `unknown stuck item ${event.id}` });
@@ -474,7 +520,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
 function nextIds(all: ProgressEvent[], inRun: ProgressEvent[]): NextIds {
   const used = (events: ProgressEvent[], type: ProgressEvent["type"]) => events.flatMap((event) => (event.type === type && "id" in event ? [event.id] : []));
   return {
-    ticket: nextId("T", used(inRun, "ticket.add")),
+    ticket: nextObjectiveId(inRun),
     question: nextId("Q", used(all, "question.ask"), 1),
     deliverable: nextId("D", used(inRun, "deliverable.add"), 1),
     activity: nextId("A", used(inRun, "activity.add"), 1),
@@ -482,12 +528,27 @@ function nextIds(all: ProgressEvent[], inRun: ProgressEvent[]): NextIds {
   };
 }
 
+// The next top-level objective id: lowercase o plus the position after the
+// highest taken. Both vocabularies count — legacy T01 is o1 — and numbers are
+// never reused, so a removed ticket's number stays spent.
+function nextObjectiveId(inRun: ProgressEvent[]): string {
+  let max = 0;
+  for (const event of inRun) {
+    if (event.type !== "ticket.add") continue;
+    const legacy = /^T0*(\d+)$/i.exec(event.id);
+    const dotted = legacy ? null : /^o(\d+)(?:\.\d+)*$/i.exec(event.id);
+    if (legacy) max = Math.max(max, Number(legacy[1]));
+    else if (dotted) max = Math.max(max, Number(dotted[1]));
+  }
+  return `o${max + 1}`;
+}
+
 function progress(tickets: Ticket[], startedAt: string | undefined): Dashboard["progress"] {
-  const counted = tickets.filter((ticket) => ticket.status !== "skipped");
+  const counted = tickets.filter((ticket) => !(ticket.status === "closed" && ticket.closeReason === "skipped"));
   const totalMin = counted.reduce((sum, ticket) => sum + ticket.estimateMin, 0);
-  const doneMin = counted.filter((ticket) => ticket.status === "done").reduce((sum, ticket) => sum + ticket.estimateMin, 0);
+  const doneMin = counted.filter((ticket) => ticket.status === "closed").reduce((sum, ticket) => sum + ticket.estimateMin, 0);
   // All done: the last ticket to settle, done or skipped, ended the work.
-  const allDone = counted.length > 0 && counted.every((ticket) => ticket.status === "done") && tickets.every(isSettled);
+  const allDone = counted.length > 0 && counted.every((ticket) => ticket.status === "closed") && tickets.every(isSettled);
   const endedAt = Math.max(...tickets.map((ticket) => Date.parse(ticket.statusSince)));
   return {
     percent: totalMin ? Math.round((doneMin / totalMin) * 100) : 0,
@@ -511,7 +572,7 @@ function stuckItems(tickets: Ticket[], activity: Activity[], manual: Array<{ id:
     // Blocked only on another ticket in the run is waiting, not stuck.
     if (ticket.status === "blocked" && !ticket.waitingFor) {
       items.push({ kind: "blocked", key: `blocked:${ticket.id}`, ticketId: ticket.id, title: ticket.title, since: ticket.statusSince, note: ticket.note });
-    } else if (ticket.status === "working") {
+    } else if (ticket.status === "in_progress") {
       // Any sign of work resets the clock: a status, stage or note change, or activity tagged to the ticket.
       const lastUpdate = lastTicketUpdate(ticket, activity);
       // Overdue once more than the estimate has passed, so a millisecond after it.
@@ -548,6 +609,63 @@ export function shortTitle(title: string): string {
   return index > 0 && index <= 24 ? title.slice(0, index) : title;
 }
 
+// One-time board migration (O1600): legacy T-ids display as o-ids, positionally
+// — T01 → o1, T15 → o15. Historical JSONL is never rewritten; every fold
+// translates on display, and all references resolve through the migrated form.
+export function displayId(id: string): string {
+  const match = /^T0*(\d+)$/i.exec(id);
+  return match ? `o${Number(match[1])}` : id;
+}
+
+// A ticket's stored, CLI form of its name: the id, its provenance from the
+// refs — the bead slug, the GitHub issue number — then the typed title:
+// `o1.1-paseo-plugins-ti5-42 Fix the widget`. Parts appear only when present.
+// Derived, never typed, so re-linking updates the name; tickets without refs
+// keep their title as-is, so legacy boards read on unchanged.
+export function ticketName(ticket: Pick<Ticket, "id" | "title" | "ref" | "refs">): string {
+  const refs = [...(ticket.ref ? [ticket.ref] : []), ...(ticket.refs ?? [])];
+  if (!refs.length) return ticket.title;
+  const bead = refs.find((entry) => entry.startsWith("bead:"))?.slice(5);
+  const ghNumber = refs.find((entry) => entry.startsWith("gh:"))?.match(/#(\d+)$/)?.[1];
+  const provenance = `${bead ? `-${bead}` : ""}${ghNumber ? `-${ghNumber}` : ""}`;
+  return `${ticket.id}${provenance} ${ticket.title}`;
+}
+
+// The ticket's linkage, parsed for the panel's chips: the bead slug and the
+// GitHub issue it came from. Parts appear only when present.
+export function ticketRefs(ticket: Pick<Ticket, "ref" | "refs">): { bead?: string; gh?: { owner: string; repo: string; number: number } } {
+  const refs = [...(ticket.ref ? [ticket.ref] : []), ...(ticket.refs ?? [])];
+  const out: { bead?: string; gh?: { owner: string; repo: string; number: number } } = {};
+  const bead = refs.find((entry) => entry.startsWith("bead:"))?.slice(5);
+  if (bead) out.bead = bead;
+  const gh = refs.find((entry) => entry.startsWith("gh:"))?.match(/^gh:([^/]+)\/([^#]+)#(\d+)$/);
+  if (gh) out.gh = { owner: gh[1], repo: gh[2], number: Number(gh[3]) };
+  return out;
+}
+
+export function githubIssueUrl(gh: { owner: string; repo: string; number: number }): string {
+  return `https://github.com/${gh.owner}/${gh.repo}/issues/${gh.number}`;
+}
+
+// Numeric slug order (O1800): each dot-segment reads as a number, so o2 stays
+// above o10 and o1.1 sits between o1 and o2. Closed objectives sink below the
+// open ones; ties keep their recorded order.
+export function compareObjectives(a: Ticket, b: Ticket): number {
+  const sunk = (ticket: Ticket) => (isFinished(ticket) ? 1 : 0);
+  if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
+  const left = a.id.split("."), right = b.id.split(".");
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const order = Number(left[index]?.replace(/\D/g, "") || 0) - Number(right[index]?.replace(/\D/g, "") || 0);
+    if (order) return order;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+// How deep a ticket sits in the tree: one indent step per dot-segment.
+export function ticketDepth(ticket: Pick<Ticket, "id">): number {
+  return ticket.id.split(".").length - 1;
+}
+
 // The finished tickets (done or skipped) the panel folds into one row at the
 // top, in plan order, so the work still ahead sits near the top. A ticket
 // finished out of order folds too. A single one isn't worth a fold row. Once
@@ -559,7 +677,7 @@ export function finishedToFold(tickets: Ticket[]): Ticket[] {
 }
 
 export function isFinished(ticket: Ticket): boolean {
-  return ticket.status === "done" || ticket.status === "skipped";
+  return ticket.status === "closed";
 }
 
 function plural(count: number, noun: string): string {
@@ -567,8 +685,8 @@ function plural(count: number, noun: string): string {
 }
 
 function headline(tickets: Ticket[], itemLabel: string, waiting: number, stuck: number): HeadlinePart[] {
-  const counted = tickets.filter((ticket) => ticket.status !== "skipped");
-  const done = counted.filter((ticket) => ticket.status === "done").length;
+  const counted = tickets.filter((ticket) => !(ticket.status === "closed" && ticket.closeReason === "skipped"));
+  const done = counted.filter((ticket) => ticket.status === "closed").length;
   const parts: HeadlinePart[] = [{ text: `${done} of ${plural(counted.length, itemLabel.toLowerCase())} done`, tone: "normal" }];
   if (waiting) parts.push({ text: `${plural(waiting, "question")} waiting for you`, tone: "normal" });
   if (stuck) parts.push({ text: `${stuck} stuck`, tone: "danger" });

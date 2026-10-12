@@ -4,13 +4,14 @@ import { realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { isSettled, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
-import { DELIVERABLE_KINDS, TICKET_STATUSES, type FileLink, type ProgressEvent } from "../shared/events.ts";
+import { isSettled, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
+import { CLOSE_REASONS, DELIVERABLE_KINDS, type BoardStatus, type CloseReason, type FileLink, type ProgressEvent } from "../shared/events.ts";
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
 import { resolveWorkspaceId } from "./workspace.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { installLauncher } from "./launcher.ts";
+import { closeBackingBeads } from "./beads.ts";
 import { findStore, saveRunCopy } from "./store.ts";
 import { dashboardText } from "../shared/show.ts";
 import { imageMimeType } from "../shared/attachments.ts";
@@ -29,6 +30,8 @@ class UsageError extends Error {}
 interface State {
   dashboard: Dashboard;
   nextIds: NextIds;
+  // The run's events as the fold saw them, for id minting that never reuses a number.
+  events: ProgressEvent[];
 }
 
 interface Command {
@@ -52,13 +55,40 @@ function minutesOption(value: unknown, name: string): number | undefined {
   return number;
 }
 
+// The words the CLI accepts: the Beads vocabulary, plus the 0.4.0 aliases,
+// which are written canonically so the file speaks one language.
+const STATUS_WORDS: Record<string, { status: BoardStatus; closeReason?: CloseReason }> = {
+  open: { status: "open" },
+  in_progress: { status: "in_progress" },
+  blocked: { status: "blocked" },
+  closed: { status: "closed" },
+  not_started: { status: "open" },
+  working: { status: "in_progress" },
+  done: { status: "closed", closeReason: "done" },
+  skipped: { status: "closed", closeReason: "skipped" },
+};
+
 function statusOption(value: unknown) {
   if (value === undefined) return undefined;
-  const status = String(value).replace(/-/g, "_");
-  if (!(TICKET_STATUSES as readonly string[]).includes(status)) {
-    throw new UsageError(`--status must be one of: ${TICKET_STATUSES.join(", ")}.`);
+  const status = STATUS_WORDS[String(value).replace(/-/g, "_")];
+  if (!status) throw new UsageError(`--status must be one of: ${Object.keys(STATUS_WORDS).slice(0, 4).join(", ")}.`);
+  return status;
+}
+
+function closeReasonOption(value: unknown): CloseReason | undefined {
+  if (value === undefined) return undefined;
+  const reason = String(value);
+  if (!(CLOSE_REASONS as readonly string[]).includes(reason)) {
+    throw new UsageError(`--close-reason must be one of: ${CLOSE_REASONS.join(", ")}.`);
   }
-  return status as (typeof TICKET_STATUSES)[number];
+  return reason as CloseReason;
+}
+
+function priorityOption(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 4) throw new UsageError("--priority must be a number from 0 to 4.");
+  return number;
 }
 
 function stringOption(value: unknown): string | undefined {
@@ -117,13 +147,40 @@ function existingQuestion(state: State, id: string | undefined) {
 }
 
 function existingTicket(state: State, id: string | undefined) {
-  const wanted = required(id, "ticket id").toUpperCase();
-  const ticket = state.dashboard.tickets.find((candidate) => candidate.id.toUpperCase() === wanted);
+  // Tickets answer to their o-id and, through the migration, their legacy
+  // T-id: "T07" and "o7" name the same ticket.
+  const wanted = displayId(required(id, "ticket id")).toLowerCase();
+  const ticket = state.dashboard.tickets.find((candidate) => candidate.id.toLowerCase() === wanted);
   if (!ticket) {
     const known = state.dashboard.tickets.map((candidate) => candidate.id).join(", ") || "none";
     throw new UsageError(`No ticket ${wanted} in this run. Tickets: ${known}.`);
   }
   return ticket;
+}
+
+// The refs a command carries: repeatable --ref values, each like
+// `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
+function refsOption(values: Record<string, string | boolean | Array<string | boolean> | undefined>): string[] | undefined {
+  if (values.ref === undefined) return undefined;
+  const refs = listOption(values.ref).map((entry) => String(entry).trim()).filter(Boolean);
+  if (!refs.length) throw new UsageError("Missing --ref.");
+  return refs;
+}
+
+// The next child id under one parent: the parent's path plus the position
+// after the highest sibling ever added. Numbers are never reused, even after
+// a remove, so the count runs over the run's events, not the live board.
+function nextChildId(events: ProgressEvent[], parentPath: string): string {
+  let max = 0;
+  for (const event of events) {
+    if (event.type !== "ticket.add" || event.under === undefined) continue;
+    if (displayId(event.under) !== parentPath) continue;
+    const id = displayId(event.id);
+    if (!id.startsWith(`${parentPath}.`)) continue;
+    const segment = Number(id.slice(parentPath.length + 1));
+    if (Number.isInteger(segment)) max = Math.max(max, segment);
+  }
+  return `${parentPath}.${max + 1}`;
 }
 
 // What still has to be settled before a run can finish.
@@ -146,7 +203,9 @@ function addedByOthers(events: ProgressEvent[], dashboard: Dashboard, agentId: s
   if (!agentId) return [];
   const since = events.findLastIndex((event) => event.by === agentId);
   if (since === -1) return [];
-  const added = new Set(events.slice(since + 1).flatMap((event) => (event.type === "ticket.add" && event.by !== agentId ? [event.id] : [])));
+  // Event ids go through the migration, so a legacy writer's T02 matches the
+  // board's o2.
+  const added = new Set(events.slice(since + 1).flatMap((event) => (event.type === "ticket.add" && event.by !== agentId ? [displayId(event.id)] : [])));
   return dashboard.tickets.filter((ticket) => added.has(ticket.id) && !isSettled(ticket));
 }
 
@@ -189,27 +248,29 @@ const commands: Record<string, Command> = {
     },
   },
   "ticket add": {
-    usage: `ticket add "<title>" --estimate <minutes> [--status <status>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref>]`,
-    summary: `Add a ticket. Prints its id (T01, T02, ...). --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>.`,
-    options: { estimate: { type: "string" }, status: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string" } },
+    usage: `ticket add "<title>" --estimate <minutes> [--under <id>] [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
+    summary: `Add a ticket. Prints its id (o1, o2, ...). --under nests it as the next child of another ticket, any depth (o1.1, o1.1.2). Statuses: open, in_progress, blocked, closed, with --close-reason done|skipped when closing. --priority is how urgent it is, 0-4. --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>; repeat it to link more than one, and the name composes from the links.`,
+    options: { estimate: { type: "string" }, under: { type: "string" }, status: { type: "string" }, priority: { type: "string" }, "close-reason": { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string", multiple: true } },
     run({ positionals, values, state, cwd, root }) {
       const waitsFor = values["waits-for"] === undefined ? undefined : existingTicket(state, stringOption(values["waits-for"])).id;
       const title = required(positionals[0], "ticket title");
       const estimateMin = minutesOption(values.estimate, "estimate");
       if (estimateMin === undefined) throw new UsageError("Missing --estimate <minutes>.");
       const source = values.source === undefined ? undefined : parseFile(String(values.source), cwd, root);
-      const ref = values.ref === undefined ? undefined : required(String(values.ref), "--ref");
-      const id = state.nextIds.ticket;
+      const refs = refsOption(values);
+      const under = values.under === undefined ? undefined : existingTicket(state, stringOption(values.under)).id;
+      const id = under ? nextChildId(state.events, under) : state.nextIds.ticket;
+      const status = statusOption(values.status);
       return {
-        event: { type: "ticket.add", id, title, estimateMin, status: statusOption(values.status), waitsFor, source, ref },
-        message: `Added ${id}: ${title} (${estimateMin} min)${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}${ref ? `, ref ${ref}` : ""}`,
+        event: { type: "ticket.add", id, title, estimateMin, under, status: status?.status, closeReason: closeReasonOption(values["close-reason"]) ?? status?.closeReason, priority: priorityOption(values.priority), waitsFor, source, refs },
+        message: `Added ${id}: ${title} (${estimateMin} min)${under ? `, under ${under}` : ""}${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}${refs ? `, ref ${refs.join(", ")}` : ""}`,
       };
     },
   },
   "ticket update": {
-    usage: `ticket update <id> [--status <status>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref>]`,
-    summary: `Change a ticket. Statuses: ${TICKET_STATUSES.join(", ")}. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --source is where the ticket is written up ("" clears it). --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>.`,
-    options: { status: { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string" } },
+    usage: `ticket update <id> [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--stage <name>] [--title <text>] [--estimate <minutes>] [--note <text>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
+    summary: `Change a ticket. Statuses: open, in_progress, blocked, closed; a close carries --close-reason done|skipped (default done). --priority is how urgent it is, 0-4. --stage names the step in progress, like Build or Fixes ("" clears it). --waits-for names a ticket it can't start before ("" clears it); waiting is not stuck, so don't mark it blocked for that. --source is where the ticket is written up ("" clears it). --ref is where the work came from; repeat it to replace all links at once.`,
+    options: { status: { type: "string" }, priority: { type: "string" }, "close-reason": { type: "string" }, stage: { type: "string" }, title: { type: "string" }, estimate: { type: "string" }, note: { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string", multiple: true } },
     run({ positionals, values, state, cwd, root }) {
       const ticket = existingTicket(state, positionals[0]);
       const rawWaitsFor = values["waits-for"] === undefined ? undefined : String(values["waits-for"]).trim();
@@ -220,47 +281,50 @@ const commands: Record<string, Command> = {
         if (next.waitsFor === ticket.id) throw new UsageError(`${ticket.id} can't wait for ${waitsFor}: ${next.id} already waits for ${ticket.id}, so neither could start.`);
         next = state.dashboard.tickets.find((entry) => entry.id === next!.waitsFor);
       }
+      const status = statusOption(values.status);
       const event = {
         type: "ticket.update" as const,
         id: ticket.id,
         title: stringOption(values.title),
         estimateMin: minutesOption(values.estimate, "estimate"),
-        status: statusOption(values.status),
+        status: status?.status,
+        closeReason: closeReasonOption(values["close-reason"]) ?? status?.closeReason,
+        priority: priorityOption(values.priority),
         stage: stringOption(values.stage),
         note: stringOption(values.note),
         waitsFor,
         source: values.source === undefined ? undefined : String(values.source).trim() === "" ? "" as const : parseFile(String(values.source), cwd, root),
-        ref: values.ref === undefined ? undefined : required(String(values.ref), "--ref"),
+        refs: refsOption(values),
       };
       const changes = Object.entries(event).filter(([key, value]) => key !== "type" && key !== "id" && value !== undefined);
-      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --stage, --title, --estimate, --note, --waits-for, --source, or --ref.");
-      const shown = (value: unknown) => (typeof value === "object" ? (value as FileLink).path ?? (value as FileLink).url : value);
+      if (!changes.length) throw new UsageError("Nothing to change. Pass --status, --priority, --stage, --title, --estimate, --note, --waits-for, --source, or --ref.");
+      const shown = (value: unknown) => (typeof value === "object" && !Array.isArray(value) ? (value as FileLink).path ?? (value as FileLink).url : Array.isArray(value) ? value.join(", ") : value);
       return { event, message: `Updated ${ticket.id}: ${changes.map(([key, value]) => `${key} ${shown(value)}`).join(", ")}` };
     },
   },
   "ticket claim": {
     usage: `ticket claim <id> [--stage <name>] [--note <text>]`,
-    summary: "Take a ticket: set it working and stamp you as the one on it. Same as ticket update --status working.",
+    summary: "Take a ticket: set it in_progress and stamp you as the one on it.",
     options: { stage: { type: "string" }, note: { type: "string" } },
     run({ positionals, values, state }) {
       const ticket = existingTicket(state, positionals[0]);
       const stage = stringOption(values.stage);
       const note = stringOption(values.note);
       return {
-        event: { type: "ticket.update", id: ticket.id, status: "working" as const, stage, note },
+        event: { type: "ticket.update", id: ticket.id, status: "in_progress" as const, stage, note },
         message: `Claimed ${ticket.id}: ${ticket.title}${stage ? `, stage ${stage}` : ""}${note ? `, note ${note}` : ""}`,
       };
     },
   },
   "ticket done": {
     usage: `ticket done <id> [--note <text>]`,
-    summary: "Set a ticket done.",
+    summary: "Close a ticket as done.",
     options: { note: { type: "string" } },
     run({ positionals, values, state }) {
       const ticket = existingTicket(state, positionals[0]);
       const note = stringOption(values.note);
       return {
-        event: { type: "ticket.update", id: ticket.id, status: "done" as const, note },
+        event: { type: "ticket.update", id: ticket.id, status: "closed" as const, closeReason: "done" as const, note },
         message: `Done ${ticket.id}: ${ticket.title}${note ? `, note ${note}` : ""}`,
       };
     },
@@ -593,15 +657,26 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     }
     const root = findRoot(options.cwd);
     const store = await findStore(root);
+    // Set when the command closes an objective: its bead refs cascade (O2100).
+    let cascade: { refs: string[]; reason: string } | undefined;
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
       if (finished && command !== commands.start) {
         throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>"`);
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root });
+      if (event.type === "ticket.update" && event.status === "closed") {
+        const ticket = state.dashboard.tickets.find((candidate) => candidate.id === event.id);
+        cascade = { refs: event.refs ?? ticket?.refs ?? [], reason: event.closeReason ?? "done" };
+      }
       const added = command === commands.start ? "" : addedByOthersText(addedByOthers(state.events, state.dashboard, options.agentId), state.dashboard);
       return { event: { ...event, by: options.agentId, ws: scope }, result: `${message}${added}` };
     }, (text) => saveRunCopy(root, text), scope);
+    if (cascade && cascade.refs.length) {
+      // Fail soft: the close already landed; a bd fault is logged, never fatal.
+      const failures = await closeBackingBeads(root, cascade.refs, cascade.reason);
+      for (const failure of failures) console.error(`cascade: could not close bead ${failure.id}: ${failure.message}`);
+    }
     out(message);
     return 0;
   } catch (error) {

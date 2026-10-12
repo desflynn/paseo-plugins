@@ -1,15 +1,18 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { handleGetBeads } from "./server/beads";
+import { handleGetBeads, handleGetBeadDetail, handleSetBeadStatus, handleUpgradeBead } from "./server/beads";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./server/dashboard";
 import { handleInstallLauncher, handleLauncherStatus } from "./server/launcher";
 import { handleOpenDeliverable, handlePreviewDeliverable } from "./server/open";
 import { handleInstallSkill, handleSkillStatus } from "./server/skill";
-import { getAttention, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setHistoryFolder } from "./shared/rpc";
+import { getAttention, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setHistoryFolder, upgradeBead } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(getDashboard, handleGetDashboard);
   server.handle(getAttention, handleGetAttention);
   server.handle(getBeads, handleGetBeads);
+  server.handle(getBeadDetail, handleGetBeadDetail);
+  server.handle(setBeadStatus, handleSetBeadStatus);
+  server.handle(upgradeBead, handleUpgradeBead);
   server.handle(markPanelOpened, handleMarkPanelOpened);
   server.handle(getLauncherStatus, handleLauncherStatus);
   server.handle(installLauncher, handleInstallLauncher);

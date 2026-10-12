@@ -31,8 +31,8 @@ process.env.HOME = HOME;
 const git = async (cwd: string, ...args: string[]) =>
   (await promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd })).stdout;
 
-const T0 = Date.parse("2026-09-27T19:59:00.000Z");
-const minutes = (count: number) => new Date(T0 + count * 60_000);
+const o0 = Date.parse("2026-09-27T19:59:00.000Z");
+const minutes = (count: number) => new Date(o0 + count * 60_000);
 
 async function worktree(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "progress-"));
@@ -75,7 +75,7 @@ test("bad values get a usage message, not a schema dump", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");
   await w.run("ticket", "add", "Ticket 01", "--estimate", "30");
-  const result = await w.run("ticket", "update", "T01", "--title", "");
+  const result = await w.run("ticket", "update", "o1", "--title", "");
   assert.equal(result.code, 1);
   assert.match(result.text, /Usage: paseo-progress ticket update/);
 });
@@ -84,9 +84,9 @@ test("a ticket can't wait for one that already waits for it", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");
   await w.run("ticket", "add", "Ticket 01", "--estimate", "30");
-  await w.run("ticket", "add", "Ticket 02", "--estimate", "30", "--waits-for", "T01");
-  await w.run("ticket", "add", "Ticket 03", "--estimate", "30", "--waits-for", "T02");
-  const result = await w.run("ticket", "update", "T01", "--waits-for", "T03");
+  await w.run("ticket", "add", "Ticket 02", "--estimate", "30", "--waits-for", "o1");
+  await w.run("ticket", "add", "Ticket 03", "--estimate", "30", "--waits-for", "o2");
+  const result = await w.run("ticket", "update", "o1", "--waits-for", "o3");
   assert.equal(result.code, 1);
   assert.match(result.text, /neither could start/);
 });
@@ -111,10 +111,10 @@ test("finish closes the run only once everything is settled, and keeps it on the
   await w.run("stuck", "set", "Staging is down");
   const refused = await w.run("finish", "Shipped");
   assert.equal(refused.code, 1);
-  assert.match(refused.text, /Can't finish yet\. Still open: open questions Q1 .*; tickets not done or skipped: T01; flagged blockers S1/);
+  assert.match(refused.text, /Can't finish yet\. Still open: open questions Q1 .*; tickets not done or skipped: o1; flagged blockers S1/);
 
   await w.run("question", "answer", "Q1", "CSV");
-  await w.run("ticket", "update", "T01", "--status", "done");
+  await w.run("ticket", "update", "o1", "--status", "done");
   await w.run("stuck", "clear", "S1");
   await w.run("ticker", "set", "Wrapping up");
   assert.deepEqual(await w.run("finish", "Shipped the CSV export"), { code: 0, text: "Finished run: Export" });
@@ -141,23 +141,23 @@ test("a ticket's story: its stages with durations, and what belongs to it exactl
   await w.run("ticket", "add", "Ticket 02: JSON", "--estimate", "30");
   await w.run("activity", "add", "Run-wide kickoff");
   w.at(10);
-  await w.run("ticket", "update", "T01", "--status", "working", "--stage", "Build");
+  await w.run("ticket", "update", "o1", "--status", "working", "--stage", "Build");
   w.at(15);
-  await w.run("activity", "add", "Untagged, while T01 worked");
-  assert.match((await w.run("activity", "add", "Tagged to T01", "--ticket", "t01")).text, /^Logged A3 on T01: /);
-  await w.run("question", "ask", "Delimiter", "Comma or tab?", "--recommend", "Comma", "--ticket", "T01");
-  await w.run("deliverable", "add", "Sample", "https://example.com/sample.csv", "--ticket", "T01");
-  assert.equal((await w.run("activity", "add", "Bad tag", "--ticket", "T09")).code, 1, "an unknown ticket is refused");
+  await w.run("activity", "add", "Untagged, while o1 worked");
+  assert.match((await w.run("activity", "add", "Tagged to o1", "--ticket", "t01")).text, /^Logged A3 on o1: /);
+  await w.run("question", "ask", "Delimiter", "Comma or tab?", "--recommend", "Comma", "--ticket", "o1");
+  await w.run("deliverable", "add", "Sample", "https://example.com/sample.csv", "--ticket", "o1");
+  assert.equal((await w.run("activity", "add", "Bad tag", "--ticket", "o9")).code, 1, "an unknown ticket is refused");
   w.at(25);
-  await w.run("ticket", "update", "T01", "--stage", "Review", "--note", "Build went fast");
+  await w.run("ticket", "update", "o1", "--stage", "Review", "--note", "Build went fast");
   w.at(40);
-  await w.run("ticket", "update", "T01", "--status", "done");
-  await w.run("ticket", "update", "T02", "--status", "working");
-  await w.run("activity", "add", "Tagged to T01 later", "--ticket", "T01");
-  await w.run("activity", "add", "Untagged, while T02 worked");
+  await w.run("ticket", "update", "o1", "--status", "done");
+  await w.run("ticket", "update", "o2", "--status", "working");
+  await w.run("activity", "add", "Tagged to o1 later", "--ticket", "o1");
+  await w.run("activity", "add", "Untagged, while o2 worked");
 
   const { dashboard } = await w.dashboard(50);
-  const t01 = dashboard.tickets.find((ticket) => ticket.id === "T01")!;
+  const t01 = dashboard.tickets.find((ticket) => ticket.id === "o1")!;
   const story = ticketStory(t01, {
     deliverables: dashboard.deliverables,
     questions: [...dashboard.questions.open, ...dashboard.questions.answered],
@@ -169,42 +169,42 @@ test("a ticket's story: its stages with durations, and what belongs to it exactl
   assert.deepEqual(story.timeline[2].notes, ["Build went fast"]);
   assert.equal(Math.round(story.workedMin), 30);
   assert.deepEqual(story.activity.map((entry) => [entry.text, entry.link]), [
-    ["Untagged, while T01 worked", "by-time"],
-    ["Tagged to T01", "tagged"],
-    ["Tagged to T01 later", "tagged"],
+    ["Untagged, while o1 worked", "by-time"],
+    ["Tagged to o1", "tagged"],
+    ["Tagged to o1 later", "tagged"],
   ]);
   assert.deepEqual(story.questions.map((question) => [question.id, question.link]), [["Q1", "tagged"]]);
   assert.deepEqual(story.deliverables.map((deliverable) => deliverable.id), ["D1"]);
 
-  const t02 = dashboard.tickets.find((ticket) => ticket.id === "T02")!;
+  const t02 = dashboard.tickets.find((ticket) => ticket.id === "o2")!;
   const current = ticketStory(t02, { deliverables: [], questions: [], activity: [...dashboard.activity].reverse() }, minutes(50).getTime());
   assert.deepEqual(current.timeline.map((step) => [step.label, Math.round(step.minutes!)]), [["Added", 40], ["Working", 10]], "the step still going runs to now");
-  assert.deepEqual(current.activity.map((entry) => entry.text), ["Untagged, while T02 worked"], "tags to another ticket never match by time");
+  assert.deepEqual(current.activity.map((entry) => entry.text), ["Untagged, while o2 worked"], "tags to another ticket never match by time");
 });
 
 test("a ticket waiting for another is not stuck, even if marked blocked, until that one is done", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Release");
   await w.run("ticket", "add", "Ticket 01: Build", "--estimate", "30");
-  assert.match((await w.run("ticket", "add", "Ship", "--estimate", "10", "--waits-for", "t01")).text, /waits for T01$/);
+  assert.match((await w.run("ticket", "add", "Ship", "--estimate", "10", "--waits-for", "t01")).text, /waits for o1$/);
   await w.run("ticket", "add", "Docs", "--estimate", "10");
-  assert.equal((await w.run("ticket", "update", "T02", "--waits-for", "T02")).code, 1, "can't wait for itself");
-  assert.equal((await w.run("ticket", "update", "T03", "--waits-for", "T09")).code, 1, "must name a ticket in the run");
-  await w.run("ticket", "update", "T02", "--status", "blocked", "--note", "Waits on Ticket 01");
-  await w.run("ticket", "update", "T03", "--status", "blocked", "--note", "Staging is down");
+  assert.equal((await w.run("ticket", "update", "o2", "--waits-for", "o2")).code, 1, "can't wait for itself");
+  assert.equal((await w.run("ticket", "update", "o3", "--waits-for", "o9")).code, 1, "must name a ticket in the run");
+  await w.run("ticket", "update", "o2", "--status", "blocked", "--note", "Waits on Ticket 01");
+  await w.run("ticket", "update", "o3", "--status", "blocked", "--note", "Staging is down");
 
   let { dashboard } = await w.dashboard();
-  assert.deepEqual(dashboard.tickets.find((ticket) => ticket.id === "T02")?.waitingFor, { id: "T01", title: "Ticket 01: Build" });
-  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:T03"], "only the outside blocker is stuck");
-  assert.equal(dashboard.progress.segments.find((segment) => segment.id === "T02")?.waiting, true);
-  assert.match((await w.run("show")).text, /T02 {2}Waiting for T01/);
+  assert.deepEqual(dashboard.tickets.find((ticket) => ticket.id === "o2")?.waitingFor, { id: "o1", title: "Ticket 01: Build" });
+  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:o3"], "only the outside blocker is stuck");
+  assert.equal(dashboard.progress.segments.find((segment) => segment.id === "o2")?.waiting, true);
+  assert.match((await w.run("show")).text, /o2 {2}Waiting for o1/);
 
-  await w.run("ticket", "update", "T01", "--status", "done");
+  await w.run("ticket", "update", "o1", "--status", "done");
   ({ dashboard } = await w.dashboard());
-  assert.equal(dashboard.tickets.find((ticket) => ticket.id === "T02")?.waitingFor, undefined, "done unblocks the wait");
-  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:T02", "blocked:T03"], "still marked blocked after it: now that's stuck");
-  await w.run("ticket", "update", "T02", "--waits-for", "");
-  assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "T02")?.waitsFor, undefined, "an empty value clears it");
+  assert.equal(dashboard.tickets.find((ticket) => ticket.id === "o2")?.waitingFor, undefined, "done unblocks the wait");
+  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:o2", "blocked:o3"], "still marked blocked after it: now that's stuck");
+  await w.run("ticket", "update", "o2", "--waits-for", "");
+  assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o2")?.waitsFor, undefined, "an empty value clears it");
 });
 
 test("opening the panel is remembered in the worktree", async (t) => {
@@ -227,14 +227,14 @@ test("a worktree without a progress file reads as not configured", async (t) => 
 test("tickets added and updated by the agent show up with ids, statuses, and the headline", async (t) => {
   const w = await worktree(t);
   assert.deepEqual(await w.run("start", "Loan Options", "--subtitle", "Frozen links"), { code: 0, text: "Started run: Loan Options" });
-  assert.equal((await w.run("ticket", "add", "Ticket 01: Saved table", "--estimate", "120")).text, "Added T01: Ticket 01: Saved table (120 min)");
+  assert.equal((await w.run("ticket", "add", "Ticket 01: Saved table", "--estimate", "120")).text, "Added o1: Ticket 01: Saved table (120 min)");
   await w.run("ticket", "add", "Ticket 02: Copy Link", "--estimate", "150");
   await w.run("ticket", "add", "Ticket 03: Frozen links", "--estimate", "120");
   await w.run("ticket", "add", "Ticket 04: Time zones", "--estimate", "75");
   w.at(30);
   await w.run("ticket", "update", "t01", "--status", "done");
-  await w.run("ticket", "update", "T02", "--status", "done");
-  assert.equal((await w.run("ticket", "update", "T03", "--status", "working", "--note", "Fixes after review")).code, 0);
+  await w.run("ticket", "update", "o2", "--status", "done");
+  assert.equal((await w.run("ticket", "update", "o3", "--status", "working", "--note", "Fixes after review")).code, 0);
 
   const { configured, dashboard } = await w.dashboard();
   assert.equal(configured, true);
@@ -243,19 +243,19 @@ test("tickets added and updated by the agent show up with ids, statuses, and the
   assert.equal(dashboard.updatedAt, minutes(30).toISOString());
   assert.deepEqual(
     dashboard.tickets.map(({ id, status, estimateMin }) => [id, status, estimateMin]),
-    [["T01", "done", 120], ["T02", "done", 150], ["T03", "working", 120], ["T04", "not_started", 75]],
+    [["o1", "closed", 120], ["o2", "closed", 150], ["o3", "in_progress", 120], ["o4", "open", 75]],
   );
   assert.equal(dashboard.tickets[2].note, "Fixes after review");
   assert.deepEqual(dashboard.issues, []);
 });
 
 test("the panel folds every finished ticket, and only two or more", () => {
-  const list = (...statuses: Ticket["status"][]) => statuses.map((status, index) => ({ id: `T0${index + 1}`, title: "", estimateMin: 10, status, statusSince: "", history: [] }));
+  const list = (...statuses: Ticket["status"][]) => statuses.map((status, index) => ({ id: `o${index + 1}`, title: "", estimateMin: 10, status, statusSince: "", history: [] }));
   const folded = (...statuses: Ticket["status"][]) => finishedToFold(list(...statuses)).map((ticket) => ticket.id);
-  assert.deepEqual(folded("done", "skipped", "done", "working", "done", "not_started"), ["T01", "T02", "T03", "T05"], "the done ticket after the working one folds too");
-  assert.deepEqual(folded("not_started", "done", "done"), ["T02", "T03"]);
-  assert.deepEqual(folded("done", "working", "not_started"), [], "one finished ticket isn't worth a fold row");
-  assert.deepEqual(folded("done", "skipped", "done"), [], "once everything is finished, the whole list shows");
+  assert.deepEqual(folded("closed", "closed", "closed", "in_progress", "closed", "open"), ["o1", "o2", "o3", "o5"], "the done ticket after the working one folds too");
+  assert.deepEqual(folded("open", "closed", "closed"), ["o2", "o3"]);
+  assert.deepEqual(folded("closed", "in_progress", "open"), [], "one finished ticket isn't worth a fold row");
+  assert.deepEqual(folded("closed", "closed", "closed"), [], "once everything is finished, the whole list shows");
   assert.deepEqual(folded(), []);
 });
 
@@ -264,11 +264,11 @@ test("removed tickets leave the dashboard and their ids are never reused", async
   await w.run("start", "Run");
   await w.run("ticket", "add", "One", "--estimate", "10");
   await w.run("ticket", "add", "Two", "--estimate", "10");
-  assert.equal((await w.run("ticket", "remove", "T02")).text, "Removed T02: Two");
-  assert.match((await w.run("ticket", "add", "Three", "--estimate", "10")).text, /^Added T03/);
-  await w.run("ticket", "update", "T03", "--status", "skipped");
+  assert.equal((await w.run("ticket", "remove", "o2")).text, "Removed o2: Two");
+  assert.match((await w.run("ticket", "add", "Three", "--estimate", "10")).text, /^Added o3/);
+  await w.run("ticket", "update", "o3", "--status", "skipped");
   const { dashboard } = await w.dashboard();
-  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id), ["T01", "T03"]);
+  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id), ["o1", "o3"]);
   assert.equal(headlineText(dashboard), "0 of 1 ticket done", "skipped tickets are not counted");
 });
 
@@ -281,9 +281,9 @@ test("bad input fails with a clear message and writes nothing", async (t) => {
     [["ticket", "add", "--estimate", "10"], /Missing ticket title/],
     [["ticket", "add", "Two"], /Missing --estimate/],
     [["ticket", "add", "Two", "--estimate", "ninety"], /whole number of minutes/],
-    [["ticket", "update", "T01", "--status", "finished"], /--status must be one of: not_started, working, blocked, done, skipped/],
-    [["ticket", "update", "T09", "--status", "done"], /No ticket T09 in this run\. Tickets: T01/],
-    [["ticket", "update", "T01"], /Nothing to change/],
+    [["ticket", "update", "o1", "--status", "finished"], /--status must be one of: open, in_progress, blocked, closed/],
+    [["ticket", "update", "o9", "--status", "done"], /No ticket o9 in this run\. Tickets: o1/],
+    [["ticket", "update", "o1"], /Nothing to change/],
     [["ticket", "add", "Two", "--estimate", "10", "--colour", "red"], /Unknown option '--colour'/],
     [["tickets", "add"], /Unknown command: tickets add/],
   ];
@@ -391,10 +391,10 @@ test("each working ticket's overdue moment ends the cached dashboard", async (t)
   const first = (await w.dashboard(0)).dashboard;
   assert.strictEqual((await w.dashboard(5)).dashboard, first);
   const one = (await after(5)).dashboard;
-  assert.deepEqual(one.stuck.map((item) => item.ticketId), ["T01"]);
+  assert.deepEqual(one.stuck.map((item) => item.ticketId), ["o1"]);
   assert.strictEqual((await w.dashboard(10)).dashboard, one);
   const both = (await after(10)).dashboard;
-  assert.deepEqual(both.stuck.map((item) => item.ticketId), ["T01", "T02"]);
+  assert.deepEqual(both.stuck.map((item) => item.ticketId), ["o1", "o2"]);
 });
 
 test("rewriting or deleting the file invalidates the reduced dashboard", async (t) => {
@@ -454,22 +454,22 @@ test("an agent hears about tickets another session added, once, on its next comm
   const w = await worktree(t);
   await w.runAs("a", "start", "Run");
   await w.runAs("a", "ticket", "add", "Ticket 01: Mine", "--estimate", "30");
-  assert.doesNotMatch((await w.runAs("a", "ticket", "update", "T01", "--status", "working")).text, /Another session/, "its own tickets are not news");
+  assert.doesNotMatch((await w.runAs("a", "ticket", "update", "o1", "--status", "working")).text, /Another session/, "its own tickets are not news");
 
   await w.runAs("b", "ticket", "add", "Ticket 02: Theirs", "--estimate", "20");
   await w.run("ticket", "add", "Ticket 03: From a terminal", "--estimate", "20");
   await w.runAs("b", "ticket", "add", "Ticket 04: Already done", "--estimate", "20", "--status", "done");
   await w.runAs("b", "ticket", "add", "Ticket 05: Removed again", "--estimate", "20");
-  await w.runAs("b", "ticket", "remove", "T05");
+  await w.runAs("b", "ticket", "remove", "o5");
 
   const shown = await w.runAs("a", "show");
-  assert.match(shown.text, /Another session added 2 tickets since your last update:\n  T02  Ticket 02: Theirs\n  T03  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket\.$/);
+  assert.match(shown.text, /Another session added 2 tickets since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket\.$/);
   const told = await w.runAs("a", "ticker", "set", "Building");
-  assert.equal(told.text, "Ticker: Building\n\nAnother session added 2 tickets since your last update:\n  T02  Ticket 02: Theirs\n  T03  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket.");
+  assert.equal(told.text, "Ticker: Building\n\nAnother session added 2 tickets since your last update:\n  o2  Ticket 02: Theirs\n  o3  Ticket 03: From a terminal\nThey are part of this run: work them in order after your current ticket.");
   assert.equal((await w.runAs("a", "ticker", "set", "Still building")).text, "Ticker: Still building", "each alert shows once");
 
   await w.runAs("b", "ticket", "add", "Ticket 06: One more", "--estimate", "20");
-  assert.match((await w.runAs("a", "ticket", "update", "T01", "--stage", "Review")).text, /added a ticket since your last update:\n  T06  Ticket 06: One more\nIt is part of this run: work it in order after your current ticket\.$/);
+  assert.match((await w.runAs("a", "ticket", "update", "o1", "--stage", "Review")).text, /added a ticket since your last update:\n  o6  Ticket 06: One more\nIt is part of this run: work it in order after your current ticket\.$/);
 });
 
 test("an agent new to the run, a command outside Paseo, and a new run hear nothing", async (t) => {
@@ -482,7 +482,7 @@ test("an agent new to the run, a command outside Paseo, and a new run hear nothi
   assert.doesNotMatch((await w.run("ticker", "set", "From a terminal")).text, /Another session/);
   assert.doesNotMatch((await w.runAs("a", "start", "Next run", "--item-label", "Step")).text, /Another session/);
   await w.runAs("b", "ticket", "add", "Third", "--estimate", "30");
-  assert.match((await w.runAs("a", "ticker", "set", "Back")).text, /Another session added a step since your last update:\n  T01  Third\nIt is part of this run: work it in order after your current step\.$/);
+  assert.match((await w.runAs("a", "ticker", "set", "Back")).text, /Another session added a step since your last update:\n  o1  Third\nIt is part of this run: work it in order after your current step\.$/);
 });
 
 test("a ticket links to where it's written up: a file in the worktree or a link, changed or cleared later", async (t) => {
@@ -490,19 +490,19 @@ test("a ticket links to where it's written up: a file in the worktree or a link,
   await mkdir(join(w.directory, "specs"));
   await writeFile(join(w.directory, "specs", "01-login.md"), "# Login\n");
   await w.run("start", "Run");
-  assert.equal((await w.run("ticket", "add", "Ticket 01: Login", "--estimate", "30", "--source", "specs/01-login.md")).text, "Added T01: Ticket 01: Login (30 min), source specs/01-login.md");
+  assert.equal((await w.run("ticket", "add", "Ticket 01: Login", "--estimate", "30", "--source", "specs/01-login.md")).text, "Added o1: Ticket 01: Login (30 min), source specs/01-login.md");
   await w.run("ticket", "add", "Ticket 02: Reset", "--estimate", "20", "--source", "https://linear.app/acme/issue/ENG-12=ENG-12");
   await w.run("ticket", "add", "Ticket 03: No write-up", "--estimate", "20");
   let { dashboard } = await w.dashboard();
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.source), [{ path: "specs/01-login.md" }, { url: "https://linear.app/acme/issue/ENG-12", label: "ENG-12" }, undefined]);
-  assert.deepEqual(findAttachment(dashboard, "T01.source"), { ref: "T01.source", title: "01-login.md", path: "specs/01-login.md", url: undefined });
-  assert.equal(findAttachment(dashboard, "T03.source"), null);
-  assert.match((await w.run("show")).text, /T01 .*Ticket 01: Login\n      Source: specs\/01-login.md\n.*T02 .*\n      Source: https:\/\/linear.app\/acme\/issue\/ENG-12 \(ENG-12\)\n.*T03 .*No write-up(\n|$)/);
+  assert.deepEqual(findAttachment(dashboard, "o1.source"), { ref: "o1.source", title: "01-login.md", path: "specs/01-login.md", url: undefined });
+  assert.equal(findAttachment(dashboard, "o3.source"), null);
+  assert.match((await w.run("show")).text, /o1 .*Ticket 01: Login\n      Source: specs\/01-login.md\n.*o2 .*\n      Source: https:\/\/linear.app\/acme\/issue\/ENG-12 \(ENG-12\)\n.*o3 .*No write-up(\n|$)/);
 
-  assert.deepEqual(await previewDeliverable(w.directory, "T01.source"), { kind: "text", text: "# Login\n", bytes: 8, truncated: false });
+  assert.deepEqual(await previewDeliverable(w.directory, "o1.source"), { kind: "text", text: "# Login\n", bytes: 8, truncated: false });
 
-  assert.equal((await w.run("ticket", "update", "T03", "--source", "specs/01-login.md=Shared spec")).text, "Updated T03: source specs/01-login.md");
-  await w.run("ticket", "update", "T02", "--source", "");
+  assert.equal((await w.run("ticket", "update", "o3", "--source", "specs/01-login.md=Shared spec")).text, "Updated o3: source specs/01-login.md");
+  await w.run("ticket", "update", "o2", "--source", "");
   ({ dashboard } = await w.dashboard());
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.source), [{ path: "specs/01-login.md" }, undefined, { path: "specs/01-login.md", label: "Shared spec" }]);
 });
@@ -544,8 +544,8 @@ test("each ticket and the ticker remember the agent that last wrote them", async
   await w.runAs("a", "start", "Run");
   await w.runAs("a", "ticket", "add", "One", "--estimate", "30");
   await w.run("ticket", "add", "Two", "--estimate", "30");
-  await w.runAs("b", "ticket", "update", "T01", "--status", "working");
-  await w.run("ticket", "update", "T01", "--stage", "Review");
+  await w.runAs("b", "ticket", "update", "o1", "--status", "working");
+  await w.run("ticket", "update", "o1", "--stage", "Review");
   await w.runAs("b", "ticker", "set", "Reviewing");
   const { dashboard } = await w.dashboard();
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.agentId), ["b", undefined]);
@@ -556,7 +556,7 @@ test("plain steps, with no write-ups, stages or Paseo agent, still get a dialog 
   const w = await worktree(t);
   await w.run("start", "Clean up the garage", "--item-label", "Step");
   await w.run("ticket", "add", "Sort the shelves", "--estimate", "30");
-  await w.run("ticket", "update", "T01", "--status", "working");
+  await w.run("ticket", "update", "o1", "--status", "working");
   await w.run("ticker", "set", "Sorting tools");
   w.at(12);
   const { dashboard } = await w.dashboard();
@@ -575,9 +575,9 @@ async function screenshotRun(t: TestContext) {
   await w.run("ticket", "add", "Ticket 02", "--estimate", "150");
   await w.run("ticket", "add", "Ticket 03", "--estimate", "120");
   await w.run("ticket", "add", "Ticket 04", "--estimate", "75");
-  await w.run("ticket", "update", "T01", "--status", "done");
-  await w.run("ticket", "update", "T02", "--status", "done");
-  await w.run("ticket", "update", "T03", "--status", "working");
+  await w.run("ticket", "update", "o1", "--status", "done");
+  await w.run("ticket", "update", "o2", "--status", "done");
+  await w.run("ticket", "update", "o3", "--status", "working");
   return w;
 }
 
@@ -588,27 +588,27 @@ test("progress matches the reference dashboard: 58%, 4 h 30 min of 7 h 45 min", 
   assert.equal(formatWorkDone(progress.doneMin, progress.totalMin), "4 h 30 min of 7 h 45 min");
   assert.deepEqual(
     progress.segments.map(({ id, estimateMin, status }) => `${id}:${estimateMin}:${status}`),
-    ["T01:120:done", "T02:150:done", "T03:120:working", "T04:75:not_started"],
+    ["o1:120:closed", "o2:150:closed", "o3:120:in_progress", "o4:75:open"],
   );
 });
 
 test("skipped tickets leave the progress bar and the totals", async (t) => {
   const w = await screenshotRun(t);
-  await w.run("ticket", "update", "T04", "--status", "skipped");
+  await w.run("ticket", "update", "o4", "--status", "skipped");
   const { progress } = (await w.dashboard()).dashboard;
   assert.equal(progress.totalMin, 390);
   assert.equal(progress.percent, 69);
-  assert.deepEqual(progress.segments.map((segment) => segment.id), ["T01", "T02", "T03"]);
+  assert.deepEqual(progress.segments.map((segment) => segment.id), ["o1", "o2", "o3"]);
 });
 
 test("the dashboard turns stale exactly 15 minutes after the last event", async (t) => {
   const w = await screenshotRun(t);
   w.at(10);
-  await w.run("ticket", "update", "T03", "--note", "Still going");
+  await w.run("ticket", "update", "o3", "--note", "Still going");
   assert.equal((await w.dashboard(24)).dashboard.stale, false);
   assert.equal((await w.dashboard(25)).dashboard.stale, true);
   w.at(26);
-  await w.run("ticket", "update", "T03", "--note", "Back");
+  await w.run("ticket", "update", "o3", "--note", "Back");
   assert.equal((await w.dashboard(26)).dashboard.stale, false, "a new event clears it");
 });
 
@@ -619,12 +619,12 @@ test("once every ticket is done, the dashboard says how long the run really took
   await w.run("ticket", "add", "Two", "--estimate", "30");
   await w.run("ticket", "add", "Extra", "--estimate", "30");
   w.at(40);
-  await w.run("ticket", "update", "T01", "--status", "done");
+  await w.run("ticket", "update", "o1", "--status", "done");
   assert.equal((await w.dashboard()).dashboard.progress.tookMin, undefined, "not while work remains");
   w.at(70);
-  await w.run("ticket", "update", "T02", "--status", "done");
+  await w.run("ticket", "update", "o2", "--status", "done");
   w.at(85);
-  await w.run("ticket", "update", "T03", "--status", "skipped");
+  await w.run("ticket", "update", "o3", "--status", "skipped");
   const { progress } = (await w.dashboard(200)).dashboard;
   assert.equal(progress.tookMin, 85, "from the start to the last ticket settling, not to now");
   assert.match((await w.run("show")).text, /100% of estimated work done, took 1 h 25 min/);
@@ -633,8 +633,8 @@ test("once every ticket is done, the dashboard says how long the run really took
 test("a run whose tickets are all done or skipped never turns stale", async (t) => {
   const w = await screenshotRun(t);
   w.at(10);
-  for (const id of ["T01", "T02", "T03"]) await w.run("ticket", "update", id, "--status", "done");
-  await w.run("ticket", "update", "T04", "--status", "skipped");
+  for (const id of ["o1", "o2", "o3"]) await w.run("ticket", "update", id, "--status", "done");
+  await w.run("ticket", "update", "o4", "--status", "skipped");
   assert.equal((await w.dashboard(60)).dashboard.stale, false);
 });
 
@@ -661,17 +661,17 @@ test("display helpers format durations and hours the way the panel shows them", 
 test("a working ticket shows its stage and when that stage started", async (t) => {
   const w = await screenshotRun(t);
   w.at(5);
-  await w.run("ticket", "update", "T03", "--stage", "Build");
+  await w.run("ticket", "update", "o3", "--stage", "Build");
   w.at(40);
-  await w.run("ticket", "update", "T03", "--stage", "Fixes");
+  await w.run("ticket", "update", "o3", "--stage", "Fixes");
   w.at(45);
-  await w.run("ticket", "update", "T03", "--stage", "Fixes", "--note", "Same stage, no restart");
-  const ticket = (await w.dashboard()).dashboard.tickets.find((candidate) => candidate.id === "T03");
+  await w.run("ticket", "update", "o3", "--stage", "Fixes", "--note", "Same stage, no restart");
+  const ticket = (await w.dashboard()).dashboard.tickets.find((candidate) => candidate.id === "o3");
   assert.equal(ticket?.stage, "Fixes");
   assert.equal(ticket?.stageSince, minutes(40).toISOString());
-  assert.equal(ticket?.workingSince, minutes(0).toISOString());
-  await w.run("ticket", "update", "T03", "--stage", "");
-  const cleared = (await w.dashboard()).dashboard.tickets.find((candidate) => candidate.id === "T03");
+  assert.equal(ticket?.startedAt, minutes(0).toISOString());
+  await w.run("ticket", "update", "o3", "--stage", "");
+  const cleared = (await w.dashboard()).dashboard.tickets.find((candidate) => candidate.id === "o3");
   assert.equal(cleared?.stage, undefined);
 });
 
@@ -680,7 +680,7 @@ test("a working ticket becomes stuck once it goes longer than its estimate witho
   assert.deepEqual((await w.dashboard(120)).dashboard.stuck, [], "exactly at the estimate is not stuck");
   const { dashboard } = await w.dashboard(617);
   assert.deepEqual(dashboard.stuck, [{
-    kind: "overdue", key: "overdue:T03", ticketId: "T03", title: "Ticket 03",
+    kind: "overdue", key: "overdue:o3", ticketId: "o3", title: "Ticket 03",
     since: minutes(0).toISOString(), estimateMin: 120,
   }]);
   assert.equal(headlineText(dashboard), "2 of 4 tickets done, 1 stuck");
@@ -690,10 +690,10 @@ test("a working ticket becomes stuck once it goes longer than its estimate witho
 test("a stage change, note or tagged activity restarts a working ticket's stuck clock", async (t) => {
   const w = await screenshotRun(t);
   w.at(100);
-  await w.run("ticket", "update", "T03", "--stage", "Build");
+  await w.run("ticket", "update", "o3", "--stage", "Build");
   assert.deepEqual((await w.dashboard(200)).dashboard.stuck, [], "past the estimate since starting, but updated 100 min ago");
   w.at(210);
-  await w.run("activity", "add", "Tests pass", "--ticket", "T03");
+  await w.run("activity", "add", "Tests pass", "--ticket", "o3");
   w.at(215);
   await w.run("activity", "add", "Untagged work");
   const { dashboard } = await w.dashboard(340);
@@ -704,15 +704,15 @@ test("a stage change, note or tagged activity restarts a working ticket's stuck 
 test("blocked tickets and flagged blockers are stuck until cleared", async (t) => {
   const w = await screenshotRun(t);
   w.at(3);
-  await w.run("ticket", "update", "T04", "--status", "blocked", "--note", "Waiting on the API key");
+  await w.run("ticket", "update", "o4", "--status", "blocked", "--note", "Waiting on the API key");
   assert.equal((await w.run("stuck", "set", "Staging is down", "--ticket", "t03")).text, "Flagged S1: Staging is down");
   const { dashboard } = await w.dashboard();
-  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:T04", "manual:S1"]);
+  assert.deepEqual(dashboard.stuck.map((item) => item.key), ["blocked:o4", "manual:S1"]);
   assert.equal(dashboard.stuck[0].since, minutes(3).toISOString());
   assert.equal(dashboard.stuck[1].title, "Ticket 03");
   assert.equal((await w.run("stuck", "clear", "s1")).text, "Cleared S1: Staging is down");
   assert.match((await w.run("stuck", "clear", "S1")).text, /No flagged blocker S1\. Flagged: none/);
-  await w.run("ticket", "update", "T04", "--status", "working");
+  await w.run("ticket", "update", "o4", "--status", "working");
   assert.deepEqual((await w.dashboard()).dashboard.stuck, []);
   assert.match((await w.run("stuck", "set", "Again")).text, /^Flagged S2/, "ids are not reused");
 });
@@ -795,7 +795,7 @@ test("deliverables are listed newest first with root-relative paths, their ticke
   await mkdir(join(w.directory, ".scratch", "shots"), { recursive: true });
   const nested = join(w.directory, "packages", "app");
   await mkdir(nested, { recursive: true });
-  assert.equal((await w.run("deliverable", "add", "Browser check screenshots", ".scratch/shots", "--ticket", "T03")).text, "Added D1: Browser check screenshots");
+  assert.equal((await w.run("deliverable", "add", "Browser check screenshots", ".scratch/shots", "--ticket", "o3")).text, "Added D1: Browser check screenshots");
   const fromBelow = await runCli(["deliverable", "add", "Review report", "report.html", "--kind", "report"], { cwd: nested, now: () => minutes(1), out: () => {} });
   assert.equal(fromBelow, 0);
   await w.run("deliverable", "add", "Preview", "https://example.com/preview");
@@ -812,7 +812,7 @@ test("deliverables are listed newest first with root-relative paths, their ticke
   for (const [argv, message] of [
     [["deliverable", "add", "Bad", "ftp://example.com/x"], /Only http\(s\) URLs/],
     [["deliverable", "add", "Bad", "x.txt", "--kind", "video"], /--kind must be one of/],
-    [["deliverable", "add", "Bad", "x.txt", "--ticket", "T09"], /No ticket T09/],
+    [["deliverable", "add", "Bad", "x.txt", "--ticket", "o9"], /No ticket o9/],
     [["deliverable", "remove", "D2"], /No deliverable D2/],
   ] as Array<[string[], RegExp]>) {
     const result = await w.run(...argv);
@@ -849,7 +849,7 @@ test("bad lines are skipped and named while the rest of the dashboard renders", 
   const file = join(w.store, "progress.jsonl");
   const lines = (await readFile(file, "utf8")).split("\n");
   lines.splice(2, 0, "{not json", JSON.stringify({ v: 2, ts: minutes(0).toISOString(), type: "ticket.add" }), JSON.stringify({ v: 1, ts: "yesterday", type: "ticket.add" }), "[]");
-  const text = lines.join("\n") + JSON.stringify({ v: 1, ts: minutes(1).toISOString(), type: "ticket.update", id: "T09", status: "done" }) + "\n";
+  const text = lines.join("\n") + JSON.stringify({ v: 1, ts: minutes(1).toISOString(), type: "ticket.update", id: "o9", status: "done" }) + "\n";
   await writeFile(file, `${text}{"v":1,"ts":"2026-09-27T20:00:00.000Z","type":"ticket.upd`);
   const { dashboard } = await w.dashboard();
   assert.equal(dashboard.progress.percent, 58, "good lines still count");
@@ -858,7 +858,7 @@ test("bad lines are skipped and named while the rest of the dashboard renders", 
     { line: 4, reason: "written by a newer version of the plugin (v2)" },
     { line: 5, reason: "invalid ticket.add event" },
     { line: 6, reason: "not a progress event" },
-    { line: 13, reason: "unknown ticket T09" },
+    { line: 13, reason: "unknown ticket o9" },
   ], "the unfinished last line is skipped without an issue");
 });
 
@@ -870,7 +870,7 @@ test("a new run shows a fresh dashboard while the old history stays in the file"
   const { dashboard } = await w.dashboard();
   assert.equal(dashboard.run?.title, "Second run");
   assert.deepEqual([dashboard.tickets, dashboard.questions.open, dashboard.stuck], [[], [], []]);
-  assert.match((await w.run("ticket", "add", "Fresh", "--estimate", "5")).text, /^Added T01/, "ticket ids restart per run");
+  assert.match((await w.run("ticket", "add", "Fresh", "--estimate", "5")).text, /^Added o1/, "ticket ids restart per run");
   const history = await readFile(join(w.store, "progress.jsonl"), "utf8");
   assert.match(history, /"title":"Loan Options"/);
 });
@@ -904,9 +904,9 @@ test("a lock left behind by a crashed command is taken over", async (t) => {
 
 test("show prints the dashboard as text for the agent", async (t) => {
   const w = await screenshotRun(t);
-  await w.run("ticket", "update", "T03", "--stage", "Fixes");
+  await w.run("ticket", "update", "o3", "--stage", "Fixes");
   await w.run("question", "ask", "Row spacing", "Even out the spacing?", "--option", "A=Yes", "--option", "B=No", "--recommend", "B");
-  await w.run("deliverable", "add", "Screenshots", ".scratch/shots/", "--ticket", "T03");
+  await w.run("deliverable", "add", "Screenshots", ".scratch/shots/", "--ticket", "o3");
   await w.run("activity", "add", "Ticket 03 moved to Fixes.");
   const { code, text } = await runShow(w, 617);
   assert.equal(code, 0);
@@ -917,7 +917,7 @@ test("show prints the dashboard as text for the agent", async (t) => {
     "58% of estimated work done, 4 h 30 min of 7 h 45 min",
     "POSSIBLY STALE: no update for 10 h 17 min.",
     "Ticket 03 (no update for longer than its 2 h estimate)",
-    "T03  Working, Fixes stage  2 h  Ticket 03",
+    "o3  In progress, Fixes stage  2 h  Ticket 03",
     "Q1 (Row spacing): Even out the spacing? You recommended B",
     "      B) No",
     "D1  Screenshots: .scratch/shots/, Ticket 03",

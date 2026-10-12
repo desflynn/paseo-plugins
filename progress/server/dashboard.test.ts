@@ -63,7 +63,7 @@ test("the all fold counts over the union and shows repeated per-scope ids", asyn
   await seedTwoRuns(root);
   const all = await handleGetDashboard({ workspaceId: "wsA", workspaceDirectory: root, scope: "all" }, context);
   assert.ok("dashboard" in all);
-  assert.deepEqual(all.dashboard.tickets.map((t) => t.id), ["T01", "T01"]);
+  assert.deepEqual(all.dashboard.tickets.map((t) => t.id), ["o1", "o1"]);
   assert.equal(all.dashboard.progress.totalMin, 75, "counts over the union, not one run");
   assert.equal(all.dashboard.progress.percent, 0);
 });

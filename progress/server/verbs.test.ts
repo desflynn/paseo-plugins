@@ -67,10 +67,10 @@ test("ticket claim sets the ticket working and stamps by and ws", async (t) => {
   await w.runAs("agent-a", "ticket", "add", "Wire the ledger", "--estimate", "60");
   const { code, text } = await w.runAs("agent-a", "ticket", "claim", "T01", "--stage", "Build");
   assert.equal(code, 0, text);
-  assert.match(text, /Claimed T01/);
+  assert.match(text, /Claimed o1/);
   const event = await w.lastEvent();
   assert.equal(event.type, "ticket.update");
-  assert.equal(event.status, "working");
+  assert.equal(event.status, "in_progress");
   assert.equal(event.stage, "Build");
   assert.equal(event.by, "agent-a");
   assert.equal(event.ws, "ws-a");
@@ -82,10 +82,11 @@ test("ticket done sets the ticket done", async (t) => {
   await w.runAs(undefined, "ticket", "add", "Post the letter", "--estimate", "30");
   const { code, text } = await w.runAs(undefined, "ticket", "done", "T01", "--note", "in the post");
   assert.equal(code, 0, text);
-  assert.match(text, /Done T01|Updated T01/);
+  assert.match(text, /Done o1|Updated o1/);
   const event = await w.lastEvent();
   assert.equal(event.type, "ticket.update");
-  assert.equal(event.status, "done");
+  assert.equal(event.status, "closed");
+  assert.equal(event.closeReason, "done");
   assert.equal(event.note, "in the post");
 });
 
@@ -96,15 +97,15 @@ test("--ref on ticket add and ticket update lands on the ticket", async (t) => {
   assert.equal(code, 0, text);
   assert.match(text, /ref bead:rvr-1/);
   const added = await w.lastEvent();
-  assert.equal(added.ref, "bead:rvr-1");
+  assert.deepEqual(added.refs, ["bead:rvr-1"]);
   const update = await w.runAs(undefined, "ticket", "update", "T01", "--ref", "gh:owner/repo#7");
   assert.equal(update.code, 0, update.text);
   const event = await w.lastEvent();
-  assert.equal(event.ref, "gh:owner/repo#7");
+  assert.deepEqual(event.refs, ["gh:owner/repo#7"]);
 });
 
 // GOLDEN captured from the pre-change CLI (0.4.0 behaviour) for these events.
-const GOLDEN = (root: string) => `${"Worktree: " + root}\n\nLedger run\n0 of 1 ticket done\nLast updated Sep 27, 9:00 PM (just now)\n0% of estimated work done, 0 min of 1 h\n\nTickets\n  T01  Not started  1 h  Wire the ledger`;
+const GOLDEN = (root: string) => `${"Worktree: " + root}\n\nLedger run\n0 of 1 ticket done\nLast updated Sep 27, 9:00 PM (just now)\n0% of estimated work done, 0 min of 1 h\n\nTickets\n  o1  Open  1 h  Wire the ledger`;
 
 test("plain show output is byte-identical to 0.4.0, scoped or not", async (t) => {
   const w = await worktree(t);

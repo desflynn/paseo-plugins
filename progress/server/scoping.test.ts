@@ -47,9 +47,9 @@ test("each workspace mints its own next ticket id from its own run", () => {
   ].join("\n");
   const a = fold(text, "ws-a");
   const b = fold(text, "ws-b");
-  assert.equal(a.nextIds.ticket, "T02");
+  assert.equal(a.nextIds.ticket, "o2");
   // B's run has no tickets of its own, so it mints T01 even though A used it.
-  assert.equal(b.nextIds.ticket, "T01");
+  assert.equal(b.nextIds.ticket, "o1");
 });
 
 test("a late unscoped run.start displaces neither workspace's run", () => {
@@ -63,7 +63,7 @@ test("a late unscoped run.start displaces neither workspace's run", () => {
   const a = fold(text, "ws-a");
   const b = fold(text, "ws-b");
   assert.ok(a.dashboard.run, "workspace A lost its run slot");
-  assert.ok(a.dashboard.tickets.some((ticket) => ticket.id === "T01"), "workspace A's board was emptied");
+  assert.ok(a.dashboard.tickets.some((ticket) => ticket.id === "o1"), "workspace A's board was emptied");
   assert.ok(b.dashboard.run, "workspace B lost its run slot");
 });
 
@@ -74,7 +74,7 @@ test("legacy events with no ws stay visible inside a scoped run", () => {
     "",
   ].join("\n");
   const a = fold(text, "ws-a");
-  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
+  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["o1"]);
 });
 
 test("a file with no ws anywhere folds on the no-scope path exactly as 0.4.0: last run.start wins", () => {
@@ -87,8 +87,8 @@ test("a file with no ws anywhere folds on the no-scope path exactly as 0.4.0: la
   ].join("\n");
   const all = fold(text);
   assert.equal(all.dashboard.run?.title, "New run");
-  assert.deepEqual(all.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
-  assert.equal(all.nextIds.ticket, "T02");
+  assert.deepEqual(all.dashboard.tickets.map((ticket) => ticket.id), ["o1"]);
+  assert.equal(all.nextIds.ticket, "o2");
 });
 
 test("with no scope the boundary is the last run.start in the file, whatever ws it carries", () => {
@@ -101,7 +101,7 @@ test("with no scope the boundary is the last run.start in the file, whatever ws 
   ].join("\n");
   const all = fold(text);
   assert.equal(all.dashboard.run?.title, "Workspace B");
-  assert.deepEqual(all.dashboard.tickets.map((ticket) => ticket.id), ["T02"]);
+  assert.deepEqual(all.dashboard.tickets.map((ticket) => ticket.id), ["o2"]);
 });
 
 test("ref carries onto the Ticket and updates with ticket.update", () => {
@@ -113,9 +113,9 @@ test("ref carries onto the Ticket and updates with ticket.update", () => {
     "",
   ].join("\n");
   const { dashboard } = fold(text);
-  const fromBead = dashboard.tickets.find((ticket) => ticket.id === "T01");
+  const fromBead = dashboard.tickets.find((ticket) => ticket.id === "o1");
   assert.equal(fromBead?.ref, "gh:o/r#7");
-  const noRef = dashboard.tickets.find((ticket) => ticket.id === "T02");
+  const noRef = dashboard.tickets.find((ticket) => ticket.id === "o2");
   assert.equal(noRef?.ref, undefined);
 });
 
@@ -149,7 +149,7 @@ test("ids minted per scope may repeat and both show", () => {
     "",
   ].join("\n");
   const { dashboard } = unionFold(text);
-  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id).sort(), ["T01", "T01"], "both T01s show");
+  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.id).sort(), ["o1", "o1"], "both T01s show");
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.title).sort(), ["A ticket", "B ticket"]);
 });
 
@@ -164,7 +164,7 @@ test("a file with no ws anywhere folds the union exactly like 0.4.0", () => {
   const union = unionFold(text);
   const legacy = fold(text);
   assert.equal(union.dashboard.run?.title, "New run");
-  assert.deepEqual(union.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
+  assert.deepEqual(union.dashboard.tickets.map((ticket) => ticket.id), ["o1"]);
   assert.equal(union.nextIds.ticket, legacy.nextIds.ticket);
   assert.deepEqual(union.dashboard.tickets, legacy.dashboard.tickets);
 });
@@ -234,8 +234,8 @@ test("a stray unscoped run.start claims no header in a scope with its own run (D
   const union = unionFold(text);
   assert.equal(a.dashboard.run?.title, "Workspace A", "stray displaced A's title");
   assert.equal(b.dashboard.run?.title, "Workspace B", "stray displaced B's title");
-  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
-  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["T02"]);
+  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["o1"]);
+  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["o2"]);
   assert.equal(union.dashboard.run?.title, "Workspace B", "stray displaced the union header");
 });
 
@@ -276,7 +276,7 @@ test("a no-ws add skips the scoped ticket but a no-ws update still reaches it (D
   const a = fold(text, "ws-a");
   const [ticket] = a.dashboard.tickets;
   assert.equal(ticket.title, "A one", "the unscoped add displaced A's ticket");
-  assert.equal(ticket.status, "done", "the no-ws update no longer reaches A's ticket");
+  assert.equal(ticket.status, "closed", "the no-ws update no longer reaches A's ticket");
   // The writer's own plain fold is untouched: its run still shows its T01.
   const plain = fold(text);
   assert.equal(plain.dashboard.tickets[0]?.title, "Unscoped one");

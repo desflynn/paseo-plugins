@@ -10,8 +10,15 @@ export const PANEL_OPENED_NAME = "progress-panel-opened";
 export const LEGACY_FOLDER = ".scratch";
 export const EVENT_VERSION = 1;
 
-export const TICKET_STATUSES = ["not_started", "working", "blocked", "done", "skipped"] as const;
-export const ticketStatusSchema = z.enum(TICKET_STATUSES);
+// The Beads vocabulary (O1700): open/closed with a close reason (done,
+// skipped), started-at when work begins. These four are what the fold stores.
+export const TICKET_STATUSES = ["open", "in_progress", "blocked", "closed"] as const;
+export type BoardStatus = (typeof TICKET_STATUSES)[number];
+export const CLOSE_REASONS = ["done", "skipped"] as const;
+export type CloseReason = (typeof CLOSE_REASONS)[number];
+// What events may carry: the canonical words plus the 0.4.0 ones, which the
+// fold translates, so historical files parse forever.
+export const ticketStatusSchema = z.enum([...TICKET_STATUSES, "not_started", "working", "done", "skipped"]);
 export type TicketStatus = z.infer<typeof ticketStatusSchema>;
 
 const text = z.string().trim().min(1);
@@ -54,12 +61,21 @@ export const eventSchema = z.discriminatedUnion("type", [
     title: text,
     estimateMin: minutes,
     status: ticketStatusSchema.optional(),
+    // Why it closed: only meaningful with status "closed".
+    closeReason: z.enum(CLOSE_REASONS).optional(),
+ // How urgent it is, Beads-style: 0 is lowest, 4 highest.
+    priority: z.number().int().min(0).max(4).optional(),
     // Another ticket in the run this one can't start until it's done.
     waitsFor: text.optional(),
     // Where the ticket is written up: a spec file or an issue link.
     source: fileLinkSchema.optional(),
     // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
     ref: text.optional(),
+    // Newer tickets carry several refs at once (a bead and its GitHub issue);
+    // older events carry the single `ref`. Both stay readable forever.
+    refs: z.array(text).optional(),
+    // The parent objective, when this one is nested (O1800). Any depth.
+    under: text.optional(),
   }),
   z.object({
     ...base,
@@ -68,6 +84,9 @@ export const eventSchema = z.discriminatedUnion("type", [
     title: text.optional(),
     estimateMin: minutes.optional(),
     status: ticketStatusSchema.optional(),
+    // Why it closed, when closing or re-closing.
+    closeReason: z.enum(CLOSE_REASONS).optional(),
+    priority: z.number().int().min(0).max(4).optional(),
     // The step inside the ticket, like "Build" or "Fixes". Empty clears it.
     stage: z.string().trim().optional(),
     note: z.string().trim().optional(),
@@ -77,6 +96,8 @@ export const eventSchema = z.discriminatedUnion("type", [
     source: z.union([fileLinkSchema, z.literal("")]).optional(),
     // Where the work came from: `bead:<id>`, `gh:<owner>/<repo>#<n>` or `teams:<messageId>`.
     ref: text.optional(),
+    // Replaces the ticket's refs when given (see ticket.add).
+    refs: z.array(text).optional(),
   }),
   z.object({ ...base, type: z.literal("ticket.remove"), id: text }),
   // A blocker that is not a ticket status, like a failing external service.

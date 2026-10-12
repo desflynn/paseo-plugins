@@ -177,3 +177,73 @@ export const getBeads = defineRpc({
     z.object({ state: z.literal("error"), message: z.string() }),
   ]),
 });
+
+// ── The bead detail sheet (T13 / O2200) ───────────────────────────────
+// One bead's full record for the sheet opened from the Beads tab, and the
+// two writes the sheet offers. Status writes go through bd's own verbs
+// (close --reason closes; update --status moves the rest); the upgrade
+// promotes the bead through the existing ticket-add path with --ref
+// bead:<id>. Beads stays the record; nothing here invents a third store.
+const beadStatus = z.enum(["open", "in_progress", "blocked", "deferred", "closed"]);
+export type BeadStatus = z.infer<typeof beadStatus>;
+
+// The full record `bd show --json` prints, narrowed to the fields the sheet
+// shows. Everything past the tab's row fields is optional.
+export type BeadDetail = BeadIssue & {
+  description?: string;
+  owner?: string;
+  created_at?: string;
+  created_by?: string;
+  closed_at?: string;
+  close_reason?: string;
+};
+
+export type BeadDetailResult =
+  | { state: "ok"; bead: BeadDetail }
+  | { state: "none" }
+  | { state: "error"; message: string };
+
+export const getBeadDetail = defineRpc({
+  name: "progress.beads.detail",
+  input: z.object({
+    workspaceId: z.string().min(1),
+    workspaceDirectory: z.string().min(1),
+    id: z.string().min(1),
+  }),
+  output: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("ok"), bead: z.custom<BeadDetail>() }),
+    z.object({ state: z.literal("none") }),
+    z.object({ state: z.literal("error"), message: z.string() }),
+  ]),
+});
+
+export const setBeadStatus = defineRpc({
+  name: "progress.beads.status",
+  input: z.object({
+    workspaceId: z.string().min(1),
+    workspaceDirectory: z.string().min(1),
+    id: z.string().min(1),
+    status: beadStatus,
+    // Carried to `bd close --reason`; ignored for the other statuses.
+    reason: z.string().optional(),
+  }),
+  output: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("ok") }),
+    z.object({ state: z.literal("none") }),
+    z.object({ state: z.literal("error"), message: z.string() }),
+  ]),
+});
+
+export const upgradeBead = defineRpc({
+  name: "progress.beads.upgrade",
+  input: z.object({
+    workspaceId: z.string().min(1),
+    workspaceDirectory: z.string().min(1),
+    id: z.string().min(1),
+  }),
+  output: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("ok"), ticketId: z.string().nullable() }),
+    z.object({ state: z.literal("none") }),
+    z.object({ state: z.literal("error"), message: z.string() }),
+  ]),
+});

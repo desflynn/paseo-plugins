@@ -39,9 +39,9 @@ test("readProgress with a scope folds only that workspace's run", async (t) => {
   const b = await readProgress(directory, NOW, "ws-b");
   assert.ok(a.configured && b.configured);
   assert.equal(a.dashboard.run?.title, "Workspace A");
-  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
+  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["o1"]);
   assert.equal(b.dashboard.run?.title, "Workspace B");
-  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["T02"]);
+  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["o2"]);
 });
 
 test("appendProgress with a scope takes writer state from the scoped fold", async (t) => {
@@ -53,11 +53,11 @@ test("appendProgress with a scope takes writer state from the scoped fold", asyn
   ].join(""));
   // Appending as A: A's run already used T01, so the next id is T02.
   const asA = await write2(directory, "ws-a", "T02", "A second");
-  assert.deepEqual(asA.sawIds.ticket, "T02");
+  assert.deepEqual(asA.sawIds.ticket, "o2");
   assert.deepEqual(asA.sawEvents, ["T01"]);
   // Appending as B: B's run is empty, so B mints its own T01 and sees no events.
   const asB = await write2(directory, "ws-b", "T01", "B first");
-  assert.deepEqual(asB.sawIds.ticket, "T01");
+  assert.deepEqual(asB.sawIds.ticket, "o1");
   assert.deepEqual(asB.sawEvents, []);
 });
 
@@ -79,6 +79,6 @@ test("a scope with no run of its own sees an empty board, never another workspac
   assert.equal(a.dashboard.run, null, "a scope with no run of its own must have no run");
   assert.deepEqual(a.dashboard.tickets, [], "a scope with no run of its own must see no tickets");
   const appended = await write2(directory, "ws-a", "T01", "A first");
-  assert.deepEqual(appended.sawIds.ticket, "T01", "a scope with no run mints its own first id");
+  assert.deepEqual(appended.sawIds.ticket, "o1", "a scope with no run mints its own first id");
   assert.deepEqual(appended.sawEvents, []);
 });
