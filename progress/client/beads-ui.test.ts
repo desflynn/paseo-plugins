@@ -284,6 +284,26 @@ test("potential rows sit muted; running rows run full-strength (o17)", () => {
   assert.equal(styleOf("running"), 1, "in-progress runs full-strength");
 });
 
+// Owner ruling: the detail view shows every title and note in full; the
+// ellipsis belongs to the list previews only.
+test("a timeline step in the detail view wraps its label and notes instead of clipping them", () => {
+  const { TimelineRow } = load("client/ticket-dialog.tsx");
+  const long = "A very long stage name that would run past the edge of a narrow dialog and used to be cut off ".repeat(3).trim();
+  const step = { label: long, status: "open", at: "2026-10-12T20:00:00.000Z", minutes: 5, notes: [long, "second note " + long] };
+  // Shallow: the animated icon swap carries hooks, and only the row's own text matters here.
+  const tree = { nodes: [] as Node[], texts: [] as string[] };
+  const shallow = (node: unknown): void => {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (Array.isArray(node)) return node.forEach(shallow);
+    if (typeof node === "object" && "props" in (node as Node)) { tree.nodes.push(node as Node); return shallow((node as Node).props?.children); }
+    tree.texts.push(String(node));
+  };
+  shallow(TimelineRow({ colors, step, last: false, now: Date.parse("2026-10-12T21:00:00.000Z"), live: false }));
+  assert.ok(tree.texts.includes(long), "the full label is rendered");
+  const clipped = tree.nodes.filter((node) => node.type === rn.Text && (node.props as { numberOfLines?: number } | undefined)?.numberOfLines !== undefined);
+  assert.equal(clipped.length, 0, "no text in the detail view is line-clamped");
+});
+
 test("the priority pill rides the title line instead of taking its own row", () => {
   const { UnifiedRow } = load("client/unified-list.tsx");
   const tree = treeOf(UnifiedRow({ colors, icon: null, id: "o3", title: "Daemon RPC workspace resolver leg", tone: "potential", priority: 3 }));

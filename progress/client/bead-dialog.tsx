@@ -34,7 +34,7 @@ export function BeadDialog({ colors, beadId, detail, busy, onClose, onSetStatus,
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.surface0, padding: 12, gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17, fontFamily: "monospace" }}>{beadId}</Text>
-        {bead ? <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" }}>{bead.title}</Text> : <View style={{ flex: 1 }} />}
+        {bead ? <Text style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" }}>{bead.title}</Text> : <View style={{ flex: 1 }} />}
         <Pressable accessibilityRole="button" accessibilityLabel="Close bead detail" onPress={onPress(onClose, busy)}
           style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
           <Text style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>Close</Text>

@@ -85,7 +85,7 @@ export function AttachmentList({ colors, attachments, onOpen, onSurface1 = true 
           {/* A 14px slot, like a section icon, so the title lines up with the heading above. */}
           <View style={{ width: 14, alignItems: "center" }}><Icon name={attachmentIcon(attachment)} size={12} color={colors.foregroundMuted} /></View>
           {/* The row is the target, so nothing in it is styled as a link. */}
-          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{attachment.title}</Text>
+          <Text style={{ flexShrink: 1, color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{attachment.title}</Text>
           {shortName(attachment) !== attachment.title ? (
             <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{shortName(attachment)}</Text>
           ) : <View style={{ flex: 1 }} />}

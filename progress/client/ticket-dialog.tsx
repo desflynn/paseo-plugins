@@ -79,8 +79,8 @@ export function TicketStoryView({ colors, dashboard, ticket, now, live, context,
       <View>
         {story.activity.map((entry) => (
           <View key={entry.id} style={{ flexDirection: "row", gap: 12, paddingVertical: 4 }}>
-            {/* Two lines at most per entry (o6.1). */}
-            <Text numberOfLines={2} style={{ flex: 1, color: colors.foreground, fontSize: 13, lineHeight: 19 }}>{entry.text}<LinkNote colors={colors} link={entry.link} /></Text>
+            {/* The detail view shows the whole entry; only the list previews clip. */}
+            <Text style={{ flex: 1, color: colors.foreground, fontSize: 13, lineHeight: 19 }}>{entry.text}<LinkNote colors={colors} link={entry.link} /></Text>
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 19, fontVariant: ["tabular-nums"] }}>{formatTimeOfDay(entry.at, now)}</Text>
           </View>
         ))}
@@ -123,7 +123,7 @@ export function TicketStoryView({ colors, dashboard, ticket, now, live, context,
       <View style={{ gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <StatusBadge colors={colors} status={ticket.status} closeReason={ticket.closeReason} waiting={Boolean(ticket.waitingFor)} />
-          <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{detail}</Text>
+          <Text style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{detail}</Text>
           <Text accessibilityLabel={`Worked ${formatMinutes(story.workedMin)} of a ${formatMinutes(ticket.estimateMin)} estimate`}
             style={{ color: over ? colors.statusDanger : colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>
             {formatWorkDone(story.workedMin, ticket.estimateMin)}
@@ -206,7 +206,7 @@ function Marker({ colors, step }: { colors: Colors; step: TimelineStep & { waiti
 
 // One line per step: its status icon, what it was, when it began and how long
 // it took. The step still going shows the live spinner.
-function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: TimelineStep & { waiting?: boolean }; last: boolean; now: number; live: boolean }) {
+export function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: TimelineStep & { waiting?: boolean }; last: boolean; now: number; live: boolean }) {
   const current = last && step.minutes !== null;
   const working = current && step.status === "in_progress";
   return (
@@ -218,7 +218,7 @@ function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: 
             {working ? (live ? <Spinner color={colors.accent} /> : <StalledPulse color={colors.statusWarning} />) : <Marker colors={colors} step={step} />}
           </IconSwap>
         </View>
-        <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{step.label}</Text>
+        <Text style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{step.label}</Text>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{formatTimeOfDay(step.at, now)}</Text>
         {/* A fixed column, so durations line up down the list. */}
         <Text style={{ width: 84, textAlign: "right", color: current ? colors.foreground : colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>
@@ -226,7 +226,7 @@ function TimelineRow({ colors, step, last, now, live }: { colors: Colors; step: 
         </Text>
       </View>
       {step.notes.map((note, index) => (
-        <Text key={index} numberOfLines={2} style={{ paddingStart: 20, color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{note}</Text>
+        <Text key={index} style={{ paddingStart: 20, color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{note}</Text>
       ))}
     </View>
   );
