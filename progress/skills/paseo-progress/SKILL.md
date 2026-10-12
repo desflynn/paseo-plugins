@@ -7,6 +7,8 @@ description: Record progress on the Paseo Progress dashboard with the paseo-prog
 
 The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. Every command reads and writes the board of the workspace it runs in. `show --all` folds every workspace's current run into one view; `show --mine` shows only your own work, and needs a Paseo agent id, so run it from a Paseo seat; `show --json` prints machine-readable output. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
 
+Run `paseo-progress` from your plain shell tool. Do not run it through `ctx_execute` or `rtk`: they strip the `PASEO_*` environment variables, and the command needs `PASEO_AGENT_ID` to find your workspace. Without it the command reads the unscoped board and can show a closed run that is not yours.
+
 The user answers questions by reference ("Q7 A") and reads everything else at a glance, so every line you record is written for a product manager: plain words, no jargon.
 
 One setup command sits outside any run: `install-launcher [path]` writes the `paseo-progress` launcher (default `~/.local/bin/paseo-progress`) that runs whichever copy of the plugin Paseo is running.
