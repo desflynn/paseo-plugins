@@ -1,6 +1,8 @@
 // Workspace scoping: two Paseo workspaces on one checkout each fold to their
 // own run, a late unscoped start displaces neither, and a file with no `ws`
-// folds exactly as 0.4.0 did. Also: `ref` carried onto Ticket.
+// folds exactly as 0.4.0 did. Also: `ref` carried onto Ticket; a
+// no-workspace writer's same-id add shadows no workspace's own ticket (D-4)
+// while a no-ws update still reaches a ws-tagged ticket.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseProgress, reduceProgress, UNION_SCOPE } from "../shared/dashboard.ts";
@@ -235,4 +237,47 @@ test("a stray unscoped run.start claims no header in a scope with its own run (D
   assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.id), ["T01"]);
   assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.id), ["T02"]);
   assert.equal(union.dashboard.run?.title, "Workspace B", "stray displaced the union header");
+});
+
+// DEFECT D-4 (O1000, owner ruling: change the fold): a no-workspace writer's
+// same-id ticket.add must not take a scoped ticket's place on any workspace
+// board or in the union. Design A.5: a miss is safe. The unscoped writer's
+// own plain fold (no scope) is untouched — it still shows its own run.
+test("an unscoped writer's same-id add shadows no workspace's ticket (D-4)", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A one", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Workspace B", ws: "ws-b" }),
+    add("T01", "B one", { ws: "ws-b" }),
+    line({ type: "run.start", title: "Unresolved run" }),
+    add("T01", "Unscoped one"),
+    "",
+  ].join("\n");
+  const a = fold(text, "ws-a");
+  const b = fold(text, "ws-b");
+  const union = unionFold(text);
+  assert.deepEqual(a.dashboard.tickets.map((ticket) => ticket.title), ["A one"],
+    "the unscoped T01 took A's ticket's place");
+  assert.deepEqual(b.dashboard.tickets.map((ticket) => ticket.title), ["B one"],
+    "the unscoped T01 took B's ticket's place");
+  assert.deepEqual(union.dashboard.tickets.map((ticket) => ticket.title).sort(), ["A one", "B one"],
+    "the union shows the unscoped T01 in a scoped ticket's place");
+});
+
+test("a no-ws add skips the scoped ticket but a no-ws update still reaches it (D-4, U2)", () => {
+  const text = [
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A one", { ws: "ws-a" }),
+    line({ type: "run.start", title: "Unresolved run" }),
+    add("T01", "Unscoped one"),
+    line({ type: "ticket.update", id: "T01", status: "done" }),
+    "",
+  ].join("\n");
+  const a = fold(text, "ws-a");
+  const [ticket] = a.dashboard.tickets;
+  assert.equal(ticket.title, "A one", "the unscoped add displaced A's ticket");
+  assert.equal(ticket.status, "done", "the no-ws update no longer reaches A's ticket");
+  // The writer's own plain fold is untouched: its run still shows its T01.
+  const plain = fold(text);
+  assert.equal(plain.dashboard.tickets[0]?.title, "Unscoped one");
 });

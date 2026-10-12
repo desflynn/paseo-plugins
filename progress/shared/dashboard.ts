@@ -274,6 +274,9 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
   const issues = [...parsed.issues];
   let run: Dashboard["run"] = null;
   const tickets = new Map<string, Ticket>();
+  // Keys whose current ticket was minted by a scoped (ws-tagged) event, for
+  // the D-4 guard on ticket.add below.
+  const scopedMints = new Set<string>();
   const questions = new Map<string, Question>();
   const deliverables = new Map<string, Deliverable>();
   const activity = new Map<string, Activity>();
@@ -296,8 +299,15 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (run) run.finished = { at: event.ts, outcome: event.outcome };
         ticker = null;
         break;
-      case "ticket.add":
-        tickets.set(key(wsKey, event.id), {
+      case "ticket.add": {
+        const k = key(wsKey, event.id);
+        // D-4 (O1000): an unscoped writer's add must not take a scoped
+        // ticket's place (design A.5, owner ruling). Nothing scoped is ever
+        // minted in a file with no ws events, so such a file folds exactly as
+        // 0.4.0 did; a no-ws ticket.update still reaches the scoped ticket.
+        if (scopedMints.has(k) && event.ws === undefined) break;
+        if (event.ws !== undefined) scopedMints.add(k);
+        tickets.set(k, {
           id: event.id,
           title: event.title,
           estimateMin: event.estimateMin,
@@ -312,6 +322,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           agentId: event.by,
         });
         break;
+      }
       case "ticket.update": {
         const ticket = tickets.get(key(wsKey, event.id));
         if (!ticket) {
@@ -343,9 +354,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
         if (event.by) ticket.agentId = event.by;
         break;
       }
-      case "ticket.remove":
-        if (!tickets.delete(key(wsKey, event.id))) issues.push({ line, reason: `unknown ticket ${event.id}` });
+      case "ticket.remove": {
+        const k = key(wsKey, event.id);
+        if (tickets.delete(k)) scopedMints.delete(k);
+        else issues.push({ line, reason: `unknown ticket ${event.id}` });
         break;
+      }
       case "question.ask":
         questions.set(key(wsKey, event.id), {
           id: event.id,
