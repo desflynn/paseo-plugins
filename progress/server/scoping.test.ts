@@ -158,6 +158,23 @@ test("ids minted per scope may repeat and both show", () => {
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.title).sort(), ["A ticket", "B ticket"]);
 });
 
+// GPG's board (dci-harness): his workspace stamps its work but never started
+// a run of its own, so the union, which only walked run.start scopes, left
+// all of it out. A workspace with stamped work joins the union with the
+// same slice its own WS view shows.
+test("a workspace with stamped work but no run of its own still shows in the union", () => {
+  const text = [
+    line({ type: "run.start", title: "Shared run" }),
+    add("T01", "B's work", { ws: "ws-b" }),
+    line({ type: "run.start", title: "Workspace A", ws: "ws-a" }),
+    add("T01", "A's work", { ws: "ws-a" }),
+    "",
+  ].join("\n");
+  const titles = unionFold(text).dashboard.tickets.map((ticket) => ticket.title).sort();
+  assert.deepEqual(titles, ["A's work", "B's work"], "B's stamped work is missing from All");
+  assert.deepEqual(fold(text, "ws-b").dashboard.tickets.map((ticket) => ticket.title), ["B's work"], "B's own view is unchanged");
+});
+
 test("a file with no ws anywhere folds the union exactly like 0.4.0", () => {
   const text = [
     line({ type: "run.start", title: "Old run" }),

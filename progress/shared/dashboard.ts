@@ -385,7 +385,11 @@ export function scopeEvents(events: ParsedLine[], scope?: string, agentWs?: Agen
 // — unresolvable `by`, no `by`, or an agent whose workspace has no run here —
 // form the global bucket, rendered only via --all and tagged to no workspace.
 function unionEvents(events: ParsedLine[], agentWs?: AgentWorkspaces): ParsedLine[] {
+  // Every workspace that stamped anything, not only those with a run.start of
+  // their own: a workspace writing into a shared run shows in All with the
+  // same slice its WS view folds. Run starters come first, in file order.
   const scopes = new Set(events.flatMap(({ event }) => (event.type === "run.start" && event.ws !== undefined ? [event.ws] : [])));
+  for (const { event } of events) if (event.ws !== undefined) scopes.add(event.ws);
   if (scopes.size === 0) return latestRun(events);
   const moved = movedTargets(events);
   const seen = new Set<number>();
