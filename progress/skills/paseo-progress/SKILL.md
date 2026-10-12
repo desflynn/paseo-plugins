@@ -5,16 +5,18 @@ description: Record progress on the Paseo Progress dashboard with the paseo-prog
 
 # Paseo progress
 
-The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
+The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. Every command reads and writes the board of the workspace it runs in. `show --all` folds every workspace's current run into one view; `show --mine` shows only your own work, and needs a Paseo agent id, so run it from a Paseo seat; `show --json` prints machine-readable output. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
 
 The user answers questions by reference ("Q7 A") and reads everything else at a glance, so every line you record is written for a product manager: plain words, no jargon.
+
+One setup command sits outside any run: `install-launcher [path]` writes the `paseo-progress` launcher (default `~/.local/bin/paseo-progress`) that runs whichever copy of the plugin Paseo is running.
 
 ## 1. Set up the run
 
 Run `paseo-progress show`. When it shows an open run for this job, continue it. A run marked Finished is closed, even if it looks like your job; start a new one. Otherwise:
 
 1. `paseo-progress start "<job title>"`, with `--subtitle` naming the spec or ticket folder.
-2. Add every ticket in order with `paseo-progress ticket add "Ticket 01: <title>" --estimate <minutes>`, with `--waits-for T02` on any that can't start before another finishes. Keep the "Ticket NN:" prefix: the dashboard shortens titles to it. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
+2. Add every ticket in order with `paseo-progress ticket add "Ticket 01: <title>" --estimate <minutes>`, with `--waits-for T02` on any that can't start before another finishes. Keep the "Ticket NN:" prefix: the dashboard shortens titles to it. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. When it comes from a tracked item, name where with `--ref bead:<id>`, `--ref gh:<owner>/<repo>#<n>` or `--ref teams:<messageId>`. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
 3. `paseo-progress activity add "<one line: what this run will do>"`.
 
 Done when `show` lists every ticket with an estimate.
@@ -25,15 +27,17 @@ Record each change as it happens, on the ticket's id from `show` (T01, T02, ...)
 
 | When | Command |
 | --- | --- |
-| You start a ticket | `ticket update T03 --status working --stage Build` |
+| You take a ticket | `ticket claim T03 --stage Build` — it sets the ticket working and stamps you as the one on it |
 | You move to the next stage | `ticket update T03 --stage Review`, then `Fixes`, then `Verify` |
-| Something reviewable lands (a screenshot folder, a report, a preview URL) | `deliverable add "<what it shows>" <path or URL> --ticket T03` |
+| Something reviewable lands (a screenshot folder, a report, a preview URL) | `deliverable add "<what it shows>" <path or URL> --ticket T03`, with `--kind file`, `folder`, `report`, `screenshot` or `link` when the path alone doesn't say which |
 | A milestone the user would want in the story | `activity add "<one line>" --ticket T03` |
-| Between bigger events | `ticker set "<what you are doing right now>"` |
-| The ticket is finished | `ticket update T03 --status done`, then start the next one |
-| The plan drops it | `ticket update T03 --status skipped --note "<why>"` |
+| Between bigger events | `ticker set "<what you are doing right now>"`, then `ticker clear` when it no longer applies |
+| The ticket is finished | `ticket done T03`, then start the next one |
+| The plan drops it but it should stay visible | `ticket update T03 --status skipped --note "<why>"` |
 
 Pass `--ticket` on every activity, deliverable and question that belongs to a ticket. The user presses a ticket to see its story: each stage and how long it took, with the activity, deliverables and questions tagged to it. Leave it off only for run-wide notes. Stage changes and notes are timed from your `ticket update` calls, so make them when the change happens.
+
+`ticket update T03 --note "<text>"` adds a note without changing status. `activity update A2 "<text>"` rewords a note; `activity remove A2` takes it off the feed. `deliverable remove D1` and `ticket remove T03` take an item off the dashboard — use `skipped` instead when a ticket should stay visible with its reason.
 
 Other sessions may add tickets (or steps) to the same run. When a command's output says another session added one, it is part of the plan: work it in order after your current one, the same as the ones you added.
 
