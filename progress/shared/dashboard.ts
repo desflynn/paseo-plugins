@@ -868,25 +868,34 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
   return `https://github.com/${gh.owner}/${gh.repo}/issues/${gh.number}`;
 }
 
-// Objective order (owner spec, mirroring the Beads bands): open before
-// closed; then priority P0 to P4, an objective with none counting as 5; then,
-// inside a band, in progress before not in progress (open, held, blocked);
-// then o-number, each dot-segment read as a number (o2 above o10). A child
-// orders the same way among its siblings and stays under its parent: every
-// level of the id compares its ancestor's band, running state, then number. Closed ones sink
-// below the open ones; ties keep their recorded order.
+// Objective order (owner spec), three groups top to bottom:
+//   1. in progress, 2. the other open ones (open, held, blocked),
+//   3. finished (closed done or skipped).
+// A heading with an in-progress child counts as in progress. Groups 1 and 2
+// sort by priority P0 to P4 (none counts as 5, after P4), then o-number, each
+// dot-segment read as a number (o2 above o10). Group 3 sorts by when each was
+// closed, newest first, and ignores priority and number; a finished ticket
+// under an open heading still joins this group. A child orders the same way
+// among its siblings and stays under its parent. Ties keep their recorded order.
 export const NO_PRIORITY_BAND = 5;
 export function sortObjectives(tickets: Ticket[]): Ticket[] {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
-  const key = (ticket: Ticket): number[] =>
-    ancestry(ticket, byId).flatMap((level) => [level.priority ?? NO_PRIORITY_BAND, level.status === "in_progress" ? 0 : 1, Number(level.id.split(".").pop()!.replace(/\D/g, "") || 0)]);
-  const sunk = (ticket: Ticket) => (isFinished(ticket) ? 1 : 0);
+  const live = new Set<string>();
+  for (const ticket of tickets) {
+    if (ticket.status === "in_progress") for (const level of ancestry(ticket, byId)) live.add(level.id);
+  }
+  const group = (ticket: Ticket) => (isFinished(ticket) ? 2 : live.has(ticket.id) ? 0 : 1);
+  // statusSince is the close event's own time on a closed ticket.
+  const closedAt = (ticket: Ticket) => Date.parse(ticket.statusSince) || 0;
+  const key = (ticket: Ticket): number[] => isFinished(ticket)
+    ? [2, ...ancestry(ticket, byId).filter(isFinished).map((level) => -closedAt(level))]
+    : ancestry(ticket, byId).flatMap((level) => [group(level), level.priority ?? NO_PRIORITY_BAND, Number(level.id.split(".").pop()!.replace(/\D/g, "") || 0)]);
   return [...tickets].sort((a, b) => {
-    if (sunk(a) !== sunk(b)) return sunk(a) - sunk(b);
     const left = key(a), right = key(b);
     for (let index = 0; index < Math.max(left.length, right.length); index++) {
-      const order = (left[index] ?? -1) - (right[index] ?? -1);
-      if (order) return order;
+      // A parent's key is a prefix of its child's: the parent comes first.
+      const l = left[index] ?? -Infinity, r = right[index] ?? -Infinity;
+      if (l !== r) return l < r ? -1 : 1;
     }
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
