@@ -950,6 +950,22 @@ test("the launcher runs the command from the plugin folder Paseo reports", async
   );
 });
 
+// Owner ruling (12 Oct): there is one plugin, the checkout, so the command
+// runs its source — the same code a reload hands the panel. A leftover
+// dist/ snapshot once kept the CLI on an old fold after the panel moved on.
+test("the launcher runs the plugin's source, never a dist snapshot", async (t) => {
+  const w = await worktree(t);
+  const target = join(w.directory, "bin", "paseo-progress");
+  await runCli(["install-launcher", target], { cwd: w.directory, out: () => {} });
+  const plugin = join(w.directory, "fake-plugin");
+  await mkdir(join(plugin, "dist", "server"), { recursive: true });
+  await mkdir(join(plugin, "server"), { recursive: true });
+  await writeFile(join(plugin, "dist", "server", "cli.js"), `console.log("stale snapshot");\n`);
+  await writeFile(join(plugin, "server", "cli.ts"), `console.log("source");\n`);
+  const { stdout } = await promisify(execFile)(target, [], { cwd: w.directory, env: { ...process.env, PASEO_PROGRESS_PLUGIN_DIR: plugin } });
+  assert.equal(stdout.trim(), "source");
+});
+
 test("the launcher is installed only on request, updated when stale, and never replaces another file", async (t) => {
   const home = await mkdtemp(join(tmpdir(), "progress-home-"));
   t.after(() => rm(home, { recursive: true, force: true }));

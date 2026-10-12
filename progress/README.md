@@ -44,10 +44,10 @@ To install from a terminal instead, or to put the command somewhere else:
 
 ```sh
 dir="$(paseo plugin ls progress --json | node -pe 'JSON.parse(require("fs").readFileSync(0))[0].path')"
-node "$([ -f "$dir/dist/server/cli.js" ] && echo "$dir/dist/server/cli.js" || echo "$dir/server/cli.ts")" install-launcher [path]
+node "$dir/server/cli.ts" install-launcher [path]
 ```
 
-If `paseo` isn't on your `PATH`, use `/Applications/Paseo.app/Contents/Resources/bin/paseo`. The command doesn't name a plugin folder: each run asks Paseo (`paseo plugin ls`) which copy of the plugin it is running and runs that copy, so it keeps working after updates and `npm run dev` switches. The npm package carries the command as one JavaScript file in `dist/`, built with esbuild when publishing, because Node won't run TypeScript from `node_modules`. That file includes zod (MIT), so installing the plugin downloads no other packages.
+If `paseo` isn't on your `PATH`, use `/Applications/Paseo.app/Contents/Resources/bin/paseo`. The command doesn't name a plugin folder: each run asks Paseo (`paseo plugin ls`) which copy of the plugin it is running and runs that copy, so it keeps working after updates and `npm run dev` switches. It always runs the plugin's source, `server/cli.ts`, the same code a reload hands the panel, so the command never lags behind the panel.
 
 ## Where progress is kept
 
