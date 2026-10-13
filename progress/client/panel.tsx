@@ -49,7 +49,9 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
   const result = query.data ?? null;
   useMarkPanelOpened(workspaceId, directory, Boolean(result?.configured && !result.panelOpened));
   const [narrow, setNarrow] = useState(false);
-  const beads = useBeads(workspaceId, result?.root);
+  // Told by the dashboard view which section shows; the Beads read runs fast only for its own.
+  const [beadsShowing, setBeadsShowing] = useState(false);
+  const beads = useBeads(workspaceId, result?.root, beadsShowing);
 
   return (
     <NarrowProvider value={narrow}>
@@ -67,7 +69,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
       <Presence show={Boolean(result && !result.configured)}>{result && !result.configured ? <EmptyState colors={colors} file={result.file} /> : null}</Presence>
       {/* Keyed by run: a new run starts with fresh tabs, pages and dialogs. */}
       {result?.configured ? <DashboardView key={result.dashboard.run?.startedAt ?? "none"} colors={colors} dashboard={result.dashboard} agentRunning={agentRunning} compact={layout.compact}
-        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} gitOnly={Boolean(directory && result.root && directory !== result.root)} beads={beads} /> : null}
+        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} gitOnly={Boolean(directory && result.root && directory !== result.root)} beads={beads} onBeadsShowing={setBeadsShowing} /> : null}
       {result?.inRepo && directory ? <HistoryRow colors={colors} workspaceId={workspaceId} directory={directory} savedTo={result.savedTo} /> : null}
     </ScrollView>
     </NarrowProvider>
@@ -89,32 +91,48 @@ function useMarkPanelOpened(workspaceId: string, directory: string | null, neede
   }, [needed, directory, workspaceId, mark]);
 }
 
-// How often the Beads tab re-reads the record (owner ruling: added, renamed,
-// closed and reopened beads must show up without reopening the panel).
+// How often the Beads tab re-reads the record while it is showing (owner
+// ruling: added, renamed, closed and reopened beads must show up without
+// reopening the panel). Hidden, it only keeps the badge numbers current.
 export const BEADS_REFRESH_MS = 10_000;
+export const BEADS_BACKGROUND_MS = 60_000;
 
-// A readonly beads read on mount, then every BEADS_REFRESH_MS. An unchanged
+// What the Beads read does now: how often to repeat, and whether the list is
+// old enough to read at once (owner ruling: refresh on focus if out of date).
+export function beadsPoll(active: boolean, ageMs: number): { readNow: boolean; everyMs: number } {
+  return { readNow: ageMs >= BEADS_REFRESH_MS, everyMs: active ? BEADS_REFRESH_MS : BEADS_BACKGROUND_MS };
+}
+
+// A readonly beads read on mount, then on beadsPoll's rhythm. An unchanged
 // read keeps the same object, so the list does not re-render; a failed
 // refresh keeps the last good list, and only a first-read failure shows.
-function useBeads(workspaceId: string, root: string | undefined): BeadsResult | null {
+function useBeads(workspaceId: string, root: string | undefined, active: boolean): BeadsResult | null {
   const fetchBeads = useRpc(getBeads);
   const [beads, setBeads] = useState<BeadsResult | null>(null);
+  // Outlives the effect, so a tab switch knows how old the list is.
+  const memo = useRef({ key: "", readAt: 0, last: "" });
   useEffect(() => {
     if (!root) return;
+    const key = `${workspaceId}\0${root}`;
+    if (memo.current.key !== key) memo.current = { key, readAt: 0, last: "" };
+    const mine = memo.current;
     let stale = false;
-    let last = "";
-    const read = () => fetchBeads({ workspaceId, workspaceDirectory: root })
-      .then((result) => {
-        const text = JSON.stringify(result);
-        if (stale || text === last) return;
-        last = text;
-        setBeads(result as BeadsResult);
-      })
-      .catch(() => { if (!stale && !last) setBeads({ state: "error", message: "Could not read beads" }); });
-    void read();
-    const timer = setInterval(read, BEADS_REFRESH_MS);
+    const read = () => {
+      mine.readAt = Date.now();
+      return fetchBeads({ workspaceId, workspaceDirectory: root })
+        .then((result) => {
+          const text = JSON.stringify(result);
+          if (stale || text === mine.last) return;
+          mine.last = text;
+          setBeads(result as BeadsResult);
+        })
+        .catch(() => { if (!stale && !mine.last) setBeads({ state: "error", message: "Could not read beads" }); });
+    };
+    const poll = beadsPoll(active, mine.readAt ? Date.now() - mine.readAt : Number.POSITIVE_INFINITY);
+    if (poll.readNow) void read();
+    const timer = setInterval(read, poll.everyMs);
     return () => { stale = true; clearInterval(timer); };
-  }, [fetchBeads, workspaceId, root]);
+  }, [fetchBeads, workspaceId, root, active]);
   return beads;
 }
 
@@ -166,7 +184,7 @@ function useNow(intervalMs: number): number {
 
 const WIDE_MIN = 760;
 
-function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads }: {
+function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing }: {
   colors: Colors;
   dashboard: Dashboard;
   agentRunning: boolean;
@@ -181,6 +199,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // subdirectory): the workspace fold no-ops there, so the toggle shows GIT only.
   gitOnly: boolean;
   beads: BeadsResult | null;
+  // Whether the Beads section is the one showing, so its read can slow down when it is not.
+  onBeadsShowing(showing: boolean): void;
 }) {
   const now = useNow(15_000);
   // Quiet isn't stale while an agent in the workspace is still running.
@@ -197,6 +217,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   const [openTicket, setOpenTicket] = useState<string | null>(null);
   // The section the top tab row shows; Tickets first, always.
   const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
+  // Also fires on mount, so a new run (fresh tabs) tells the panel Beads is hidden again.
+  useEffect(() => onBeadsShowing(section === "beads"), [section, onBeadsShowing]);
   const ticketsBody = (
     <View>
       <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />

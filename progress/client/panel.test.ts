@@ -305,3 +305,21 @@ test("a ticket with no linkage renders no chips", () => {
   const plain = { ...ROW_TICKET, ref: undefined, refs: undefined };
   assert.equal(treeOf(RefChips({ colors, ticket: plain })).texts.length, 0, "nothing to show");
 });
+
+// o24: the Beads read runs every 10 s only while its tab shows. Hidden, it
+// keeps the badge numbers fresh about once a minute, and coming back to the
+// tab re-reads at once if the list is older than the focused interval.
+test("Beads polls every 10 s while showing and once a minute while hidden", () => {
+  const { beadsPoll, BEADS_REFRESH_MS, BEADS_BACKGROUND_MS } = load("client/panel.tsx") as unknown as { beadsPoll(active: boolean, ageMs: number): { readNow: boolean; everyMs: number }; BEADS_REFRESH_MS: number; BEADS_BACKGROUND_MS: number };
+  assert.equal(BEADS_REFRESH_MS, 10_000);
+  assert.equal(BEADS_BACKGROUND_MS, 60_000);
+  assert.equal(beadsPoll(true, 0).everyMs, 10_000);
+  assert.equal(beadsPoll(false, 0).everyMs, 60_000);
+});
+
+test("Beads reads on focus only when the list is out of date", () => {
+  const { beadsPoll } = load("client/panel.tsx") as unknown as { beadsPoll(active: boolean, ageMs: number): { readNow: boolean } };
+  assert.equal(beadsPoll(true, 4_000).readNow, false, "a 4 s old list stands");
+  assert.equal(beadsPoll(true, 10_000).readNow, true, "a 10 s old list is refreshed on focus");
+  assert.equal(beadsPoll(true, Number.POSITIVE_INFINITY).readNow, true, "no read yet means read now");
+});
