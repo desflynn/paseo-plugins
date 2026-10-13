@@ -15,7 +15,7 @@ import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, pro
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
-import { mark, watchPanel } from "./perf";
+import { countRender, mark, watchPanel } from "./perf";
 import { useDashboard } from "./dashboard-query";
 import { statusLabel } from "./status-badge";
 import { TicketDialogs } from "./ticket-dialog";
@@ -43,6 +43,15 @@ function useCommitMark(name: string) {
   useLayoutEffect(() => { mark(`${name} commit ${Math.round(performance.now() - startedAt)}ms`); });
 }
 
+// Counts why a component rendered: which of the given values changed since its
+// last render, or "nothing of mine" when only a parent or a subscription did.
+function useWhyRendered(name: string, values: Record<string, unknown>) {
+  const previous = useRef(values);
+  const changed = Object.keys(values).filter((key) => !Object.is(previous.current[key], values[key]));
+  previous.current = values;
+  countRender(name, changed.join(",") || "nothing of mine");
+}
+
 function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: PluginWorkspacePanelProps) {
   useCommitMark("Panel");
   const sendPerf = useRpc(reportPerf);
@@ -62,6 +71,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
   // Told by the dashboard view which section shows; the Beads read runs fast only for its own.
   const [beadsShowing, setBeadsShowing] = useState(false);
   const beads = useBeads(workspaceId, result?.root, beadsShowing);
+  useWhyRendered("Panel", { theme, workspaceId, host, layout, navigation, scope, narrow, beadsShowing, result, agentRunning, directory, beads });
 
   return (
     <NarrowProvider value={narrow}>
@@ -215,6 +225,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
 }) {
   useCommitMark("DashboardView");
   const now = useNow(15_000);
+  useWhyRendered("DashboardView", { colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, now });
   // Quiet isn't stale while an agent in the workspace is still running.
   const stale = dashboard.stale && !agentRunning;
   const hasHistory = dashboard.activity.length + dashboard.questions.answered.length + dashboard.deliverables.length > 0;

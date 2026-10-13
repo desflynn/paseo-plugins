@@ -12,6 +12,7 @@ const LEAD_MS = 1_500;
 const TICK_MS = 100;
 const STALL_MS = 250;
 const FLUSH_MS = 3_000;
+const RENDER_SUMMARY_MS = 30_000;
 const LONG_TASK_MS = 100;
 
 export function pushMark(ring: Mark[], what: string, at: number): void {
@@ -32,6 +33,21 @@ export function lagLine(lagMs: number, endMs: number, marks: Mark[]): string {
 const recent: Mark[] = [];
 export function mark(what: string): void {
   pushMark(recent, what, Date.now());
+}
+
+// How often each component re-rendered and why, since the last summary.
+const renders = new Map<string, number>();
+export function countRender(name: string, why: string): void {
+  const key = `${name}: ${why}`;
+  renders.set(key, (renders.get(key) ?? 0) + 1);
+}
+
+// One log line for a stretch of renders, most frequent cause first; null when
+// nothing rendered.
+export function renderSummary(counts: Map<string, number>, seconds: number, endMs: number): string | null {
+  if (!counts.size) return null;
+  const causes = [...counts].sort((a, b) => b[1] - a[1]).map(([cause, count]) => `${cause} x${count}`);
+  return `${new Date(endMs).toISOString()} RENDERS in ${seconds}s | ${causes.join("; ")}`;
 }
 
 type Browser = {
@@ -71,6 +87,11 @@ export function watchPanel(send: (lines: string[]) => void): void {
   } catch {
     // Not every runtime has long-task timing; the timer above still works.
   }
+  setInterval(() => {
+    const summary = renderSummary(renders, RENDER_SUMMARY_MS / 1000, Date.now());
+    renders.clear();
+    if (summary) queue.push(summary);
+  }, RENDER_SUMMARY_MS);
   setInterval(() => {
     if (queue.length) sender?.(queue.splice(0, 50));
   }, FLUSH_MS);

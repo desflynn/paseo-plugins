@@ -2,7 +2,7 @@
 // built from what ran just before it. Pure, so it runs without the app.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { lagLine, pushMark, type Mark } from "./perf.ts";
+import { lagLine, pushMark, renderSummary, type Mark } from "./perf.ts";
 
 const NOW = Date.parse("2026-10-13T10:00:10.000Z");
 
@@ -30,4 +30,20 @@ test("marks keep only the most recent ones", () => {
   assert.equal(ring.length, 40);
   assert.equal(ring[0]!.what, "m60");
   assert.equal(ring[39]!.what, "m99");
+});
+
+test("the render summary counts renders by cause, most frequent first", () => {
+  const counts = new Map([
+    ["DashboardView: nothing of mine", 40],
+    ["Panel: layout,navigation", 120],
+    ["Panel: result", 3],
+  ]);
+  assert.equal(
+    renderSummary(counts, 30, NOW),
+    "2026-10-13T10:00:10.000Z RENDERS in 30s | Panel: layout,navigation x120; DashboardView: nothing of mine x40; Panel: result x3",
+  );
+});
+
+test("a quiet stretch writes no render summary", () => {
+  assert.equal(renderSummary(new Map(), 30, NOW), null);
 });
