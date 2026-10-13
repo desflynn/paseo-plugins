@@ -64,8 +64,9 @@ export function BeadDialog({ colors, beadId, detail, busy, onClose, onSetStatus,
         </View>
       )}
 
+      {/* Right under the details, not pinned to the panel bottom: on a tall or phone panel that left the buttons off screen. */}
       {bead ? (
-        <View style={{ marginTop: "auto", gap: 10 }}>
+        <View style={{ gap: 10 }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             {SHEET_STATUSES.filter((status) => status !== bead.status).map((status) => (
               <Pressable key={status} accessibilityRole="button" accessibilityLabel={`Set status ${status}`} onPress={onPress(() => onSetStatus(status), busy)}
@@ -74,9 +75,9 @@ export function BeadDialog({ colors, beadId, detail, busy, onClose, onSetStatus,
               </Pressable>
             ))}
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Upgrade to objective" onPress={onPress(onUpgrade, busy)}
+          <Pressable accessibilityRole="button" accessibilityLabel="Promote to objective" onPress={onPress(onUpgrade, busy)}
             style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>Upgrade to objective</Text>
+            <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>Promote to objective</Text>
           </Pressable>
           {busy ? <Text accessibilityLiveRegion="polite" style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Working…</Text> : null}
         </View>

@@ -146,7 +146,7 @@ The progress file, `progress.jsonl`, holds one JSON event per line, each with a 
 
 The Beads tab shows this repo's beads: one row per issue, with a priority pill (P0–P4), the issue id, its title and its status. Children nest under their parent, indented like the objectives board. Closed beads are listed too (`bd --all`) and sink behind a count header that opens to show them; a bead closed as skipped is struck through. The tab re-reads the record every 10 seconds, and it needs the `bd` command on the daemon host. Reads run `bd --readonly -C <repo-root> list --json --all --limit 0`.
 
-Press a bead for its detail: description, priority, status, the full record. From there you can change its status, or press **Upgrade** to promote it to an objective on the board — a new objective carrying `--ref bead:<id>`, estimated at an hour to start. Every write goes through `bd` itself (`bd update`, `bd close`); the plugin keeps no copy of the record. Beads stays the record.
+Press a bead for its detail: description, priority, status, the full record. From there you can change its status, or press **Promote to objective**, right under the details, to put it on the board as an objective — a new objective carrying `--ref bead:<id>`, estimated at an hour to start. Every write goes through `bd` itself (`bd update`, `bd close`); the plugin keeps no copy of the record. Beads stays the record.
 
 Two calm states, each in its own words: a repo with no `bd`, or no `.beads/` folder, says "No beads in this repo"; a repo whose `bd` answers with an empty list says "No open beads". If `bd` fails, the tab shows its message, never a stack.
 

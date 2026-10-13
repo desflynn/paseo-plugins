@@ -95,12 +95,12 @@ function treeTexts(node: Node): string[] {
 
 // T13 (O2200): amended from "the Beads tab is read-only: no buttons" — the
 // detail-view ruling makes each row tap open the sheet. The tab itself still
-// promotes nothing: Upgrade lives only at the bottom of the sheet.
+// promotes nothing: Promote lives only in the sheet.
 test("a bead row taps open the detail sheet; the tab still promotes nothing (T13)", () => {
   const { BeadsTab } = load("client/beads.tsx");
   const tree = treeOf(BeadsTab({ colors, result: ok, onOpenBead: () => {} }));
   assert.ok(tree.presses >= ok.issues.length, "every bead row must be pressable");
-  assert.ok(!tree.texts.includes("Upgrade to objective"), "no upgrade button on the tab itself");
+  assert.ok(!tree.texts.includes("Promote to objective"), "no promote button on the tab itself");
 });
 
 test("no beads shows the calm 'No beads in this repo' state", () => {
@@ -381,9 +381,12 @@ test("the sheet shows what the bead is (T13)", () => {
   }
 });
 
-test("the sheet's actions sit at the bottom: status changer and Upgrade (T13)", () => {
-  const labels = pressLabels(treeOf(sheet(openBead)));
-  assert.ok(labels.includes("Upgrade to objective"), "the upgrade button is missing");
+test("the sheet's actions follow the details directly: Promote and the status changer (T13)", () => {
+  const tree = treeOf(sheet(openBead));
+  const labels = pressLabels(tree);
+  assert.ok(labels.includes("Promote to objective"), "the promote button is missing");
+  const pushedDown = tree.nodes.filter((node) => (node.props?.style as { marginTop?: unknown } | undefined)?.marginTop === "auto");
+  assert.equal(pushedDown.length, 0, "no auto margin: the actions must not be pushed off a tall panel");
   assert.ok(labels.includes("Set status closed") && labels.includes("Set status in_progress"), "the status changer is missing choices");
   assert.ok(!labels.includes("Set status open"), "the current status must not be offered again");
   assert.ok(labels.includes("Close bead detail"), "no way to close the sheet");
