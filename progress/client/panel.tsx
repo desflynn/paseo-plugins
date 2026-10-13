@@ -11,7 +11,7 @@ import { raised } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, type BeadsResult } from "../shared/rpc";
@@ -593,7 +593,7 @@ export function ScopeControl({ colors, scope, onChange }: { colors: Colors; scop
 // done-sink. With the workspace identity the section is read-write: rows tap
 // open the detail sheet (beads-sheet.tsx). Without one it stays the pure
 // read-only view.
-export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined, workspaceId?: string, workspaceDirectory?: string): HistoryTabEntry {
+export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined, workspaceId?: string, workspaceDirectory?: string, promoted?: ReadonlyMap<string, string>): HistoryTabEntry {
   return {
     id: "beads",
     label: "Beads",
@@ -603,7 +603,7 @@ export function beadsTab(colors: Colors, beads: BeadsResult | null | undefined, 
     content: beads ? (
       <View>
         {workspaceId && workspaceDirectory
-          ? <BeadsSheet colors={colors} result={beads} workspaceId={workspaceId} workspaceDirectory={workspaceDirectory} />
+          ? <BeadsSheet colors={colors} result={beads} workspaceId={workspaceId} workspaceDirectory={workspaceDirectory} promoted={promoted} />
           : <BeadsView colors={colors} result={beads} />}
       </View>
     ) : null,
@@ -618,7 +618,7 @@ export function sectionTabs(colors: Colors, dashboard: Dashboard, beads: BeadsRe
   const itemLabel = dashboard.run?.itemLabel ?? "Objective";
   return [
     { id: "tickets", label: `${itemLabel}s`, icon: "ListChecks", count: dashboard.tickets.filter((ticket) => !isFinished(ticket)).length, empty: `No ${itemLabel.toLowerCase()}s yet.`, content: ticketsContent },
-    beadsTab(colors, beads, workspaceId, workspaceDirectory),
+    beadsTab(colors, beads, workspaceId, workspaceDirectory, promotedBeads(dashboard.tickets)),
     { id: "gh", label: "GH", icon: "Github", empty: "Not yet.", content: (
       <View>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 8 }}>

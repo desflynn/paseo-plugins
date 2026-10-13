@@ -19,7 +19,7 @@ type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 // One bead in the shared row: tight id + title on the line, the status mark
 // labelled with the status word, the priority pill. Bead rows show the bead's
 // own id — never an objective number — and carry no time element.
-function BeadRow({ colors, issue, onOpenBead, narrow = false, nested = false }: { colors: Colors; issue: BeadIssue; onOpenBead?(id: string): void; narrow?: boolean; nested?: boolean }) {
+function BeadRow({ colors, issue, onOpenBead, narrow = false, nested = false, promotedAs }: { colors: Colors; issue: BeadIssue; onOpenBead?(id: string): void; narrow?: boolean; nested?: boolean; promotedAs?: string }) {
   return (
     <UnifiedRow
       colors={colors}
@@ -32,6 +32,8 @@ function BeadRow({ colors, issue, onOpenBead, narrow = false, nested = false }: 
       dim={issue.status !== "closed" && issue.status !== "in_progress"}
       strike={issue.status === "closed" && issue.close_reason === "skipped"}
       priority={issue.priority}
+      tag={promotedAs}
+      italic={promotedAs !== undefined}
       onOpen={onOpenBead ? () => onOpenBead(issue.id) : undefined}
       accessibilityLabel={`Open bead ${issue.id}`}
     />
@@ -41,30 +43,30 @@ function BeadRow({ colors, issue, onOpenBead, narrow = false, nested = false }: 
 // O3000 (o30): the nested rows as nodes — one path shared by BeadRows and
 // the tab's buckets, so the sheet and the pure view nest identically. A
 // child renders indented under its epic, recursively, in the shared row style.
-function renderBeadFamily(colors: Colors, entry: NestedBead<BeadIssue>, onOpenBead?: (id: string) => void, narrow = false, nested = false): ReactNode {
+function renderBeadFamily(colors: Colors, entry: NestedBead<BeadIssue>, onOpenBead?: (id: string) => void, narrow = false, nested = false, promoted?: ReadonlyMap<string, string>): ReactNode {
   return (
     <View key={entry.issue.id}>
-      <BeadRow colors={colors} issue={entry.issue} onOpenBead={onOpenBead} narrow={narrow} nested={nested} />
+      <BeadRow colors={colors} issue={entry.issue} onOpenBead={onOpenBead} narrow={narrow} nested={nested} promotedAs={promoted?.get(entry.issue.id)} />
       {entry.children.length ? (
         <View style={{ paddingLeft: 18 }}>
-          {entry.children.map((child) => renderBeadFamily(colors, child, onOpenBead, narrow, true))}
+          {entry.children.map((child) => renderBeadFamily(colors, child, onOpenBead, narrow, true, promoted))}
         </View>
       ) : null}
     </View>
   );
 }
 
-function nestedRowNodes(colors: Colors, issues: BeadIssue[], onOpenBead?: (id: string) => void, narrow = false): ReactNode[] {
-  return nestBeads(issues).map((entry) => renderBeadFamily(colors, entry, onOpenBead, narrow));
+function nestedRowNodes(colors: Colors, issues: BeadIssue[], onOpenBead?: (id: string) => void, narrow = false, promoted?: ReadonlyMap<string, string>): ReactNode[] {
+  return nestBeads(issues).map((entry) => renderBeadFamily(colors, entry, onOpenBead, narrow, false, promoted));
 }
 
 // The rows themselves: pressable only when a detail handler is wired (the
 // live glue in beads-sheet.tsx hands one in). Without one they render
 // exactly as calm, press-free rows.
-export function BeadRows({ colors, issues, onOpenBead, narrow = false }: { colors: Colors; issues: BeadIssue[]; onOpenBead?(id: string): void; narrow?: boolean }) {
+export function BeadRows({ colors, issues, onOpenBead, narrow = false, promoted }: { colors: Colors; issues: BeadIssue[]; onOpenBead?(id: string): void; narrow?: boolean; promoted?: ReadonlyMap<string, string> }) {
   return (
     <View>
-      {nestedRowNodes(colors, issues, onOpenBead, narrow)}
+      {nestedRowNodes(colors, issues, onOpenBead, narrow, promoted)}
     </View>
   );
 }
@@ -72,8 +74,10 @@ export function BeadRows({ colors, issues, onOpenBead, narrow = false }: { color
 // The tab body: pure, so the element tree stays inspectable in tests. The
 // sheet arrives as a node from the glue (beads-sheet.tsx), which also owns
 // the fold's shown state and hands it in here.
-export function BeadsTab({ colors, result, dialog, onOpenBead, foldShown = false, onToggleFold }: {
+export function BeadsTab({ colors, result, dialog, onOpenBead, foldShown = false, onToggleFold, promoted }: {
   colors: Colors;
+  // Bead id -> the objective it became; those rows carry the chip and italics.
+  promoted?: ReadonlyMap<string, string>;
   result: BeadsResult | null | undefined;
   dialog?: ReactNode;
   onOpenBead?(id: string): void;
@@ -97,8 +101,8 @@ export function BeadsTab({ colors, result, dialog, onOpenBead, foldShown = false
   // Everything closed: no fold row — the whole list is the record, the same
   // law the objectives' fold follows.
   const closed = fold.length ? fold : open.length ? [] : sorted;
-  const openRows = nestedRowNodes(colors, open, onOpenBead);
-  const closedRows = nestedRowNodes(colors, closed, onOpenBead);
+  const openRows = nestedRowNodes(colors, open, onOpenBead, false, promoted);
+  const closedRows = nestedRowNodes(colors, closed, onOpenBead, false, promoted);
   return (
     <View>
       {/* An ok read with zero beads says so in its own calm line — never

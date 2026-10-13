@@ -226,7 +226,9 @@ export async function promoteBead(
   let run: { code: number; out: string[] };
   try {
     run = await cliRunner(
-      ["ticket", "add", detail.bead.title, "--estimate", String(UPGRADE_ESTIMATE_MIN), "--ref", `bead:${id}`],
+      // The bead's priority carries over (0 is a priority, so test for a number).
+      ["ticket", "add", detail.bead.title, "--estimate", String(UPGRADE_ESTIMATE_MIN), "--ref", `bead:${id}`,
+        ...(typeof detail.bead.priority === "number" ? ["--priority", String(detail.bead.priority)] : [])],
       { cwd: root, ...(workspaceId ? { workspaceId } : {}) },
     );
   } catch (error) {

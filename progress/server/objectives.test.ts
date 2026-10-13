@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { displayId, parseProgress, reduceProgress, sortObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
+import { displayId, parseProgress, reduceProgress, sortObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, promotedBeads, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
 import { runCli } from "./cli.ts";
 import { readProgress } from "./progress-file.ts";
 import { outsideDirectory } from "./store.ts";
@@ -262,6 +262,19 @@ test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () =
   assert.equal(ticketDepth(grouped[3], grouped), 1);
   assert.equal(ticketDepth(grouped[4], grouped), 2, "depth follows the under chain");
   assert.equal(ticketDepth(grouped[0], grouped), 0);
+});
+
+test("promotedBeads maps each bead to the objective that carries its ref, preferring an open one", () => {
+  const make = (id: string, status: Ticket["status"], ref?: string, refs?: string[]): Ticket => ({ id, title: "", estimateMin: 10, status, statusSince: at(0), history: [], ref, refs });
+  const map = promotedBeads([
+    make("o1", "closed", "bead:pp-1"),
+    make("o2", "open", undefined, ["gh:a/b#1", "bead:pp-1"]),
+    make("o3", "open", "bead:pp-2"),
+    make("o4", "open"),
+  ]);
+  assert.equal(map.get("pp-1"), "o2", "an open objective wins over a closed one");
+  assert.equal(map.get("pp-2"), "o3");
+  assert.equal(map.size, 2, "an objective with no bead ref maps nothing");
 });
 
 test("the linkage parses into chips: the bead slug and the GitHub issue", () => {

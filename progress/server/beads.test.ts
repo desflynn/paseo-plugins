@@ -266,6 +266,20 @@ test("promoteBead writes into the workspace it was pressed in", async () => {
   assert.deepEqual(seen, [{ cwd: root, workspaceId: "/Users/des/dev/hhc3" }], "the panel's workspace rides to the CLI, or the ticket lands on the unscoped board");
 });
 
+test("promoteBead carries the bead's priority into the objective, P0 included", async () => {
+  const root = await repo();
+  const argvFor = async (priority?: number) => {
+    const { runner } = fake(JSON.stringify([{ id: "pp-1", title: "Swap the pump relay", status: "open", ...(priority === undefined ? {} : { priority }) }]));
+    const seen: string[][] = [];
+    const cli: ProgressCliRunner = async (argv) => { seen.push(argv); return { code: 0, out: ["Added o7: x (60 min)"] }; };
+    await promoteBead(root, "pp-1", runner, cli);
+    return seen[0];
+  };
+  assert.deepEqual(await argvFor(2), ["ticket", "add", "Swap the pump relay", "--estimate", "60", "--ref", "bead:pp-1", "--priority", "2"]);
+  assert.ok((await argvFor(0)).join(" ").endsWith("--priority 0"), "P0 is a priority, not an absence");
+  assert.ok(!(await argvFor()).includes("--priority"), "a bead with no priority gives the objective none");
+});
+
 test("promoteBead refuses when the bead cannot be read", async () => {
   const root = await repo();
   const missing = Object.assign(new Error("spawn bd ENOENT"), { code: "ENOENT" });

@@ -401,6 +401,22 @@ test("the sheet says what a press did instead of staying silent", () => {
   assert.ok(!show().texts.includes("Promoted as o7"), "no notice, no line");
 });
 
+test("a promoted bead shows its objective id as a chip after the name, and its name in italics", () => {
+  const { BeadsTab } = load("client/beads.tsx");
+  const tree = treeOf(BeadsTab({ colors, result: ok, promoted: new Map([["rvr-12", "o71"]]) }));
+  assert.ok(tree.texts.includes("o71"), "the objective id chip is missing");
+  const titleOf = (id: string) => tree.nodes.find((node) => node.type === rn.Text && Array.isArray(node.props?.children) && (node.props.children as unknown[]).some((child) => typeof child === "string" && child.includes(id)));
+  assert.equal((titleOf("rvr-12")?.props?.style as { fontStyle?: string })?.fontStyle, "italic", "the promoted bead's name is italic");
+  assert.notEqual((titleOf("home-lab-3")?.props?.style as { fontStyle?: string })?.fontStyle, "italic", "an unpromoted bead's name is not");
+});
+
+test("the sheet shows the objective chip and offers no second Promote once promoted", () => {
+  const { BeadDialog } = load("client/bead-dialog.tsx");
+  const tree = treeOf(BeadDialog({ colors, beadId: "rvr-12", detail: openBead, busy: false, promotedAs: "o71", onClose: () => {}, onSetStatus: () => {}, onUpgrade: () => {} }));
+  assert.ok(tree.texts.includes("o71"), "the chip is shown beside the name");
+  assert.ok(!pressLabels(tree).includes("Promote to objective"), "no second promotion");
+});
+
 test("a closed bead offers reopen and shows why it closed (T13)", () => {
   const closed = { state: "ok", bead: { id: "rvr-12", title: "T", status: "closed", priority: 2, close_reason: "done ages ago" } };
   const tree = treeOf(sheet(closed));

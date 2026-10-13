@@ -13,13 +13,16 @@ const SHEET_STATUSES: readonly BeadStatus[] = ["open", "in_progress", "blocked",
 // at the bottom. Pure — the tab's glue fetches the record and hands it in.
 // Every state stays calm: reading says so in one line, an error says what
 // went wrong and offers nothing, and no bead open means no sheet at all.
-export function BeadDialog({ colors, beadId, detail, busy, notice, onClose, onSetStatus, onUpgrade }: {
+export function BeadDialog({ colors, beadId, detail, busy, notice, promotedAs, onClose, onSetStatus, onUpgrade }: {
   colors: Colors;
   beadId: string | null;
   detail: BeadDetailResult | null | undefined;
   busy: boolean;
   // What the last press did: the promoted id, or why it was refused.
   notice?: string;
+  // The objective this bead already became: shown as a chip, and the bead
+  // is not offered for promotion a second time.
+  promotedAs?: string;
   onClose(): void;
   onSetStatus(status: BeadStatus): void;
   onUpgrade(): void;
@@ -36,7 +39,7 @@ export function BeadDialog({ colors, beadId, detail, busy, notice, onClose, onSe
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.surface0, padding: 12, gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17, fontFamily: "monospace" }}>{beadId}</Text>
-        {bead ? <Text style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" }}>{bead.title}</Text> : <View style={{ flex: 1 }} />}
+        {bead ? <Text style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" }}>{bead.title}{promotedAs ? " " : null}{promotedAs ? <Text style={{ backgroundColor: colors.surface2, color: colors.foregroundMuted, fontSize: 10, fontWeight: "600" }}>{promotedAs}</Text> : null}</Text> : <View style={{ flex: 1 }} />}
         <Pressable accessibilityRole="button" accessibilityLabel="Close bead detail" onPress={onPress(onClose, busy)}
           style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
           <Text style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>Close</Text>
@@ -77,10 +80,12 @@ export function BeadDialog({ colors, beadId, detail, busy, notice, onClose, onSe
               </Pressable>
             ))}
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Promote to objective" onPress={onPress(onUpgrade, busy)}
-            style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>Promote to objective</Text>
-          </Pressable>
+          {promotedAs ? null : (
+            <Pressable accessibilityRole="button" accessibilityLabel="Promote to objective" onPress={onPress(onUpgrade, busy)}
+              style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>Promote to objective</Text>
+            </Pressable>
+          )}
           {notice ? <Text accessibilityLiveRegion="polite" style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{notice}</Text> : null}
           {busy ? <Text accessibilityLiveRegion="polite" style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Working…</Text> : null}
         </View>

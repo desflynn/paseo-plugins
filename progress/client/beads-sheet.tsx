@@ -23,11 +23,13 @@ function promoteNotice(result: UpgradeResult): string {
   return `Not promoted: ${result.message}`;
 }
 
-export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: {
+export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory, promoted }: {
   colors: Colors;
   result: BeadsResult | null | undefined;
   workspaceId: string;
   workspaceDirectory: string;
+  // Bead id -> the objective it became, from the board's bead refs.
+  promoted?: ReadonlyMap<string, string>;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BeadDetailResult | null>(null);
@@ -82,6 +84,7 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
     <BeadsTab
       colors={colors}
       result={shown}
+      promoted={promoted}
       onOpenBead={open}
       foldShown={foldShown}
       onToggleFold={() => setFoldShown(!foldShown)}
@@ -92,6 +95,7 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
           detail={detail}
           busy={busy}
           notice={notice}
+          promotedAs={openId ? promoted?.get(openId) : undefined}
           onClose={() => setOpenId(null)}
           onSetStatus={onSetStatus}
           onUpgrade={onUpgrade}

@@ -872,6 +872,24 @@ export function ticketRefs(ticket: Pick<Ticket, "ref" | "refs">): { bead?: strin
   return out;
 }
 
+// Which beads already became objectives: bead id -> the objective carrying its
+// `bead:` ref. An open objective wins over a closed one, so a bead promoted
+// twice points at the live work.
+export function promotedBeads(tickets: Ticket[]): Map<string, string> {
+  const map = new Map<string, string>();
+  const closedOnes = new Set<string>();
+  for (const ticket of tickets) {
+    const bead = ticketRefs(ticket).bead;
+    if (!bead) continue;
+    if (!map.has(bead) || (closedOnes.has(bead) && !isFinished(ticket))) {
+      map.set(bead, ticket.id);
+      if (isFinished(ticket)) closedOnes.add(bead);
+      else closedOnes.delete(bead);
+    }
+  }
+  return map;
+}
+
 export function githubIssueUrl(gh: { owner: string; repo: string; number: number }): string {
   return `https://github.com/${gh.owner}/${gh.repo}/issues/${gh.number}`;
 }
