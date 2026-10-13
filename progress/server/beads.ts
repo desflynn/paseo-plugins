@@ -199,12 +199,12 @@ export async function closeBackingBeads(
 
 export type ProgressCliRunner = (
   argv: string[],
-  options: { cwd: string },
+  options: { cwd: string; workspaceId?: string },
 ) => Promise<{ code: number; out: string[] }>;
 
 const defaultCliRunner: ProgressCliRunner = async (argv, options) => {
   const out: string[] = [];
-  const code = await runCli(argv, { cwd: options.cwd, out: (line) => out.push(line) });
+  const code = await runCli(argv, { cwd: options.cwd, workspaceId: options.workspaceId, out: (line) => out.push(line) });
   return { code, out };
 };
 
@@ -217,6 +217,9 @@ export async function promoteBead(
   id: string,
   bdRunner: BdRunner = defaultRunner,
   cliRunner: ProgressCliRunner = defaultCliRunner,
+  // The workspace the button was pressed in: without it the ticket lands on
+  // the unscoped board, which a workspace view never shows.
+  workspaceId?: string,
 ): Promise<{ state: "ok"; ticketId: string | null } | { state: "none" } | { state: "error"; message: string }> {
   const detail = await readBeadDetail(root, id, bdRunner);
   if (detail.state !== "ok") return detail;
@@ -224,7 +227,7 @@ export async function promoteBead(
   try {
     run = await cliRunner(
       ["ticket", "add", detail.bead.title, "--estimate", String(UPGRADE_ESTIMATE_MIN), "--ref", `bead:${id}`],
-      { cwd: root },
+      { cwd: root, ...(workspaceId ? { workspaceId } : {}) },
     );
   } catch (error) {
     return { state: "error", message: error instanceof Error ? error.message : String(error) };
@@ -242,5 +245,5 @@ export async function handleUpgradeBead(
   runner: BdRunner = defaultRunner,
   cliRunner: ProgressCliRunner = defaultCliRunner,
 ): Promise<RpcOutput<typeof upgradeBead>> {
-  return promoteBead(findRoot(input.workspaceDirectory), input.id, runner, cliRunner);
+  return promoteBead(findRoot(input.workspaceDirectory), input.id, runner, cliRunner, input.workspaceId);
 }

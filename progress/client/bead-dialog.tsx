@@ -13,11 +13,13 @@ const SHEET_STATUSES: readonly BeadStatus[] = ["open", "in_progress", "blocked",
 // at the bottom. Pure — the tab's glue fetches the record and hands it in.
 // Every state stays calm: reading says so in one line, an error says what
 // went wrong and offers nothing, and no bead open means no sheet at all.
-export function BeadDialog({ colors, beadId, detail, busy, onClose, onSetStatus, onUpgrade }: {
+export function BeadDialog({ colors, beadId, detail, busy, notice, onClose, onSetStatus, onUpgrade }: {
   colors: Colors;
   beadId: string | null;
   detail: BeadDetailResult | null | undefined;
   busy: boolean;
+  // What the last press did: the promoted id, or why it was refused.
+  notice?: string;
   onClose(): void;
   onSetStatus(status: BeadStatus): void;
   onUpgrade(): void;
@@ -79,6 +81,7 @@ export function BeadDialog({ colors, beadId, detail, busy, onClose, onSetStatus,
             style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: colors.border }}>
             <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>Promote to objective</Text>
           </Pressable>
+          {notice ? <Text accessibilityLiveRegion="polite" style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{notice}</Text> : null}
           {busy ? <Text accessibilityLiveRegion="polite" style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Working…</Text> : null}
         </View>
       ) : null}

@@ -254,6 +254,18 @@ test("promoteBead adds a ticket through the CLI with the bead's title and ref", 
   }]);
 });
 
+test("promoteBead writes into the workspace it was pressed in", async () => {
+  const root = await repo();
+  const { runner } = fake(JSON.stringify([{ id: "pp-1", title: "Swap the pump relay", status: "open" }]));
+  const seen: Array<{ cwd: string; workspaceId?: string }> = [];
+  const cli: ProgressCliRunner = async (_argv, options) => {
+    seen.push(options);
+    return { code: 0, out: ["Added o7: Swap the pump relay (60 min)"] };
+  };
+  await promoteBead(root, "pp-1", runner, cli, "/Users/des/dev/hhc3");
+  assert.deepEqual(seen, [{ cwd: root, workspaceId: "/Users/des/dev/hhc3" }], "the panel's workspace rides to the CLI, or the ticket lands on the unscoped board");
+});
+
 test("promoteBead refuses when the bead cannot be read", async () => {
   const root = await repo();
   const missing = Object.assign(new Error("spawn bd ENOENT"), { code: "ENOENT" });

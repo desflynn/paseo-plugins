@@ -14,6 +14,15 @@ type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 // shown state. The panel hands in the workspace identity; this component
 // replaces the pure BeadsView in the panel's beadsTab() once that identity is
 // passed through.
+type UpgradeResult = { state: "ok"; ticketId: string | null } | { state: "none" } | { state: "error"; message: string };
+
+// One line for the sheet: the objective the press made, or why it made none.
+function promoteNotice(result: UpgradeResult): string {
+  if (result.state === "ok") return result.ticketId ? `Promoted as ${result.ticketId}` : "Promoted as a new objective";
+  if (result.state === "none") return "No beads database here, so nothing was promoted";
+  return `Not promoted: ${result.message}`;
+}
+
 export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: {
   colors: Colors;
   result: BeadsResult | null | undefined;
@@ -23,6 +32,8 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BeadDetailResult | null>(null);
   const [busy, setBusy] = useState(false);
+  // What the last Promote did, in words: the new objective's id, or why not.
+  const [notice, setNotice] = useState<string | undefined>();
   // The done-sink's state (O2600): the fold opens and folds back from here.
   const [foldShown, setFoldShown] = useState(false);
   // A write swaps the tab over to its own fresh read, so a status change
@@ -40,6 +51,7 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
       .catch(() => setDetail({ state: "error", message: "Could not read the bead" }));
   const open = (beadId: string) => {
     setOpenId(beadId);
+    setNotice(undefined);
     setDetail(null);
     void readDetail(beadId);
   };
@@ -60,8 +72,10 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
   const onUpgrade = () => {
     if (!openId) return;
     setBusy(true);
+    setNotice(undefined);
     runUpgrade({ workspaceId, workspaceDirectory, id: openId })
-      .catch(() => {})
+      .then((result) => setNotice(promoteNotice(result as UpgradeResult)))
+      .catch((error) => setNotice(`Could not promote: ${error instanceof Error ? error.message : String(error)}`))
       .then(() => settle(openId));
   };
   return (
@@ -77,6 +91,7 @@ export function BeadsSheet({ colors, result, workspaceId, workspaceDirectory }: 
           beadId={openId}
           detail={detail}
           busy={busy}
+          notice={notice}
           onClose={() => setOpenId(null)}
           onSetStatus={onSetStatus}
           onUpgrade={onUpgrade}

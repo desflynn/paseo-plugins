@@ -392,6 +392,15 @@ test("the sheet's actions follow the details directly: Promote and the status ch
   assert.ok(labels.includes("Close bead detail"), "no way to close the sheet");
 });
 
+test("the sheet says what a press did instead of staying silent", () => {
+  const { BeadDialog } = load("client/bead-dialog.tsx");
+  const show = (notice?: string) => treeOf(BeadDialog({ colors, beadId: "rvr-12", detail: openBead, busy: false, notice, onClose: () => {}, onSetStatus: () => {}, onUpgrade: () => {} }));
+  assert.ok(show("Promoted as o7").texts.includes("Promoted as o7"), "a success is shown");
+  const failed = "The run is finished. Start new work with: paseo-progress start";
+  assert.ok(show(failed).texts.includes(failed), "a refusal is shown, in full");
+  assert.ok(!show().texts.includes("Promoted as o7"), "no notice, no line");
+});
+
 test("a closed bead offers reopen and shows why it closed (T13)", () => {
   const closed = { state: "ok", bead: { id: "rvr-12", title: "T", status: "closed", priority: 2, close_reason: "done ages ago" } };
   const tree = treeOf(sheet(closed));

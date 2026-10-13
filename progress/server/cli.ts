@@ -23,6 +23,9 @@ export interface CliOptions {
   out?: (line: string) => void;
   // The Paseo agent running the command, recorded on each event it writes.
   agentId?: string;
+  // The workspace the command is for, when the caller knows it (the panel's
+  // own buttons); wins over the agent's registry record.
+  workspaceId?: string;
 }
 
 class UsageError extends Error {}
@@ -629,7 +632,7 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
   const now = options.now ?? (() => new Date());
   // The workspace id resolves once per call: every read and write in this
   // call scopes to it. No agent, or no record, is unscoped (All, as 0.4.0).
-  const scope = options.agentId ? resolveWorkspaceId(options.agentId) : undefined;
+  const scope = options.workspaceId ?? (options.agentId ? resolveWorkspaceId(options.agentId) : undefined);
   const [first, second] = argv;
   if (!first || first === "--help" || first === "-h" || first === "help") {
     out(help());

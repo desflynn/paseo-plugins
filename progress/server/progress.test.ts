@@ -170,6 +170,23 @@ test("rename changes the board's title and subtitle, and nothing else", async (t
   assert.equal((await w.dashboard()).dashboard.run?.title, "Archive name");
 });
 
+test("a write made for a workspace lands on that workspace's board, even when the unscoped latest run is finished", async (t) => {
+  const w = await worktree(t);
+  const as = (workspaceId: string | undefined, ...argv: string[]) => {
+    const output: string[] = [];
+    return runCli(argv, { cwd: w.directory, now: () => minutes(1), out: (line) => output.push(line), workspaceId }).then((code) => ({ code, text: output.join("\n") }));
+  };
+  assert.equal((await as("ws-a", "start", "A's run")).code, 0);
+  assert.equal((await as("ws-b", "start", "Another workspace's run")).code, 0);
+  assert.equal((await as("ws-b", "finish", "done")).code, 0);
+  const bare = await as(undefined, "ticket", "add", "Promoted bead", "--estimate", "60", "--ref", "bead:pp-1");
+  assert.equal(bare.code, 1, "unscoped, it reads the finished run");
+  const scoped = await as("ws-a", "ticket", "add", "Promoted bead", "--estimate", "60", "--ref", "bead:pp-1");
+  assert.equal(scoped.code, 0, scoped.text);
+  const { dashboard } = await readProgress(w.store, minutes(1), "ws-a");
+  assert.deepEqual(dashboard.tickets.map((ticket) => ticket.title), ["Promoted bead"], "it shows in the workspace's own Objectives");
+});
+
 test("a write with no agent id to a finished run says the id is missing", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Export");
