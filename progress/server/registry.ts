@@ -1,10 +1,14 @@
 // The Paseo agent registry (o20): agent id → workspaceId, read from the
-// Paseo home's `agents/` folder — one level of group folders whose files each
-// carry `id` and `workspaceId`, plus any flat files directly under `agents/`.
-// Best effort by design: one unreadable group or bad file hides no registry.
-// The fold's workspace-first attribution resolves an event's `by` through
-// this map, so the server passes `agentWorkspaceMap(defaultPaseoHome())`.
-import { readdirSync, readFileSync } from "node:fs";
+// Paseo home's `agents/` folder — one level of group folders whose files are
+// named `<agent id>.json` and carry `workspaceId`, plus any flat files directly
+// under `agents/`. The fold's workspace-first attribution resolves an event's
+// `by` through `agentWorkspaces(defaultPaseoHome())`.
+//
+// It looks agents up one at a time. The board only names a few dozen agents,
+// while the registry holds every agent ever launched (11,000+ files), so
+// reading it whole on a timer froze the panel for seconds (o24).
+// Best effort by design: an unreadable folder or bad file is just a miss.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -13,34 +17,59 @@ export function defaultPaseoHome(env: { PASEO_HOME?: string } = process.env): st
   return env.PASEO_HOME || join(homedir(), ".paseo");
 }
 
-// Every resolvable agent in the registry, keyed by its `id`.
-export function agentWorkspaceMap(paseoHome: string): Map<string, string> {
-  const map = new Map<string, string>();
+// How long an agent with no file yet is left alone before it is looked for again.
+const MISS_RETRY_MS = 30_000;
+// What an agent id looks like in a file name; anything else is not looked up.
+const AGENT_FILE_ID = /^[\w-]+$/;
+
+// A found agent never moves workspaces, so it is remembered for good. A missing
+// one is retried after MISS_RETRY_MS (its file may not exist yet).
+export function agentWorkspaces(paseoHome: string, now: () => number = Date.now): { get(agentId: string): string | undefined } {
   const agentsDir = join(paseoHome, "agents");
-  const entries = (dir: string) => {
+  const found = new Map<string, string>();
+  const missedAt = new Map<string, number>();
+
+  const workspaceIn = (file: string): string | undefined => {
+    if (!existsSync(file)) return undefined;
     try {
-      return readdirSync(dir, { withFileTypes: true });
+      const { workspaceId } = JSON.parse(readFileSync(file, "utf8")) as { workspaceId?: unknown };
+      return typeof workspaceId === "string" ? workspaceId : undefined;
     } catch {
-      return [];
+      return undefined;
     }
   };
-  const read = (file: string) => {
+  const lookup = (agentId: string): string | undefined => {
+    const name = `${agentId}.json`;
+    const flat = workspaceIn(join(agentsDir, name));
+    if (flat !== undefined) return flat;
+    let groups: string[];
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as { id?: unknown; workspaceId?: unknown };
-      if (typeof parsed.id === "string" && typeof parsed.workspaceId === "string") {
-        map.set(parsed.id, parsed.workspaceId);
+      groups = readdirSync(agentsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    } catch {
+      return undefined;
+    }
+    for (const group of groups) {
+      const workspace = workspaceIn(join(agentsDir, group, name));
+      if (workspace !== undefined) return workspace;
+    }
+    return undefined;
+  };
+
+  return {
+    get(agentId) {
+      const known = found.get(agentId);
+      if (known !== undefined) return known;
+      if (!AGENT_FILE_ID.test(agentId)) return undefined;
+      const missed = missedAt.get(agentId);
+      if (missed !== undefined && now() - missed < MISS_RETRY_MS) return undefined;
+      const workspace = lookup(agentId);
+      if (workspace === undefined) {
+        missedAt.set(agentId, now());
+        return undefined;
       }
-    } catch {
-      // One bad file hides no registry.
-    }
+      found.set(agentId, workspace);
+      missedAt.delete(agentId);
+      return workspace;
+    },
   };
-  for (const entry of entries(agentsDir)) {
-    if (entry.isFile() && entry.name.endsWith(".json")) read(join(agentsDir, entry.name));
-    if (!entry.isDirectory()) continue;
-    const group = join(agentsDir, entry.name);
-    for (const file of entries(group)) {
-      if (file.isFile() && file.name.endsWith(".json")) read(join(group, file.name));
-    }
-  }
-  return map;
 }

@@ -4,22 +4,21 @@
 // the panel's RPC handlers go through here, so they agree on how they're read.
 import { access, appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { EMPTY_DASHBOARD, latestRun, parseProgress, reduceProgress, scopeEvents, type Dashboard, type NextIds } from "../shared/dashboard.ts";
+import { EMPTY_DASHBOARD, latestRun, parseProgress, reduceProgress, scopeEvents, type AgentWorkspaces, type Dashboard, type NextIds } from "../shared/dashboard.ts";
 import { EVENT_VERSION, eventSchema, PANEL_OPENED_NAME, PROGRESS_FILE_NAME, type ProgressEvent } from "../shared/events.ts";
 import { withLock } from "./lock.ts";
-import { agentWorkspaceMap, defaultPaseoHome } from "./registry.ts";
+import { agentWorkspaces, defaultPaseoHome } from "./registry.ts";
 
 const LOCK_NAME = `${PROGRESS_FILE_NAME}.lock`;
 
 // The agent-to-workspace map that attributes unscoped legacy events to their
-// author's workspace (O2900). Kept warm briefly: panels re-read every few
-// seconds and the registry rarely moves.
-let registryCache: { at: number; map: Map<string, string> } | null = null;
-function currentAgentWs(): Map<string, string> {
-  if (!registryCache || Date.now() - registryCache.at > 30_000) {
-    registryCache = { at: Date.now(), map: agentWorkspaceMap(defaultPaseoHome()) };
-  }
-  return registryCache.map;
+// author's workspace (O2900). One lookup per Paseo home, kept for the life of
+// the server: it opens an agent's file only when the fold first asks about it.
+let agentRegistry: { home: string; agents: AgentWorkspaces } | null = null;
+function currentAgentWs(): AgentWorkspaces {
+  const home = defaultPaseoHome();
+  if (agentRegistry?.home !== home) agentRegistry = { home, agents: agentWorkspaces(home) };
+  return agentRegistry.agents;
 }
 
 // An event as a command builds it; `append` stamps the version and time.

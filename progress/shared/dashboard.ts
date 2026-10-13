@@ -244,7 +244,7 @@ export const UNION_SCOPE = "*";
 // The Paseo agent registry, agent id → workspaceId (o20). When the caller
 // passes it, the fold attributes unscoped events to their `by` agent's
 // workspace; without it every fold is exactly as before.
-export type AgentWorkspaces = ReadonlyMap<string, string>;
+export type AgentWorkspaces = { get(agentId: string): string | undefined };
 
 // The events from the last `run.start` on; earlier runs are ignored.
 export function latestRun(events: ParsedLine[]): ParsedLine[] {
