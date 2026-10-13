@@ -15,6 +15,15 @@ const FLUSH_MS = 3_000;
 const RENDER_SUMMARY_MS = 30_000;
 const LONG_TASK_MS = 100;
 
+// The watch runs by default; localStorage "pp-perf" = "0" stops its timers,
+// marks and counters without a redeploy (owner ruling: on until stable).
+const PERF_FLAG = "pp-perf";
+export function perfFlag(store: { getItem(key: string): string | null } | undefined | null): boolean {
+  const value = store?.getItem(PERF_FLAG);
+  return value !== "0" && value !== "false";
+}
+const enabled = perfFlag((globalThis as unknown as Browser).localStorage);
+
 export function pushMark(ring: Mark[], what: string, at: number): void {
   ring.push({ at, what });
   if (ring.length > RING_SIZE) ring.shift();
@@ -32,12 +41,14 @@ export function lagLine(lagMs: number, endMs: number, marks: Mark[]): string {
 
 const recent: Mark[] = [];
 export function mark(what: string): void {
+  if (!enabled) return;
   pushMark(recent, what, Date.now());
 }
 
 // How often each component re-rendered and why, since the last summary.
 const renders = new Map<string, number>();
 export function countRender(name: string, why: string): void {
+  if (!enabled) return;
   const key = `${name}: ${why}`;
   renders.set(key, (renders.get(key) ?? 0) + 1);
 }
@@ -52,6 +63,7 @@ export function renderSummary(counts: Map<string, number>, seconds: number, endM
 
 type Browser = {
   document?: { visibilityState?: string };
+  localStorage?: { getItem(key: string): string | null };
   PerformanceObserver?: {
     new (callback: (list: { getEntries(): Array<{ duration: number }> }) => void): { observe(options: { entryTypes: string[] }): void };
     supportedEntryTypes?: readonly string[];
@@ -63,6 +75,7 @@ let started = false;
 
 // Starts the watchers once; later calls only swap who the lines go to.
 export function watchPanel(send: (lines: string[]) => void): void {
+  if (!enabled) return;
   sender = send;
   if (started) return;
   started = true;
