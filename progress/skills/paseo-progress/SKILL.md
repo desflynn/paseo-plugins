@@ -24,8 +24,9 @@ A board is one persistent object per workspace. Always run `paseo-progress show`
 1. `paseo-progress start "<job title>"`, with `--subtitle` naming the spec or ticket folder.
 2. Add every ticket in order with `paseo-progress ticket add "<title>" --estimate <minutes>`, with `--waits-for o2` on any that can't start before another finishes. Tickets carry the Beads vocabulary: `open` until work begins, `in_progress` while it runs, `closed` with a close reason (`--close-reason done|skipped`) when it ends. Pass `--priority <0-4>` when urgency matters. Nest a sub-objective with `--under o1`: it becomes o1.1, the next child number, any depth. To group an objective that already exists, move it with `ticket update o93 --under o95` (`--under ""` lifts it back to the top level): it keeps its id, status, claim and notes, its children go with it, and a move under its own child is refused. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. When it comes from a tracked item, name where with `--ref bead:<id>`, `--ref gh:<owner>/<repo>#<n>` or `--ref teams:<messageId>`; repeat `--ref` to link more than one, and the ticket's name composes from the links. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
 3. `paseo-progress activity add "<one line: what this run will do>"`.
+4. Turn run saving on, unless the repo's origin is public: check `git remote get-url origin` — a github.com origin is public unless `gh repo view --json isPrivate` proves it private, and an origin you cannot prove private keeps the board local — then `git config --local paseo-progress.saveRuns <folder>`, a folder inside the repo such as `history`. Every run is written there as its own `.jsonl` file as it goes, committed like any other file; the panel's Save to repo… button sets the same key.
 
-Done when `show` lists every ticket with an estimate.
+Done when `show` lists every ticket with an estimate, and run saving is on (or the origin is public).
 
 ## 2. Work each ticket
 
