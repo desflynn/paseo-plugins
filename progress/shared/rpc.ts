@@ -50,6 +50,13 @@ export const markPanelOpened = defineRpc({
   output: z.object({}),
 });
 
+// The panel's freeze evidence (o24): lines for the server's perf log.
+export const reportPerf = defineRpc({
+  name: "progress.perf.report",
+  input: z.object({ lines: z.array(z.string().max(2000)).max(50) }),
+  output: z.object({}),
+});
+
 // The `paseo-progress` launcher on the daemon host. "foreign" means another
 // file already sits at that path; the plugin leaves it alone.
 const launcherStatus = z.object({

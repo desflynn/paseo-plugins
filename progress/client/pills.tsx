@@ -7,6 +7,7 @@ import { isIdle, type Pill, pillFor } from "./pill-state";
 import { observeDirectory, type PaseoAgentUpdate, type PaseoWorkspaceUpdate } from "./directory";
 import { onPanelOpened } from "./panel-opened";
 import { IconSwap } from "./motion";
+import { mark } from "./perf";
 import { Spinner } from "./spinner";
 import { AttentionPopover } from "./pill-popover";
 
@@ -133,7 +134,9 @@ export function contributePills(client: PluginClientContext) {
     checkedAt.set(workspaceId, Date.now());
     const reportsBefore = openedReports;
     try {
+      const startedAt = Date.now();
       const result = await client.rpc(getAttention, { workspaceId, workspaceDirectory: directory });
+      mark(`pill poll ${Date.now() - startedAt}ms`);
       if (stopped || workspaces.get(workspaceId) !== directory) return;
       // The panel was opened while this poll was in flight: its answer is already out of date.
       setReport(workspaceId, openedReports === reportsBefore ? result : { ...result, panelOpened: true });

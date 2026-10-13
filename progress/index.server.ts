@@ -3,8 +3,9 @@ import { handleGetBeads, handleGetBeadDetail, handleSetBeadStatus, handleUpgrade
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./server/dashboard";
 import { handleInstallLauncher, handleLauncherStatus } from "./server/launcher";
 import { handleOpenDeliverable, handlePreviewDeliverable } from "./server/open";
+import { handleReportPerf } from "./server/perf";
 import { handleInstallSkill, handleSkillStatus } from "./server/skill";
-import { getAttention, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setHistoryFolder, upgradeBead } from "./shared/rpc";
+import { getAttention, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setHistoryFolder, upgradeBead, reportPerf } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(getDashboard, handleGetDashboard);
@@ -14,6 +15,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(setBeadStatus, handleSetBeadStatus);
   server.handle(upgradeBead, handleUpgradeBead);
   server.handle(markPanelOpened, handleMarkPanelOpened);
+  server.handle(reportPerf, handleReportPerf);
   server.handle(getLauncherStatus, handleLauncherStatus);
   server.handle(installLauncher, handleInstallLauncher);
   server.handle(openDeliverable, handleOpenDeliverable);

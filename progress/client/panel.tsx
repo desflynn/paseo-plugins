@@ -9,12 +9,13 @@ import { IconSwap, Presence, StaggerRoot, nativeDriver } from "./motion";
 import { SectionTitle } from "./section-title";
 import { raised } from "./surfaces";
 import { When } from "./when";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
-import { markPanelOpened, getBeads, type BeadsResult } from "../shared/rpc";
+import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
+import { mark, watchPanel } from "./perf";
 import { useDashboard } from "./dashboard-query";
 import { statusLabel } from "./status-badge";
 import { TicketDialogs } from "./ticket-dialog";
@@ -36,7 +37,16 @@ export function ProgressPanel(props: PluginWorkspacePanelProps) {
   return <WorkspaceProgress key={`${props.host.id}:${props.workspaceId}`} {...props} />;
 }
 
+// Marks how long a component took to render and commit, for the freeze log (o24).
+function useCommitMark(name: string) {
+  const startedAt = performance.now();
+  useLayoutEffect(() => { mark(`${name} commit ${Math.round(performance.now() - startedAt)}ms`); });
+}
+
 function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: PluginWorkspacePanelProps) {
+  useCommitMark("Panel");
+  const sendPerf = useRpc(reportPerf);
+  useEffect(() => watchPanel((lines) => { void sendPerf({ lines }).catch(() => {}); }), [sendPerf]);
   const colors = theme.colors;
   const directory = useWorkspace(workspaceId, (workspace) => workspace.directory);
   // Paseo marks the workspace running while any of its agents is. Since 0.11 a Claude
@@ -122,6 +132,7 @@ function useBeads(workspaceId: string, root: string | undefined, active: boolean
       return fetchBeads({ workspaceId, workspaceDirectory: root })
         .then((result) => {
           const text = JSON.stringify(result);
+          mark(`beads read ${Date.now() - mine.readAt}ms ${text === mine.last ? "unchanged" : "changed"} ${text.length}B`);
           if (stale || text === mine.last) return;
           mine.last = text;
           setBeads(result as BeadsResult);
@@ -176,7 +187,7 @@ function StatusLine({ icon, children }: { icon: React.ReactNode; children: React
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    const id = setInterval(() => { mark(`useNow tick ${intervalMs}ms`); setNow(Date.now()); }, intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
   return now;
@@ -202,6 +213,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // Whether the Beads section is the one showing, so its read can slow down when it is not.
   onBeadsShowing(showing: boolean): void;
 }) {
+  useCommitMark("DashboardView");
   const now = useNow(15_000);
   // Quiet isn't stale while an agent in the workspace is still running.
   const stale = dashboard.stale && !agentRunning;

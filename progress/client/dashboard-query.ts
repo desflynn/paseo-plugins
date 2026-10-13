@@ -2,6 +2,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DashboardResult, getDashboard } from "../shared/rpc.ts";
+import { mark } from "./perf.ts";
 
 type DashboardScope = "workspace" | "all";
 type FetchDashboard = (input: { workspaceId: string; workspaceDirectory: string; since?: string; scope?: DashboardScope }) => Promise<RpcOutput<typeof getDashboard>>;
@@ -15,7 +16,9 @@ export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: st
     queryKey: ["progress", "dashboard", hostId, workspaceId, directory, scope],
     queryFn: async (): Promise<DashboardResult> => {
       const last = previous?.();
+      const startedAt = Date.now();
       const result = await fetchDashboard({ workspaceId, workspaceDirectory: directory!, ...(last ? { since: last.version } : {}), scope });
+      mark(`dashboard poll ${Date.now() - startedAt}ms ${"unchanged" in result && last ? "unchanged" : "changed"}`);
       return "unchanged" in result && last ? last : result as DashboardResult;
     },
     enabled: Boolean(directory),
