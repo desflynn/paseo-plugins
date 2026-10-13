@@ -323,3 +323,21 @@ test("Beads reads on focus only when the list is out of date", () => {
   assert.equal(beadsPoll(true, 10_000).readNow, true, "a 10 s old list is refreshed on focus");
   assert.equal(beadsPoll(true, Number.POSITIVE_INFINITY).readNow, true, "no read yet means read now");
 });
+
+// Stacked panels keep their cadences after navigation, so every poll and
+// clock pauses while the panel's document is hidden (o24 follow-up).
+test("a hidden panel schedules no cadence", () => {
+  const { cadence } = load("client/panel.tsx") as unknown as { cadence(baseMs: number, visible: boolean): number };
+  assert.equal(cadence(15_000, true), 15_000);
+  assert.equal(cadence(10_000, false), 0, "hidden: nothing is scheduled");
+});
+
+test("the dashboard poll stops while its panel is hidden", () => {
+  const { dashboardQueryOptions, POLL_MS } = load("client/dashboard-query.ts") as unknown as {
+    dashboardQueryOptions: (fetchDashboard: unknown, hostId: string, workspaceId: string, directory: string, previous: undefined, scope: "workspace", visible: boolean) => { refetchInterval: number | false };
+    POLL_MS: number;
+  };
+  const never = async () => { throw new Error("a hidden panel does not poll"); };
+  assert.equal(dashboardQueryOptions(never, "h", "w", "/repo", undefined, "workspace", false).refetchInterval, false, "hidden: no refetch interval");
+  assert.equal(dashboardQueryOptions(never, "h", "w", "/repo", undefined, "workspace", true).refetchInterval, POLL_MS, "visible: the usual cadence");
+});

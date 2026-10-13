@@ -52,6 +52,33 @@ function useWhyRendered(name: string, values: Record<string, unknown>) {
   countRender(name, changed.join(",") || "nothing of mine");
 }
 
+// True while this panel's document is showing. Views the host keeps mounted
+// after navigation report hidden, so their cadences can pause instead of
+// stacking (o24 follow-up: hidden panels were eating CPU on a remote client).
+type PanelDocument = {
+  visibilityState?: string;
+  addEventListener?: (type: "visibilitychange", listener: () => void) => void;
+  removeEventListener?: (type: "visibilitychange", listener: () => void) => void;
+};
+const panelDocument = () => (globalThis as { document?: PanelDocument }).document;
+
+export function useVisible(): boolean {
+  const [visible, setVisible] = useState(() => panelDocument()?.visibilityState !== "hidden");
+  useEffect(() => {
+    const doc = panelDocument();
+    if (!doc?.addEventListener) return;
+    const onchange = () => setVisible(doc.visibilityState !== "hidden");
+    doc.addEventListener("visibilitychange", onchange);
+    return () => doc.removeEventListener?.("visibilitychange", onchange);
+  }, []);
+  return visible;
+}
+
+// A hidden panel schedules nothing.
+export function cadence(baseMs: number, visible: boolean): number {
+  return visible ? baseMs : 0;
+}
+
 function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: PluginWorkspacePanelProps) {
   useCommitMark("Panel");
   const sendPerf = useRpc(reportPerf);
@@ -64,14 +91,16 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
   const agentRunning = useWorkspace(workspaceId, (workspace) => workspace.status === "running") ?? false;
   // The header control folds the run: this workspace's run or the whole file ("All" is 0.4.0).
   const [scope, setScope] = useState<Scope>(DEFAULT_SCOPE);
-  const query = useDashboard(host.id, workspaceId, directory, scope);
+  // Pausing cadences needs the panel's own visibility, not the window's focus.
+  const visible = useVisible();
+  const query = useDashboard(host.id, workspaceId, directory, scope, visible);
   const result = query.data ?? null;
   useMarkPanelOpened(workspaceId, directory, Boolean(result?.configured && !result.panelOpened));
   const [narrow, setNarrow] = useState(false);
   // Told by the dashboard view which section shows; the Beads read runs fast only for its own.
   const [beadsShowing, setBeadsShowing] = useState(false);
-  const beads = useBeads(workspaceId, result?.root, beadsShowing);
-  useWhyRendered("Panel", { theme, workspaceId, host, layout, navigation, scope, narrow, beadsShowing, result, agentRunning, directory, beads });
+  const beads = useBeads(workspaceId, result?.root, beadsShowing, visible);
+  useWhyRendered("Panel", { theme, workspaceId, host, layout, navigation, scope, visible, narrow, beadsShowing, result, agentRunning, directory, beads });
 
   return (
     <NarrowProvider value={narrow}>
@@ -89,7 +118,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
       <Presence show={Boolean(result && !result.configured)}>{result && !result.configured ? <EmptyState colors={colors} file={result.file} /> : null}</Presence>
       {/* Keyed by run: a new run starts with fresh tabs, pages and dialogs. */}
       {result?.configured ? <DashboardView key={result.dashboard.run?.startedAt ?? "none"} colors={colors} dashboard={result.dashboard} agentRunning={agentRunning} compact={layout.compact}
-        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} gitOnly={Boolean(directory && result.root && directory !== result.root)} beads={beads} onBeadsShowing={setBeadsShowing} /> : null}
+        workspaceId={workspaceId} workspaceDirectory={result.root} file={result.file} navigation={navigation} scope={scope} onScopeChange={setScope} gitOnly={Boolean(directory && result.root && directory !== result.root)} beads={beads} onBeadsShowing={setBeadsShowing} visible={visible} /> : null}
       {result?.inRepo && directory ? <HistoryRow colors={colors} workspaceId={workspaceId} directory={directory} savedTo={result.savedTo} /> : null}
     </ScrollView>
     </NarrowProvider>
@@ -126,7 +155,7 @@ export function beadsPoll(active: boolean, ageMs: number): { readNow: boolean; e
 // A readonly beads read on mount, then on beadsPoll's rhythm. An unchanged
 // read keeps the same object, so the list does not re-render; a failed
 // refresh keeps the last good list, and only a first-read failure shows.
-function useBeads(workspaceId: string, root: string | undefined, active: boolean): BeadsResult | null {
+function useBeads(workspaceId: string, root: string | undefined, active: boolean, visible: boolean): BeadsResult | null {
   const fetchBeads = useRpc(getBeads);
   const [beads, setBeads] = useState<BeadsResult | null>(null);
   // Outlives the effect, so a tab switch knows how old the list is.
@@ -150,10 +179,11 @@ function useBeads(workspaceId: string, root: string | undefined, active: boolean
         .catch(() => { if (!stale && !mine.last) setBeads({ state: "error", message: "Could not read beads" }); });
     };
     const poll = beadsPoll(active, mine.readAt ? Date.now() - mine.readAt : Number.POSITIVE_INFINITY);
-    if (poll.readNow) void read();
-    const timer = setInterval(read, poll.everyMs);
-    return () => { stale = true; clearInterval(timer); };
-  }, [fetchBeads, workspaceId, root, active]);
+    if (poll.readNow && visible) void read();
+    const every = cadence(poll.everyMs, visible);
+    const timer = every ? setInterval(read, every) : undefined;
+    return () => { stale = true; if (timer) clearInterval(timer); };
+  }, [fetchBeads, workspaceId, root, active, visible]);
   return beads;
 }
 
@@ -194,18 +224,19 @@ function StatusLine({ icon, children }: { icon: React.ReactNode; children: React
 }
 
 // Re-renders on an interval so "x min ago" keeps counting between polls.
-function useNow(intervalMs: number): number {
+function useNow(intervalMs: number, visible: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!visible) return;
     const id = setInterval(() => { mark(`useNow tick ${intervalMs}ms`); setNow(Date.now()); }, intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs]);
+  }, [intervalMs, visible]);
   return now;
 }
 
 const WIDE_MIN = 760;
 
-function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing }: {
+function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, visible }: {
   colors: Colors;
   dashboard: Dashboard;
   agentRunning: boolean;
@@ -222,10 +253,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   beads: BeadsResult | null;
   // Whether the Beads section is the one showing, so its read can slow down when it is not.
   onBeadsShowing(showing: boolean): void;
+  // True while this panel's document shows; hidden panels pause every cadence.
+  visible: boolean;
 }) {
   useCommitMark("DashboardView");
-  const now = useNow(15_000);
-  useWhyRendered("DashboardView", { colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, now });
+  const now = useNow(15_000, visible);
+  useWhyRendered("DashboardView", { colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, visible, now });
   // Quiet isn't stale while an agent in the workspace is still running.
   const stale = dashboard.stale && !agentRunning;
   const hasHistory = dashboard.activity.length + dashboard.questions.answered.length + dashboard.deliverables.length > 0;

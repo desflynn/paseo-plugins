@@ -11,7 +11,10 @@ export const POLL_MS = 3_000;
 
 // `previous` is what the cache already holds. Polls send its version, and an
 // "unchanged" reply keeps that same object, so nothing re-renders.
-export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: string, workspaceId: string, directory: string | null, previous?: () => DashboardResult | undefined, scope: DashboardScope = "workspace") {
+export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: string, workspaceId: string, directory: string | null, previous?: () => DashboardResult | undefined, scope: DashboardScope = "workspace", visible = true) {
+  // A hidden panel stops polling: views the host keeps mounted after
+  // navigation must not stack round trips (o24 follow-up).
+  const refetchInterval: number | false = visible ? POLL_MS : false;
   return {
     queryKey: ["progress", "dashboard", hostId, workspaceId, directory, scope],
     queryFn: async (): Promise<DashboardResult> => {
@@ -23,14 +26,14 @@ export function dashboardQueryOptions(fetchDashboard: FetchDashboard, hostId: st
     },
     enabled: Boolean(directory),
     staleTime: POLL_MS,
-    refetchInterval: POLL_MS,
+    refetchInterval,
   };
 }
 
-export function useDashboard(hostId: string, workspaceId: string, directory: string | null, scope: DashboardScope = "workspace") {
+export function useDashboard(hostId: string, workspaceId: string, directory: string | null, scope: DashboardScope = "workspace", visible = true) {
   const fetchDashboard = useRpc(getDashboard);
   const queryClient = useQueryClient();
   const options = dashboardQueryOptions(fetchDashboard, hostId, workspaceId, directory,
-    () => queryClient.getQueryData<DashboardResult>(options.queryKey), scope);
+    () => queryClient.getQueryData<DashboardResult>(options.queryKey), scope, visible);
   return useQuery(options);
 }
