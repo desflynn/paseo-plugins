@@ -14,7 +14,7 @@ export function dashboardText(dashboard: Dashboard, nowMs: number): string {
   lines.push(headlineText(dashboard));
   if (dashboard.run?.finished) {
     lines.push(`Finished ${when(dashboard.run.finished.at)}: ${dashboard.run.finished.outcome}`);
-    lines.push(`This run is closed. Start new work with: paseo-progress start "<title>"`);
+    lines.push(`This run is closed. Start new work with: paseo-progress start "<title>" --replace`);
   }
   if (dashboard.ticker) lines.push(`Now: ${dashboard.ticker.text}`);
   if (dashboard.updatedAt) lines.push(`Last updated ${when(dashboard.updatedAt)}`);

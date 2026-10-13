@@ -229,20 +229,26 @@ function addedByOthersText(tickets: Ticket[], dashboard: Dashboard): string {
 
 const commands: Record<string, Command> = {
   start: {
-    usage: `start "<title>" [--subtitle <text>] [--item-label <word>]`,
-    summary: "Start a new run. Earlier runs stay in the file but leave the dashboard.",
-    options: { subtitle: { type: "string" }, "item-label": { type: "string" } },
-    run({ positionals, values }) {
+    usage: `start "<title>" [--subtitle <text>] [--item-label <word>] [--replace]`,
+    summary: "Create the workspace's board. It only works where no board exists yet: a board is one persistent object per workspace, so work the current one (show) and rename it (rename) when the theme changes. --replace is the deliberate override: it retires the current board, saying how many open objectives leave the dashboard (they stay in the file).",
+    options: { subtitle: { type: "string" }, "item-label": { type: "string" }, replace: { type: "boolean" } },
+    run({ positionals, values, state }) {
       const title = required(positionals[0], "run title");
+      const current = state.dashboard.run;
+      const open = state.dashboard.tickets.filter((ticket) => ticket.status !== "closed").length;
+      if (current && !values.replace) {
+        throw new UsageError(`This workspace already has a board: "${current.title}"${current.finished ? " (finished)" : ""}. A board is one persistent object per workspace: run ${USAGE_NAME} show and work it, and rename it with ${USAGE_NAME} rename "<title>" when the theme changes. start is only for a workspace that has never had a board. To retire this board on purpose, pass --replace${open ? `; ${open} open ${open === 1 ? "objective" : "objectives"} would leave the dashboard` : ""}.`);
+      }
+      const replaced = current ? `. Replaced the board "${current.title}": ${open} open ${open === 1 ? "objective leaves" : "objectives leave"} the dashboard (still in the file).` : "";
       return {
         event: { type: "run.start", title, subtitle: stringOption(values.subtitle), itemLabel: stringOption(values["item-label"]) },
-        message: `Started run: ${title}`,
+        message: `Started run: ${title}${replaced}`,
       };
     },
   },
   finish: {
     usage: `finish "<outcome>"`,
-    summary: "Close the run with a one-line outcome. Every ticket must be done or skipped, no question open, nothing flagged stuck. New work after this needs start.",
+    summary: "Close the run with a one-line outcome. Every ticket must be done or skipped, no question open, nothing flagged stuck. New work after this needs start --replace.",
     run({ positionals, state }) {
       const outcome = required(positionals[0], "outcome");
       if (!state.dashboard.run) throw new UsageError("No run to finish.");
@@ -724,7 +730,7 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
         // another workspace finished. A sandbox that strips PASEO_* variables
         // (context-mode's ctx_execute) lands an agent here; say so.
         const noId = options.agentId ? "" : " No PASEO_AGENT_ID reached this command, so it read the unscoped board. A Paseo agent runs it from its own shell, not a sandbox that strips PASEO_* variables.";
-        throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>".${noId}`);
+        throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>" --replace (nothing open is lost: a finished board has no open objectives).${noId}`);
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root, scope });
       if (event.type === "ticket.update" && event.status === "closed") {

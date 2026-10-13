@@ -187,6 +187,32 @@ test("a write made for a workspace lands on that workspace's board, even when th
   assert.deepEqual(dashboard.tickets.map((ticket) => ticket.title), ["Promoted bead"], "it shows in the workspace's own Objectives");
 });
 
+test("start only creates a board; over an existing one it refuses and drops nothing", async (t) => {
+  const w = await worktree(t);
+  const first = await w.run("start", "First board");
+  assert.equal(first.code, 0, "a workspace with no board can start one");
+  await w.run("ticket", "add", "Open watch", "--estimate", "10");
+  await w.run("ticket", "add", "Another", "--estimate", "10");
+  const refused = await w.run("start", "New theme");
+  assert.equal(refused.code, 1);
+  assert.match(refused.text, /already has a board: "First board"/, "it names the current board");
+  assert.match(refused.text, /paseo-progress show/);
+  assert.match(refused.text, /paseo-progress rename/);
+  assert.match(refused.text, /--replace/);
+  const after = (await w.dashboard()).dashboard;
+  assert.equal(after.run?.title, "First board", "the board is untouched");
+  assert.deepEqual(after.tickets.map((ticket) => ticket.title), ["Open watch", "Another"], "its open tickets are still there");
+  const loud = await w.run("start", "Replacement", "--replace");
+  assert.equal(loud.code, 0, loud.text);
+  assert.match(loud.text, /Replaced the board "First board": 2 open objectives leave the dashboard/, "the override says what it drops");
+  assert.equal((await w.dashboard()).dashboard.run?.title, "Replacement");
+  // A finished board refuses too, with nothing to drop.
+  await w.run("finish", "Done");
+  const afterFinish = await w.run("start", "Again");
+  assert.equal(afterFinish.code, 1);
+  assert.match(afterFinish.text, /already has a board: "Replacement"/);
+});
+
 test("a write with no agent id to a finished run says the id is missing", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Export");
@@ -228,7 +254,7 @@ test("finish closes the run only once everything is settled, and keeps it on the
   const after = await w.run("ticket", "add", "Ticket 02", "--estimate", "10");
   assert.equal(after.code, 1);
   assert.match(after.text, /The run "Export" is finished\. Start new work with: paseo-progress start/);
-  assert.equal((await w.run("start", "Next job")).code, 0);
+  assert.equal((await w.run("start", "Next job", "--replace")).code, 0);
   assert.equal((await w.dashboard()).dashboard.run?.finished, undefined, "a new run starts open");
 });
 
@@ -311,7 +337,7 @@ test("opening the panel is remembered in the worktree", async (t) => {
   assert.equal((await w.dashboard()).panelOpened, false);
   await markPanelOpened(w.store);
   assert.equal((await w.dashboard()).panelOpened, true);
-  await w.run("start", "Another run");
+  await w.run("start", "Another run", "--replace");
   assert.equal((await w.dashboard()).panelOpened, true, "a new run doesn't bring the pill back");
 });
 
@@ -578,7 +604,7 @@ test("an agent new to the run, a command outside Paseo, and a new run hear nothi
   assert.doesNotMatch((await w.runAs("b", "show")).text, /Another session/);
   await w.runAs("b", "ticket", "add", "Second", "--estimate", "30");
   assert.doesNotMatch((await w.run("ticker", "set", "From a terminal")).text, /Another session/);
-  assert.doesNotMatch((await w.runAs("a", "start", "Next run", "--item-label", "Step")).text, /Another session/);
+  assert.doesNotMatch((await w.runAs("a", "start", "Next run", "--item-label", "Step", "--replace")).text, /Another session/);
   await w.runAs("b", "ticket", "add", "Third", "--estimate", "30");
   assert.match((await w.runAs("a", "ticker", "set", "Back")).text, /Another session added a step since your last update:\n  o1  Third\nIt is not an order: take it only if your task names it\.$/);
 });
@@ -869,7 +895,7 @@ test("question references are never reused and bad questions are refused", async
   await w.run("question", "ask", "One", "First?", "--recommend", "Yes");
   assert.equal((await w.run("question", "remove", "Q1")).text, "Removed Q1 (One)");
   assert.match((await w.run("question", "ask", "Two", "Second?", "--recommend", "Yes")).text, /^Asked Q2/);
-  await w.run("start", "Next run");
+  await w.run("start", "Next run", "--replace");
   assert.match((await w.run("question", "ask", "Three", "Third?", "--recommend", "Yes")).text, /^Asked Q3/, "references stay unique across runs");
   const cases: Array<[string[], RegExp]> = [
     [["question", "ask", "T", "Q?", "--option", "A=One", "--option", "B=Two", "--recommend", "C"], /--recommend must be one of the option letters: A, B/],
@@ -964,7 +990,7 @@ test("a new run shows a fresh dashboard while the old history stays in the file"
   const w = await screenshotRun(t);
   await w.run("question", "ask", "Old", "Old question?", "--recommend", "Yes");
   w.at(30);
-  await w.run("start", "Second run");
+  await w.run("start", "Second run", "--replace");
   const { dashboard } = await w.dashboard();
   assert.equal(dashboard.run?.title, "Second run");
   assert.deepEqual([dashboard.tickets, dashboard.questions.open, dashboard.stuck], [[], [], []]);
@@ -1337,7 +1363,7 @@ test("saving run history is opt-in: one file per run in the chosen folder, in ev
   assert.deepEqual(await repo.visible(), [`history/${first}`], "only the run file; no lock or marker");
   assert.deepEqual(await repo.visible(repo.linked), [`history/${runFileName(minutes(0).toISOString(), "Linked run")}`], "the setting covers every worktree");
 
-  await repo.run(repo.directory, "start", "Second run");
+  await repo.run(repo.directory, "start", "Second run", "--replace");
   assert.deepEqual((await readdir(join(repo.directory, "history"))).sort(), [first, runFileName(minutes(0).toISOString(), "Second run")].sort(), "a new run gets its own file");
   assert.deepEqual(JSON.parse((await readFile(join(repo.directory, "history", runFileName(minutes(0).toISOString(), "Second run")), "utf8")).trim()).title, "Second run");
 
