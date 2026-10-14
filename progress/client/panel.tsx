@@ -7,7 +7,7 @@ import { AnsweredQuestionsList, QuestionsSection } from "./questions";
 import { Spinner, StalledPulse } from "./spinner";
 import { IconSwap, Presence, StaggerRoot, nativeDriver } from "./motion";
 import { SectionTitle } from "./section-title";
-import { raised } from "./surfaces";
+import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
@@ -105,7 +105,7 @@ function WorkspaceProgress({ theme, workspaceId, host, layout, navigation }: Plu
   return (
     <NarrowProvider value={narrow}>
     <ScrollView onLayout={(event) => setNarrow(event.nativeEvent.layout.width <= NARROW_MAX)}
-      style={{ flex: 1, backgroundColor: colors.surface0 }} contentContainerStyle={{ paddingBottom: 16 }}>
+      style={{ flex: 1, backgroundColor: sidebarTone(colors) }} contentContainerStyle={{ paddingBottom: 16 }}>
       {query.isPending ? <ActivityIndicator color={colors.foregroundMuted} accessibilityLabel="Loading progress" style={{ padding: 12 }} /> : null}
       {query.error ? (
         <Text accessibilityRole="alert" selectable style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 18, padding: 12 }}>
@@ -400,7 +400,7 @@ function HistoryCard({ colors, workspaceId, tabs }: { colors: Colors; workspaceI
   const current = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   return (
     <View onLayout={(event) => setShowIcons(event.nativeEvent.layout.width >= TAB_ICONS_MIN)}
-      style={{ margin: 12, marginBottom: 0, ...raised(colors), borderRadius: 6, overflow: "hidden" }}>
+      style={{ margin: 12, marginBottom: 0, ...raised(colors), backgroundColor: colors.surface0, borderRadius: 6, overflow: "hidden" }}>
       <TabStrip colors={colors} narrow={narrow} tabs={tabs.map((entry) => ({ ...entry, icon: showIcons ? entry.icon : null }))} selected={current.id} onSelect={choose}
         style={{ paddingHorizontal: narrow ? 8 : 10 }} />
       {current.count === 0 ? (
@@ -446,7 +446,7 @@ function IssuesNotice({ colors, issues, file }: { colors: Colors; issues: FileIs
 
 function Card({ colors, icon, title, header, children }: { colors: Colors; icon?: string; title?: string; header?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <View style={{ margin: 12, marginBottom: 0, ...raised(colors), borderRadius: 6, overflow: "hidden" }}>
+    <View style={{ margin: 12, marginBottom: 0, ...raised(colors), backgroundColor: colors.surface0, borderRadius: 6, overflow: "hidden" }}>
       {header ?? <SectionTitle colors={colors} icon={icon ?? "SquareList"} title={title ?? ""} />}
       {children}
     </View>

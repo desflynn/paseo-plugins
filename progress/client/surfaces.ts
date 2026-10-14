@@ -3,17 +3,20 @@ import type { ViewStyle } from "react-native";
 
 type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 
-// Relative luminance of a #rgb/#rrggbb or rgb() color, or null when unreadable.
-function luminance(color: string): number | null {
-  let rgb: number[] | null = null;
+// The 0-255 channels of a #rgb/#rrggbb or rgb() color, or null when unreadable.
+function parseRgb(color: string): number[] | null {
   const hex = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (hex) {
     const digits = hex[1].length === 3 ? [...hex[1]].map((d) => d + d) : hex[1].match(/../g)!;
-    rgb = digits.map((d) => parseInt(d, 16));
-  } else {
-    const fn = color.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
-    if (fn) rgb = fn.slice(1, 4).map(Number);
+    return digits.map((d) => parseInt(d, 16));
   }
+  const fn = color.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+  return fn ? fn.slice(1, 4).map(Number) : null;
+}
+
+// Relative luminance of a color, or null when unreadable.
+function luminance(color: string): number | null {
+  const rgb = parseRgb(color);
   if (!rgb) return null;
   const [r, g, b] = rgb.map((v) => {
     const c = v / 255;
@@ -25,6 +28,15 @@ function luminance(color: string): number | null {
 function isLight(colors: Colors): boolean | null {
   const value = luminance(colors.surface0);
   return value === null ? null : value > 0.4;
+}
+
+// Paseo's sidebar tone, which the plugin theme does not pass on: surface0 stepped
+// down by the ratio Paseo's own themes use (about 0.84 dark, 0.96 light).
+export function sidebarTone(colors: Colors): string {
+  const rgb = parseRgb(colors.surface0);
+  if (!rgb) return colors.surface0;
+  const factor = isLight(colors) ? 0.957 : 0.84;
+  return `#${rgb.map((v) => Math.round(v * factor).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // A 1px ring just inside an image: pure black or white at 10%, never a tinted gray.
