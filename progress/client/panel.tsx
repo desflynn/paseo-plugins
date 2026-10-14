@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { finishedToFold, isFinished, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { splitFinished, isFinished, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -548,8 +548,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
   };
   const narrow = useNarrow();
   const sorted = sortObjectives(dashboard.tickets);
-  const finished = finishedToFold(sorted);
-  const open = sorted.filter((ticket) => !isFinished(ticket));
+  const { listed: open, folded: finished } = splitFinished(sorted);
   const row = (ticket: Ticket) => (
     <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />

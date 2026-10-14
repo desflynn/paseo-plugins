@@ -981,6 +981,15 @@ export function finishedToFold(tickets: Ticket[]): Ticket[] {
   return finished.length >= 2 && finished.length < tickets.length ? finished : [];
 }
 
+// What the objectives list shows in place and what folds behind the count
+// row. A finished ticket the fold doesn't take (a lone one, or every ticket on
+// a finished board) stays listed in plan order, never dropped.
+export function splitFinished(tickets: Ticket[]): { listed: Ticket[]; folded: Ticket[] } {
+  const folded = finishedToFold(tickets);
+  const taken = new Set(folded);
+  return { listed: tickets.filter((ticket) => !taken.has(ticket)), folded };
+}
+
 export function isFinished(ticket: Ticket): boolean {
   return ticket.status === "closed";
 }

@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { finishedToFold, headlineText, type Ticket } from "../shared/dashboard.ts";
+import { finishedToFold, headlineText, splitFinished, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -381,6 +381,18 @@ test("the panel folds every finished ticket, and only two or more", () => {
   assert.deepEqual(folded("closed", "in_progress", "open"), [], "one finished ticket isn't worth a fold row");
   assert.deepEqual(folded("closed", "closed", "closed"), [], "once everything is finished, the whole list shows");
   assert.deepEqual(folded(), []);
+});
+
+test("the objectives list keeps every finished ticket the fold doesn't take", () => {
+  const list = (...statuses: Ticket["status"][]) => statuses.map((status, index) => ({ id: `o${index + 1}`, title: "", estimateMin: 10, status, statusSince: "", history: [] }));
+  const split = (...statuses: Ticket["status"][]) => {
+    const { listed, folded } = splitFinished(list(...statuses));
+    return [listed.map((ticket) => ticket.id), folded.map((ticket) => ticket.id)];
+  };
+  assert.deepEqual(split("closed", "closed", "closed"), [["o1", "o2", "o3"], []], "an all-done board still lists its objectives");
+  assert.deepEqual(split("closed", "in_progress", "open"), [["o1", "o2", "o3"], []], "a lone finished objective stays in place");
+  assert.deepEqual(split("open", "closed", "closed"), [["o1"], ["o2", "o3"]], "two or more finished fold behind the count row");
+  assert.deepEqual(split(), [[], []]);
 });
 
 test("removed tickets leave the dashboard and their ids are never reused", async (t) => {
