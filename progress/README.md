@@ -79,7 +79,7 @@ The GIT side of the toggle (and `show --all`) is the union: every workspace's cu
 
 ## Agent skill
 
-The plugin ships an agent skill, `paseo-progress`, that tells agents when to run each command during a multi-ticket job: set up the run, move tickets through their stages, ask questions without stopping, flag stuck work, and finish. Press **Install skill** in the Progress panel. It links `paseo-progress` into `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` (the folders Paseo installs its own skills into), pointing at the copy of the plugin Paseo runs, so plugin updates reach agents. If Paseo later runs the plugin from somewhere else, the button changes to **Update skill**. It never replaces a skill it didn't link; that folder is skipped.
+The plugin ships an [agent skill](skills/paseo-progress/SKILL.md), `paseo-progress`, that tells agents when to run each command during a multi-ticket job: set up the run, move tickets through their stages, ask questions without stopping, flag stuck work, and finish. Press **Install skill** in the Progress panel. It links `paseo-progress` into `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` (the folders Paseo installs its own skills into), pointing at the copy of the plugin Paseo runs, so plugin updates reach agents. If Paseo later runs the plugin from somewhere else, the button changes to **Update skill**. It never replaces a skill it didn't link; that folder is skipped.
 
 From a terminal instead:
 
@@ -174,7 +174,7 @@ A hold stops new work without hiding the board. `hold set --kind closed` closes 
 
 This is the 0.4.0-df fork of the plugin, version 0.4.0-df.10 (df.2 through df.10 carried the objectives overhaul, one landing each). It runs live from this checkout: `npm run dev` in the plugin folder swaps it into Paseo, and `paseo plugin ls` shows `progress` running from the folder.
 
-Deploying a change is one move: bump the patch version, then `paseo plugin reload progress`. The reload is the whole deploy — the daemon recompiles the panel and the server from source, open apps pick up the new panel without a restart, and the `paseo-progress` launcher runs `server/cli.ts` directly. There is no build step and no `dist/`; the CLI and the panel always run the same source.
+Deploying a change is one move: bump the patch version, then `paseo plugin reload progress`. The reload is the whole deploy — the daemon recompiles the panel and the server from source, open apps pick up the new panel without a restart, and the `paseo-progress` launcher runs `server/cli.ts` directly. There is no build step and no `dist/`; the CLI and the panel always run the same source. How the plugin is built, module by module, is in [OVERVIEW.md](OVERVIEW.md).
 
 To go back to the published plugin:
 
