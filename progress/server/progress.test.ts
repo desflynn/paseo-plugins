@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { boardStatuses, connDisplay, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
+import { boardStatuses, connDisplay, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -889,6 +889,16 @@ test("show and show --json carry conn and the board indicator; conn is left out 
   const on = await json();
   assert.deepEqual(on.dashboard.conn, { on: true, budget: 2, mode: "live", nextNudgeAt: next, since: minutes(0).toISOString() });
   assert.match((await w.run("show", ...ws)).text, /Conn: on, budget 2, live, since \S+, next nudge \S+\nStatus: Active 1$/);
+});
+
+test("the ticker icon spins only for active work, warns only for stalled work, and sits still when idle", () => {
+  assert.equal(tickerIcon([{ kind: "idle" }], false), "idle", "an idle board gets no spinner and no warning");
+  assert.equal(tickerIcon([{ kind: "active", count: 1 }], false), "live");
+  assert.equal(tickerIcon([{ kind: "active", count: 1 }, { kind: "stuck", count: 2 }], false), "live");
+  assert.equal(tickerIcon([{ kind: "stale", count: 1 }], false), "stale");
+  assert.equal(tickerIcon([{ kind: "stale", count: 1 }, { kind: "stuck", count: 1 }], false), "stale");
+  assert.equal(tickerIcon([{ kind: "stuck", count: 1 }], false), "idle", "stuck with nothing running is the indicator's job, not a stalled ticker");
+  assert.equal(tickerIcon([{ kind: "stale", count: 1 }], true), "finished", "a finished board shows the check whatever else");
 });
 
 test("the indicator labels read Idle, Active N, Stale N and Stuck N", () => {

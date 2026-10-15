@@ -1066,6 +1066,18 @@ export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stal
   return statuses.length ? statuses : [{ kind: "idle" }];
 }
 
+// The icon beside the ticker line follows the same statuses as the indicator:
+// a spinner only while work is active, the stalled warning only when in-progress
+// work has stalled, and a still dot when nothing is running (stuck alone is the
+// indicator's job). A finished board shows the check.
+export type TickerIcon = "finished" | "live" | "stale" | "idle";
+export function tickerIcon(statuses: Indicator[], finished: boolean): TickerIcon {
+  if (finished) return "finished";
+  if (statuses.some((status) => status.kind === "stale")) return "stale";
+  if (statuses.some((status) => status.kind === "active")) return "live";
+  return "idle";
+}
+
 // The conn sign in the panel header. Solid only while the engine says live AND
 // it is still inside its window: the DCI engine rewrites nextNudgeAt on every
 // nudge, so a time more than CONN_GRACE_MIN past it means the engine went quiet

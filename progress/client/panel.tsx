@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, connDisplay, displayPriority, indicatorLabel, isAutoPullable, splitFinished, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, connDisplay, displayPriority, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -260,7 +260,10 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   const now = useNow(15_000, visible);
   useWhyRendered("DashboardView", { colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, visible, now });
   // Quiet isn't stale while an agent in the workspace is still running.
-  const stale = dashboard.stale && !agentRunning;
+  const statuses = boardStatuses(dashboard, agentRunning);
+  // Stale only while in-progress work has gone quiet: an idle board is never stale.
+  const stale = statuses.some((status) => status.kind === "stale");
+  const ticker = tickerIcon(statuses, Boolean(dashboard.run?.finished));
   const hasHistory = dashboard.activity.length + dashboard.questions.answered.length + dashboard.deliverables.length > 0;
   // The top section row (owner retab): Tickets, Beads, GH Issues, where the
   // tickets section sits. The history card is history only — beads moved up.
@@ -297,14 +300,16 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
               {dashboard.run?.title ?? "Progress"}
             </Text>
           </View>
-          <StatusIndicator colors={colors} statuses={boardStatuses(dashboard, agentRunning)} />
+          <StatusIndicator colors={colors} statuses={statuses} />
         </View>
         {/* One status slot: the icon morphs from spinner (or stalled pulse) to the check on finish. */}
         {dashboard.run?.finished || dashboard.ticker ? (
           <StatusLine icon={
-            <IconSwap swapKey={dashboard.run?.finished ? "finished" : live ? "live" : "stale"} size={12}>
-              {dashboard.run?.finished ? <Icon name="CircleCheck" size={12} color={colors.statusSuccess} />
-                : live ? <Spinner color={colors.accent} /> : <StalledPulse color={colors.statusWarning} />}
+            <IconSwap swapKey={ticker} size={12}>
+              {ticker === "finished" ? <Icon name="CircleCheck" size={12} color={colors.statusSuccess} />
+                : ticker === "live" ? <Spinner color={colors.accent} />
+                : ticker === "stale" ? <StalledPulse color={colors.statusWarning} />
+                : <Icon name="Circle" size={12} color={colors.foregroundMuted} />}
             </IconSwap>
           }>
             {dashboard.run?.finished ? (
