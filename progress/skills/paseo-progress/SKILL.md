@@ -78,6 +78,14 @@ Work the list from the top down. Finish the P0s first. When there are no P0s lef
 
 This is guidance, not automation. Nothing triages for you: do not re-rank other people's objectives, and do not start work that is not yours because it sits high in the list. Take what your task names. The ordering and the priority numbers are there so that auto-triage can be switched on for an agent later; until someone does that, use priorities to say how urgent your own objectives are, and to read the order of the board.
 
+## Statuses are true, and Des to UAT (Des, 14 Oct)
+
+The board must read true at a glance. Built and tested is Done: `ticket done <id> --note "<the proof>"` (test count, SHA, smoke result). Waiting for Des is not a status — never leave finished work `in_progress` or `open` to mean "he has not looked yet". In progress means an agent is working on it right now; open means not started or held. The CLI has no held status: Held is a stage plus a priority (`ticket update <id> --stage "Held" --priority <n>`), and a wait on a third party carries a stage that names who — "Waiting for <who>", such as "Waiting for Catherine".
+
+**Des to UAT.** Whenever Des must put eyes on something or UAT it, keep one standing top-level objective titled "Des to UAT" (waiting for Des, priority 0, stage "Waiting for Des"), with the pack or file as its `--source`. Add ONE child per thing Des must look at, titled `Des: <what he checks and what passing looks like> (<objective id>, <pack section>)`, about 10 minutes each; the child is his reminder to review. A doer or a sponsor may create this objective — the one explicit exception to "never create a top-level objective". Mark any Salesforce-write step inside a UAT child as needing Des's go.
+
+**Close-out check.** Before ending a turn, and whenever Des asks "where do we stand", run `paseo-progress show` and read it: every status must be true — nothing finished sits in progress, nothing waiting on Des sits outside Des to UAT.
+
 ## 3. Ask questions, and work around them
 
 When a decision belongs to the user, ask it, then park everything the answer affects:
