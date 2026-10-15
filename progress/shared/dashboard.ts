@@ -1088,7 +1088,13 @@ export function connDisplay(conn: Conn, nowMs: number): { solid: boolean; hover:
   const solid = conn.mode === "live" && nowMs <= due + CONN_GRACE_MIN * 60_000;
   const next = Number.isNaN(due) ? "unknown" : new Date(due).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const state = conn.mode === "keepalive" ? "keep-alive pending" : solid ? "work outstanding" : "engine quiet past its nudge";
-  return { solid, hover: `Conn on, budget ${conn.budget}${conn.clear ? ", clear (turns off at idle)" : ""}, ${state}, next nudge ${next}` };
+  return { solid, hover: `Conn on, budget ${conn.budget}${conn.clear ? ", until board autos cleared" : ""}, ${state}, next nudge ${next}` };
+}
+
+// The header text before the board name: the infinity sign and the FM budget,
+// then a chequered flag only for full auto clear (it ends when the board is clear).
+export function connLabel(conn: Conn): string {
+  return `♾️(${conn.budget})${conn.clear ? " 🏁" : ""}`;
 }
 
 // The indicator's word: "Idle", or the kind with its count, like "Stuck 2".

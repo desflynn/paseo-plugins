@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, connDisplay, displayPriority, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, connDisplay, connLabel, displayPriority, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -521,7 +521,7 @@ function ConnSign({ colors, conn, now }: { colors: Colors; conn: Conn; now: numb
   return (
     <Text accessibilityLabel={hover} {...({ title: hover } as object)}
       style={{ flexShrink: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600", opacity: solid ? 1 : 0.35 }}>
-      {`♾️(${conn.budget})${conn.clear ? " clear" : ""}`}
+      {connLabel(conn)}
     </Text>
   );
 }

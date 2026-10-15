@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { boardStatuses, connDisplay, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
+import { boardStatuses, connDisplay, connLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -906,6 +906,14 @@ test("the indicator labels read Idle, Active N, Stale N and Stuck N", () => {
     [{ kind: "idle" }, { kind: "active", count: 2 }, { kind: "stale", count: 1 }, { kind: "stuck", count: 3 }].map((status) => indicatorLabel(status as Indicator)),
     ["Idle", "Active 2", "Stale 1", "Stuck 3"],
   );
+});
+
+test("the conn label reads infinity and budget, plus a chequered flag only for full auto clear", () => {
+  const conn = { on: true as const, budget: 2, mode: "live" as const, nextNudgeAt: "2026-10-15T09:30:00.000Z", since: "2026-10-15T08:00:00.000Z" };
+  assert.equal(connLabel(conn), "♾️(2)");
+  assert.equal(connLabel({ ...conn, clear: true }), "♾️(2) 🏁");
+  assert.match(connDisplay({ ...conn, clear: true }, Date.parse(conn.nextNudgeAt)).hover, /until board autos cleared/i, "the flag's tooltip says what it means");
+  assert.doesNotMatch(connDisplay(conn, Date.parse(conn.nextNudgeAt)).hover, /until board autos cleared/i, "no flag, no clear tooltip");
 });
 
 test("the conn sign is solid only while live and the engine is within 5 minutes of its next nudge", () => {
