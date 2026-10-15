@@ -9,6 +9,7 @@ import { appendFile, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from
 import { homedir } from "node:os";
 import { basename, join, normalize, resolve } from "node:path";
 import { promisify } from "node:util";
+import { parseProgress, scopeEvents } from "../shared/dashboard.ts";
 import { LEGACY_FOLDER, PANEL_OPENED_NAME, PROGRESS_FILE_NAME } from "../shared/events.ts";
 import { withLock } from "./lock.ts";
 import { outside } from "./paths.ts";
@@ -167,28 +168,41 @@ export function runFileName(startedAt: string, title: string): string {
   return `${stamp}${slug ? `-${slug}` : ""}.jsonl`;
 }
 
-// After each change: when the repo saves runs, rewrite the current run's file
-// with every event from its start. Runs before the first start aren't saved.
-export async function saveRunCopy(root: string, text: string): Promise<void> {
+// After each change: when the repo saves runs, rewrite the writer's run file
+// with every event of that run from its start. The repo has one shared progress
+// file, but each workspace's run is its own board, so the file is built from
+// the same slice the board folds from (scopeEvents), never from the whole
+// file's last run.start. Runs before the first start aren't saved.
+export async function saveRunCopy(root: string, text: string, scope?: string): Promise<void> {
   const folder = await historyFolder(root);
   if (!folder) return;
-  const lines = text.split("\n").filter((line) => line.trim());
-  let start = -1;
-  let event: { ts?: string; title?: string } | null = null;
-  for (let index = lines.length - 1; index >= 0; index--) {
-    try {
-      const parsed = JSON.parse(lines[index]);
-      if (parsed?.type === "run.start") {
-        start = index;
-        event = parsed;
-        break;
-      }
-    } catch {}
-  }
-  if (start < 0 || !event?.ts || !event.title) return;
+  const fileLines = text.split("\n");
+  const mine = scopeEvents(parseProgress(text).events, scope);
+  const start = mine.find(({ event }) => event.type === "run.start");
+  if (start?.event.type !== "run.start" || !start.event.ts || !start.event.title) return;
+  const body = mine.map(({ line }) => fileLines[line - 1]).filter((line) => line?.trim());
   const directory = join(root, folder);
   await mkdir(directory, { recursive: true });
-  await writeFile(join(directory, runFileName(event.ts, event.title)), `${lines.slice(start).join("\n")}\n`);
+  // Two workspaces can start a run in the same second under one title. A name
+  // already held by another workspace's run gets this workspace added, so the
+  // second never overwrites the first.
+  const base = runFileName(start.event.ts, start.event.title);
+  const holder = await firstEventWs(join(directory, base));
+  const heldByOther = holder !== undefined && holder !== (start.event.ws ?? null);
+  const name = heldByOther && scope ? base.replace(/\.jsonl$/, `-${scope.replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 24)}.jsonl`) : base;
+  await writeFile(join(directory, name), `${body.join("\n")}\n`);
+}
+
+// Which workspace the run in a saved file belongs to: the `ws` of its first
+// line (null for a run no workspace stamped), or undefined when there is no file.
+async function firstEventWs(file: string): Promise<string | null | undefined> {
+  const text = await readFile(file, "utf8").catch(() => null);
+  if (text === null) return undefined;
+  try {
+    return (JSON.parse(text.split("\n", 1)[0]) as { ws?: string }).ws ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // The folders directly inside one folder of the worktree ("" is the top), for

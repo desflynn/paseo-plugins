@@ -1646,3 +1646,70 @@ test("the folder picker lists the repo's folders, without .git or links", async 
   assert.deepEqual(await list("new/folder"), { folder: "new/folder", folders: [] }, "a folder that doesn't exist yet is empty");
   await assert.rejects(list("../"), /inside the repo/);
 });
+
+// Saved runs per workspace (HHC3 report, 15 Oct): the repo has one shared
+// progress file, but each workspace's run is its own board. A saved file holds
+// one workspace's run, complete from its run.start, and nothing of another's.
+async function savedRuns(repo: { directory: string }) {
+  const directory = join(repo.directory, "history");
+  const names = (await readdir(directory)).sort();
+  return Promise.all(names.map(async (name) => ({
+    name,
+    events: (await readFile(join(directory, name), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; ws?: string; title?: string }),
+  })));
+}
+
+test("each workspace's run is saved to its own file, complete from its run.start, with none of another's events", async (t) => {
+  const repo = await newRepo(t);
+  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
+  await as("wks_a", "start", "Alpha board");
+  await as("wks_b", "start", "Beta board");
+  await as("wks_a", "ticket", "add", "A one", "--estimate", "30");
+  await as("wks_b", "ticket", "add", "B one", "--estimate", "30");
+  await as("wks_a", "ticket", "add", "A two", "--estimate", "30");
+  const saved = await savedRuns(repo);
+  assert.equal(saved.length, 2, "one file per workspace run");
+  const alpha = saved.find((run) => run.events[0].title === "Alpha board");
+  const beta = saved.find((run) => run.events[0].title === "Beta board");
+  assert.ok(alpha && beta);
+  assert.equal(alpha.events[0].type, "run.start", "complete from its run.start");
+  assert.deepEqual(alpha.events.filter((event) => event.type === "ticket.add").map((event) => event.title), ["A one", "A two"]);
+  assert.ok(alpha.events.every((event) => event.ws === "wks_a"), "no event of another workspace");
+  assert.deepEqual(beta.events.filter((event) => event.type === "ticket.add").map((event) => event.title), ["B one"]);
+  assert.ok(beta.events.every((event) => event.ws === "wks_b"));
+});
+
+test("two workspaces whose runs would share a file name each keep a file of their own", async (t) => {
+  const repo = await newRepo(t);
+  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
+  await as("wks_a", "start", "Same board");
+  await as("wks_b", "start", "Same board");
+  await as("wks_a", "ticket", "add", "A one", "--estimate", "30");
+  await as("wks_b", "ticket", "add", "B one", "--estimate", "30");
+  const saved = await savedRuns(repo);
+  assert.equal(saved.length, 2, "the second does not overwrite the first");
+  for (const run of saved) {
+    const owners = new Set(run.events.map((event) => event.ws));
+    assert.equal(owners.size, 1, `${run.name} holds one workspace`);
+    assert.equal(run.events.filter((event) => event.type === "ticket.add").length, 1);
+  }
+});
+
+test("a saved file that already mixes workspaces heals on its workspace's next write", async (t) => {
+  const repo = await newRepo(t);
+  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
+  await as("wks_a", "start", "Alpha board");
+  await as("wks_b", "start", "Beta board");
+  await as("wks_b", "ticket", "add", "B one", "--estimate", "30");
+  const name = runFileName(minutes(0).toISOString(), "Alpha board");
+  const file = join(repo.directory, "history", name);
+  const polluted = JSON.stringify({ v: 1, ts: minutes(0).toISOString(), type: "ticket.add", id: "o9", title: "Not mine", estimateMin: 5, ws: "wks_b" });
+  await writeFile(file, `${(await readFile(file, "utf8")).trimEnd()}\n${polluted}\n`);
+  await as("wks_a", "activity", "add", "After the pollution");
+  const text = await readFile(file, "utf8");
+  assert.doesNotMatch(text, /Not mine/, "the other workspace's event is gone");
+  assert.match(text, /After the pollution/);
+});

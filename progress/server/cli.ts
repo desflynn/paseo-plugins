@@ -875,7 +875,7 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
         followUp: boardCleared ? { type: "conn.clear", by: options.agentId, ws: scope } : undefined,
         result: `${message}${added}${boardCleared ? `\n${BOARD_CLEAR_LINE}` : ""}`,
       };
-    }, (text) => saveRunCopy(root, text), moveVerb ? UNION_SCOPE : scope);
+    }, (text) => saveRunCopy(root, text, scope), moveVerb ? UNION_SCOPE : scope);
     if (cascade && cascade.refs.length) {
       // Fail soft: the close already landed; a bd fault is logged, never fatal.
       const failures = await closeBackingBeads(root, cascade.refs, cascade.reason);
