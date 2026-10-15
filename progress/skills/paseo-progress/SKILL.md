@@ -5,7 +5,7 @@ description: Record progress on the Paseo Progress dashboard with the paseo-prog
 
 # Paseo progress
 
-The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. Every command reads and writes the board of the workspace it runs in. `show --all` folds every workspace's current run into one view; `show --mine` shows only your own work, and needs a Paseo agent id, so run it from a Paseo seat; `show --json` prints machine-readable output. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
+The user watches a live dashboard in Paseo, drawn from the progress file in this worktree. You keep it true by running `paseo-progress` the moment each change happens: the dashboard is a side effect of the work, never a summary written afterwards. Run it from inside the worktree you are working in: it records to that worktree's dashboard, and `show` names the worktree it read. Every command reads and writes the board of the workspace it runs in. `show --all` folds every workspace's current run into one view; `show --mine` shows only your own work, and needs a Paseo agent id, so run it from a Paseo seat; `show --json` prints machine-readable output; `show --status <open,in_progress,blocked,closed>` and `show --priority <0-4, none, a list or a range like 0-2>` cut the objectives; `show --ready` lists what a seat may pull (open or in progress, P0 to P2 — P3, P4 and none are owner-held); `show --workspace <id>` reads another workspace's board. `paseo-progress --help` lists every command; `paseo-progress <command> --help` gives its options.
 
 Run `paseo-progress` from the plain shell tool, never inside a context-mode sandbox (`ctx_execute`, `ctx_batch_execute`) and never through `rtk`: they strip every `PASEO_*` variable, so the command cannot tell who you are (it needs `PASEO_AGENT_ID` to find your workspace) and reads the wrong board. Symptom: a claim says "This run is closed" and your objective shows as an unknown ticket, while the same command from the plain shell works.
 
@@ -24,9 +24,9 @@ A board is one persistent object per workspace. Always run `paseo-progress show`
 1. `paseo-progress start "<job title>"`, with `--subtitle` naming the spec or ticket folder.
 2. Add every ticket in order with `paseo-progress ticket add "<title>" --estimate <minutes>`, with `--waits-for o2` on any that can't start before another finishes. Tickets carry the Beads vocabulary: `open` until work begins, `in_progress` while it runs, `closed` with a close reason (`--close-reason done|skipped`) when it ends. Pass `--priority <0-4>` when urgency matters. Nest a sub-objective with `--under o1`: it becomes o1.1, the next child number, any depth. To group an objective that already exists, move it with `ticket update o93 --under o95` (`--under ""` lifts it back to the top level): it keeps its id, status, claim and notes, its children go with it, and a move under its own child is refused. When a ticket is written up somewhere, a spec file or an issue, pass `--source <path or link>` so the user can open it from the ticket. When it comes from a tracked item, name where with `--ref bead:<id>`, `--ref gh:<owner>/<repo>#<n>` or `--ref teams:<messageId>`; repeat `--ref` to link more than one, and the ticket's name composes from the links. For a job without tickets, add its steps instead and pass `--item-label Step` to `start`; give a step `--source` only when it has a write-up.
 3. `paseo-progress activity add "<one line: what this run will do>"`.
-4. Turn run saving on, unless the repo's origin is public: check `git remote get-url origin` — a github.com origin is public unless `gh repo view --json isPrivate` proves it private, and an origin you cannot prove private keeps the board local — then `git config --local paseo-progress.saveRuns <folder>`, a folder inside the repo such as `history`. Every run is written there as its own `.jsonl` file as it goes, committed like any other file; the panel's Save to repo… button sets the same key.
+4. Run saving is on by default: every run is written to `history/` in the repo as its own `.jsonl` file as it goes, committed like any other file. You do nothing. It stays off when the repo's origin is on a public forge (github.com, gitlab.com or bitbucket.org), because a public repo would publish the run notes. Only the owner changes it: the panel's Save to repo… button picks a folder and overrides the public rule, and Stop saving turns it off for good. The same setting is `git config --local paseo-progress.saveRuns <folder>`, and an empty value means off.
 
-Done when `show` lists every ticket with an estimate, and run saving is on (or the origin is public).
+Done when `show` lists every ticket with an estimate.
 
 ## 2. Work each ticket
 
@@ -43,6 +43,7 @@ Record each change as it happens, on the ticket's id from `show` (o1, o2, ...):
 | The plan drops it but it should stay visible | `ticket update o3 --status closed --close-reason skipped --note "<why>"` |
 | The ticket belongs on another workspace | `ticket move o3 --to <workspace-id>` — it leaves this workspace's board and renders only on the target's (and `show --all`). Children follow the parent. Nothing is rewritten; a correction event is appended |
 | A ticket from another workspace's board should be yours | `ticket claim-from-all o3` — the same reallocation, with the target defaulting to your workspace |
+| You want one objective's facts | `ticket show o3` — its status, priority (when set), estimate and name; `ticket show o3 --json` gives the whole objective for a machine |
 
 Pass `--ticket` on every activity, deliverable and question that belongs to a ticket. The user presses a ticket to see its story: each stage and how long it took, with the activity, deliverables and questions tagged to it. Leave it off only for run-wide notes. Stage changes and notes are timed from your `ticket update` calls, so make them when the change happens.
 
@@ -85,6 +86,26 @@ The board must read true at a glance. Built and tested is Done: `ticket done <id
 **Des to UAT.** Whenever Des must put eyes on something or UAT it, keep one standing top-level objective titled "Des to UAT" (waiting for Des, priority 0, stage "Waiting for Des"), with the pack or file as its `--source`. Add ONE child per thing Des must look at, titled `Des: <what he checks and what passing looks like> (<objective id>, <pack section>)`, about 10 minutes each; the child is his reminder to review. A doer or a sponsor may create this objective — the one explicit exception to "never create a top-level objective". Mark any Salesforce-write step inside a UAT child as needing Des's go.
 
 **Close-out check.** Before ending a turn, and whenever Des asks "where do we stand", run `paseo-progress show` and read it: every status must be true — nothing finished sits in progress, nothing waiting on Des sits outside Des to UAT.
+
+## Hold: the board is open for items, closed for work (Des, 15 Oct)
+
+Des puts a board on hold with `hold set --kind <closed|speccing> [--note <text>]` and lifts it with `hold clear`. `closed` means closed to work. `speccing` means Des is here speccing the work with you.
+
+- On hold, add all the objectives you like. Notes, priorities, blocks and closes also work, so running work can finish.
+- On hold, nothing starts. `ticket claim` and moving an objective into progress are refused, with a message that names the hold.
+- `show` prints a `Hold:` line and `show --json` carries `dashboard.hold`. `show --ready` lists nothing, and no objective carries the ♾️ mark.
+- Only the owner lifts a hold. Do not run `hold clear` yourself.
+- The DCI engine reads `dashboard.hold` and does not nudge or pull while it is on.
+
+```yaml
+HOLD:
+  - bad: the claim is refused, so you start the work without claiming it
+    good: add the objective, write its spec in the note, and wait for the hold to lift
+```
+
+## Full auto (conn): what the engine writes on your board
+
+The DCI engine stores its full-auto state on the board itself: `conn set --budget <n> --mode <live|keepalive> --next-nudge-at <iso>` writes it, the engine rewrites it on every nudge, and `conn clear` lifts it. You never run these yourself. `--clear` on `conn set` marks full-auto clear — work the board down, then turn off at idle; a rewrite without it drops the mark. While conn is on, `show` prints the conn state and the indicator with it, and the panel marks what full auto would pull (open or in progress, P0 to P2) with ♾️. `--workspace <id>` on `conn set` and `conn clear` targets another seat's board from outside it.
 
 ## 3. Ask questions, and work around them
 
