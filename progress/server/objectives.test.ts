@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { displayId, parseProgress, reduceProgress, sortObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, promotedBeads, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
+import { displayId, displayPriority, parseProgress, reduceProgress, sortObjectives, compareBeads, beadsToFold, beadDoneLabel, rowTone, ticketDepth, ticketRefs, promotedBeads, githubIssueUrl, ticketName, type Ticket } from "../shared/dashboard.ts";
 import { runCli } from "./cli.ts";
 import { readProgress } from "./progress-file.ts";
 import { outsideDirectory } from "./store.ts";
@@ -233,6 +233,18 @@ test("the CLI mints child ids with --under, any depth, and never reuses a remove
   const { dashboard } = await w.dashboard();
   const child = dashboard.tickets.find((ticket) => ticket.id === "o1.1.1")!;
   assert.equal(child.under, "o1.1");
+});
+
+test("no priority displays as P5 and stays unset; it never reads as P0 to P2", () => {
+  const make = (priority?: number): Ticket => ({ id: "o1", title: "", estimateMin: 10, status: "open", statusSince: at(0), history: [], priority });
+  assert.equal(displayPriority(make()), 5, "an unprioritised objective shows the P5 card");
+  assert.deepEqual([0, 1, 2, 3, 4].map((priority) => displayPriority(make(priority))), [0, 1, 2, 3, 4], "a set priority shows as itself");
+  const unset = make();
+  displayPriority(unset);
+  assert.equal(unset.priority, undefined, "the P5 is display only; nothing is stored");
+  assert.ok(displayPriority(make()) > 2, "never inside the auto-backlog band P0 to P2");
+  const sorted = sortObjectives([{ ...make(), id: "o1" }, { ...make(4), id: "o2" }]);
+  assert.deepEqual(sorted.map((ticket) => ticket.id), ["o2", "o1"], "no priority still sorts after P4");
 });
 
 test("objectives sort by numeric slug, o2 above o10, and closed ones sink", () => {

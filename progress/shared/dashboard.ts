@@ -906,6 +906,12 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
 // under an open heading still joins this group. A child orders the same way
 // among its siblings and stays under its parent. Ties keep their recorded order.
 export const NO_PRIORITY_BAND = 5;
+// What the priority card shows. An objective with no priority reads P5, but
+// only on screen: the stored priority stays unset, so nothing can mistake it
+// for P0 to P2 (the auto-backlog band).
+export function displayPriority(ticket: Pick<Ticket, "priority">): number {
+  return ticket.priority ?? NO_PRIORITY_BAND;
+}
 export function sortObjectives(tickets: Ticket[]): Ticket[] {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const live = new Set<string>();

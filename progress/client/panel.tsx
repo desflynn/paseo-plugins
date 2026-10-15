@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, splitFinished, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, displayPriority, splitFinished, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -624,7 +624,7 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, de
       tone={rowTone(ticket.status)}
       dim={!muted && !working}
       strike={muted}
-      priority={ticket.priority}
+      priority={displayPriority(ticket)}
       detail={
         <>
           {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}
