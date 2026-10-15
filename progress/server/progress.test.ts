@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { finishedToFold, headlineText, splitFinished, type Ticket } from "../shared/dashboard.ts";
+import { boardStatuses, finishedToFold, headlineText, splitFinished, type Dashboard, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -393,6 +393,23 @@ test("the objectives list keeps every finished ticket the fold doesn't take", ()
   assert.deepEqual(split("closed", "in_progress", "open"), [["o1", "o2", "o3"], []], "a lone finished objective stays in place");
   assert.deepEqual(split("open", "closed", "closed"), [["o1"], ["o2", "o3"]], "two or more finished fold behind the count row");
   assert.deepEqual(split(), [[], []]);
+});
+
+test("the board status shows idle, active, stale and stuck, at most two together", () => {
+  const board = (statuses: Ticket["status"][], stuck: number, stale: boolean) => ({
+    tickets: statuses.map((status, index) => ({ id: `o${index + 1}`, title: "", estimateMin: 10, status, statusSince: "", history: [] })) as Ticket[],
+    stuck: Array.from({ length: stuck }, () => ({})) as Dashboard["stuck"],
+    stale,
+  });
+  const status = (b: ReturnType<typeof board>, agentRunning = false) => boardStatuses(b, agentRunning);
+  assert.deepEqual(status(board([], 0, false)), [{ kind: "idle" }]);
+  assert.deepEqual(status(board(["open", "closed"], 0, true)), [{ kind: "idle" }], "queued work that sat quiet is idle, never stale");
+  assert.deepEqual(status(board(["in_progress", "in_progress", "open"], 0, false)), [{ kind: "active", count: 2 }]);
+  assert.deepEqual(status(board(["in_progress", "in_progress"], 0, true)), [{ kind: "stale", count: 2 }]);
+  assert.deepEqual(status(board(["in_progress"], 0, true), true), [{ kind: "active", count: 1 }], "a running agent keeps quiet work active");
+  assert.deepEqual(status(board(["open"], 3, false)), [{ kind: "stuck", count: 3 }], "stuck alone replaces idle");
+  assert.deepEqual(status(board(["in_progress"], 1, false)), [{ kind: "active", count: 1 }, { kind: "stuck", count: 1 }]);
+  assert.deepEqual(status(board(["in_progress"], 2, true)), [{ kind: "stale", count: 1 }, { kind: "stuck", count: 2 }]);
 });
 
 test("removed tickets leave the dashboard and their ids are never reused", async (t) => {
@@ -835,6 +852,18 @@ test("a stage change, note or tagged activity restarts a working ticket's stuck 
   const { dashboard } = await w.dashboard(340);
   assert.deepEqual(dashboard.stuck.map((item) => item.since), [minutes(210).toISOString()],
     "timed from the last update that belongs to the ticket");
+});
+
+test("a flag on a finished objective stops counting as stuck; a flag with no objective stays", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "One", "--estimate", "30");
+  await w.run("ticket", "add", "Two", "--estimate", "30");
+  await w.run("stuck", "set", "Needs a key", "--ticket", "o1");
+  await w.run("stuck", "set", "Staging is down");
+  assert.deepEqual((await w.dashboard()).dashboard.stuck.map((item) => item.key), ["manual:S1", "manual:S2"], "a flag on an open objective counts");
+  await w.run("ticket", "update", "o1", "--status", "done");
+  assert.deepEqual((await w.dashboard()).dashboard.stuck.map((item) => item.key), ["manual:S2"], "the finished objective's flag drops out");
 });
 
 test("blocked tickets and flagged blockers are stuck until cleared", async (t) => {

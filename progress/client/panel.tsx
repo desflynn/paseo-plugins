@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { splitFinished, isFinished, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, splitFinished, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -266,6 +266,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // tickets section sits. The history card is history only — beads moved up.
   const showHistory = hasHistory;
   const live = !stale;
+  const orphanStuck = dashboard.stuck.filter((item) => !item.ticketId);
   // Two columns when opened as a wide tab; one in the narrow Explorer pane.
   const [wide, setWide] = useState(false);
   const narrow = useNarrow();
@@ -288,9 +289,13 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
       <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         {/* Owner ruling (12 Oct): the title only — no subtitle or headline
             line; the scope toggle lives at the end of the tab strip. */}
-        <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
-          {dashboard.run?.title ?? "Progress"}
-        </Text>
+        {/* The name shrinks and ellipsizes; the indicator keeps its width. */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+            {dashboard.run?.title ?? "Progress"}
+          </Text>
+          <StatusIndicator colors={colors} statuses={boardStatuses(dashboard, agentRunning)} />
+        </View>
         {/* One status slot: the icon morphs from spinner (or stalled pulse) to the check on finish. */}
         {dashboard.run?.finished || dashboard.ticker ? (
           <StatusLine icon={
@@ -322,15 +327,6 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
         ) : null}
       </View>
       </Presence>
-      <Presence show={Boolean(stale && dashboard.updatedAt)} order={1}>{stale && dashboard.updatedAt ? (
-        <View accessibilityRole="alert" style={{ flexDirection: "row", gap: 8, margin: 12, marginBottom: 0, padding: 10, borderWidth: 1, borderColor: colors.statusWarning, borderRadius: 6 }}>
-          {/* Optical: centers the 14px icon on the first 18px line. */}
-          <View style={{ paddingTop: 2 }}><Icon name="TriangleAlert" size={14} color={colors.statusWarning} /></View>
-          <Text style={{ flex: 1, color: colors.statusWarning, fontSize: 12, lineHeight: 18 }}>
-            Possibly stale. No update for {formatMinutes(minutesSince(dashboard.updatedAt, now))}. The work may have stopped, so working items show a warning until the next update.
-          </Text>
-        </View>
-      ) : null}</Presence>
       <Presence show={Boolean(dashboard.issues.length)} order={1}>{dashboard.issues.length ? <IssuesNotice colors={colors} issues={dashboard.issues} file={file} /> : null}</Presence>
       <Presence show={Boolean(dashboard.progress.totalMin > 0)} order={2}>{dashboard.progress.totalMin > 0 ? <ProgressBar colors={colors} progress={dashboard.progress} live={live}
         updated={dashboard.updatedAt && !dashboard.run?.finished ? <When colors={colors} iso={dashboard.updatedAt} now={now} /> : null} /> : null}</Presence>
@@ -340,7 +336,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           <Presence show={dashboard.questions.open.length > 0} order={3}>{dashboard.questions.open.length ? (
             <QuestionsSection colors={colors} questions={dashboard.questions.open} answered={dashboard.questions.answered} now={now} context={attachmentContext} />
           ) : null}</Presence>
-          <Presence show={Boolean(dashboard.stuck.length)} order={3}>{dashboard.stuck.length ? <StuckSection colors={colors} items={dashboard.stuck} now={now} /> : null}</Presence>
+          {/* The indicator is the alert and each stuck objective's row carries its reason; only a flag with no objective needs a home here. */}
+          <Presence show={Boolean(orphanStuck.length)} order={3}>{orphanStuck.length ? <StuckSection colors={colors} items={orphanStuck} now={now} /> : null}</Presence>
           <Presence show order={4}>
           {/* Panel B (owner ruling): the tabs live in the panel's own header —
               Objectives, Beads, GH Issues — and the chosen list renders under
@@ -508,6 +505,28 @@ function Shimmer() {
 
 const STUCK_ICON: Record<StuckItem["kind"], string> = { blocked: "Ban", overdue: "Hourglass", manual: "Flag" };
 
+const INDICATOR_WORD = { idle: "Idle", active: "Active", stale: "Stale", stuck: "Stuck" } as const;
+
+// The board-name line's indicator: a filled dot per status (Idle's is hollow),
+// green for idle and active, red for stale and stuck, all bold. Counts ride
+// the word; the reasons ride the objective rows.
+function StatusIndicator({ colors, statuses }: { colors: Colors; statuses: Indicator[] }) {
+  return (
+    <View accessibilityRole="text" style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      {statuses.map((status) => {
+        const color = status.kind === "stale" || status.kind === "stuck" ? colors.statusDanger : colors.statusSuccess;
+        const label = status.kind === "idle" ? INDICATOR_WORD.idle : `${INDICATOR_WORD[status.kind]} ${status.count}`;
+        return (
+          <View key={status.kind} accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <View style={{ width: 9, height: 9, borderRadius: 5, borderWidth: 1.5, borderColor: color, backgroundColor: status.kind === "idle" ? "transparent" : color }} />
+            <Text style={{ color, fontSize: 12, lineHeight: 18, fontWeight: "700" }}>{label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function StuckSection({ colors, items, now }: { colors: Colors; items: StuckItem[]; now: number }) {
   const narrow = useNarrow();
   return (
@@ -549,8 +568,18 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
   const narrow = useNarrow();
   const sorted = sortObjectives(dashboard.tickets);
   const { listed: open, folded: finished } = splitFinished(sorted);
+  // The indicator is the alert; each objective carries why it is stuck or stale.
+  const reasons = new Map<string, string>();
+  for (const item of dashboard.stuck) {
+    if (!item.ticketId) continue;
+    reasons.set(item.ticketId, item.kind === "blocked" ? "Blocked"
+      : item.kind === "overdue" ? `No update for longer than its ${formatMinutes(item.estimateMin)} estimate`
+      : item.reason);
+  }
+  const quiet = !live && dashboard.updatedAt ? `No update for ${formatMinutes(minutesSince(dashboard.updatedAt, now))}` : undefined;
   const row = (ticket: Ticket) => (
     <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
+      reason={reasons.get(ticket.id) ?? (ticket.status === "in_progress" ? quiet : undefined)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />
   );
   const done = finished.filter((ticket) => ticket.closeReason !== "skipped").length;
@@ -574,7 +603,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
 // One objective in the shared row style (O2600): the status mark, the tight
 // id + title, the priority pill, the stage/started/waiting/note lines, the
 // linkage chips — and the estimate, the one view that carries hours.
-function TicketRow({ colors, ticket, live, now, onOpen, deliverables, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; depth?: number }) {
+function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; reason?: string; depth?: number }) {
   const muted = ticket.status === "closed" && ticket.closeReason === "skipped";
   const working = ticket.status === "in_progress";
   // Narrow: tighter gaps and no chevron (the whole row still presses), so the title keeps its width.
@@ -598,6 +627,7 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, depth = 0 
       priority={ticket.priority}
       detail={
         <>
+          {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}
           {working && ticket.stage && ticket.stageSince ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
               {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} now={now} />

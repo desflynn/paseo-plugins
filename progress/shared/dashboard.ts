@@ -819,6 +819,8 @@ function stuckItems(tickets: Ticket[], activity: Activity[], manual: Array<{ id:
   for (const item of manual) {
     if (item.ticket && stuckSuppressed.has(item.ticket)) continue;
     const ticket = item.ticket ? tickets.find((candidate) => candidate.id === item.ticket) : undefined;
+    // A flag on an objective that has since finished no longer blocks anything.
+    if (ticket && isFinished(ticket)) continue;
     items.push({
       kind: "manual",
       key: `manual:${item.id}`,
@@ -988,6 +990,22 @@ export function splitFinished(tickets: Ticket[]): { listed: Ticket[]; folded: Ti
   const folded = finishedToFold(tickets);
   const taken = new Set(folded);
   return { listed: tickets.filter((ticket) => !taken.has(ticket)), folded };
+}
+
+// The board-name line's indicator: what the whole board is doing, as up to two
+// counted statuses. Idle only when nothing is moving or stuck. Stale means
+// in-progress work with no update (a running agent keeps it active); a board
+// with nothing in progress cannot be stale. The reasons ride the objective rows.
+export type Indicator =
+  | { kind: "idle" }
+  | { kind: "active" | "stale" | "stuck"; count: number };
+
+export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stale">, agentRunning: boolean): Indicator[] {
+  const working = board.tickets.filter((ticket) => ticket.status === "in_progress").length;
+  const statuses: Indicator[] = [];
+  if (working) statuses.push({ kind: board.stale && !agentRunning ? "stale" : "active", count: working });
+  if (board.stuck.length) statuses.push({ kind: "stuck", count: board.stuck.length });
+  return statuses.length ? statuses : [{ kind: "idle" }];
 }
 
 export function isFinished(ticket: Ticket): boolean {
