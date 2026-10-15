@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { boardStatuses, finishedToFold, headlineText, splitFinished, type Dashboard, type Ticket } from "../shared/dashboard.ts";
+import { boardStatuses, connDisplay, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -852,6 +852,200 @@ test("a stage change, note or tagged activity restarts a working ticket's stuck 
   const { dashboard } = await w.dashboard(340);
   assert.deepEqual(dashboard.stuck.map((item) => item.since), [minutes(210).toISOString()],
     "timed from the last update that belongs to the ticket");
+});
+
+test("conn set and clear keep one stored state, left out entirely when off", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  const next = minutes(55).toISOString();
+  assert.equal("conn" in (await w.dashboard()).dashboard, false, "no conn until set");
+  w.at(1);
+  assert.equal((await w.run("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", next)).code, 0);
+  assert.deepEqual((await w.dashboard()).dashboard.conn, { on: true, budget: 2, mode: "live", nextNudgeAt: next, since: minutes(1).toISOString() });
+  w.at(30);
+  await w.run("conn", "set", "--budget", "3", "--mode", "keepalive", "--next-nudge-at", next);
+  assert.deepEqual((await w.dashboard()).dashboard.conn, { on: true, budget: 3, mode: "keepalive", nextNudgeAt: next, since: minutes(1).toISOString() }, "a rewrite keeps the original since");
+  w.at(40);
+  assert.equal((await w.run("conn", "clear")).code, 0);
+  assert.equal("conn" in (await w.dashboard()).dashboard, false, "cleared conn leaves the field out");
+  w.at(50);
+  await w.run("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", next);
+  assert.equal((await w.dashboard()).dashboard.conn?.since, minutes(50).toISOString(), "a new conn after a clear starts a new since");
+});
+
+test("show and show --json carry conn and the board indicator; conn is left out when off", async (t) => {
+  const w = await worktree(t);
+  const ws = ["--workspace", "wks_a"];
+  await w.run("start", "Run", ...ws);
+  await w.run("ticket", "add", "One", "--estimate", "30", ...ws);
+  await w.run("ticket", "update", "o1", "--status", "in_progress", ...ws);
+  const json = async () => JSON.parse((await w.run("show", "--json", ...ws)).text);
+  const off = await json();
+  assert.equal("conn" in off.dashboard, false, "no conn key while off");
+  assert.deepEqual(off.indicator, [{ kind: "active", count: 1 }]);
+  assert.doesNotMatch((await w.run("show", ...ws)).text, /Conn:|Status:/, "with conn off, plain show adds nothing");
+  const next = minutes(55).toISOString();
+  await w.run("conn", "set", ...ws, "--budget", "2", "--mode", "live", "--next-nudge-at", next);
+  const on = await json();
+  assert.deepEqual(on.dashboard.conn, { on: true, budget: 2, mode: "live", nextNudgeAt: next, since: minutes(0).toISOString() });
+  assert.match((await w.run("show", ...ws)).text, /Conn: on, budget 2, live, since \S+, next nudge \S+\nStatus: Active 1$/);
+});
+
+test("the indicator labels read Idle, Active N, Stale N and Stuck N", () => {
+  assert.deepEqual(
+    [{ kind: "idle" }, { kind: "active", count: 2 }, { kind: "stale", count: 1 }, { kind: "stuck", count: 3 }].map((status) => indicatorLabel(status as Indicator)),
+    ["Idle", "Active 2", "Stale 1", "Stuck 3"],
+  );
+});
+
+test("the conn sign is solid only while live and the engine is within 5 minutes of its next nudge", () => {
+  const next = Date.parse("2026-10-15T09:30:00.000Z");
+  const conn = (mode: "live" | "keepalive", nextNudgeAt = new Date(next).toISOString()) => ({ on: true as const, budget: 2, mode, nextNudgeAt, since: "2026-10-15T08:00:00.000Z" });
+  const FIVE_MIN = 5 * 60_000;
+  assert.equal(connDisplay(conn("live"), next - 10 * 60_000).solid, true, "live and before the nudge");
+  assert.equal(connDisplay(conn("live"), next + FIVE_MIN).solid, true, "live, exactly 5 minutes past the nudge");
+  assert.equal(connDisplay(conn("live"), next + FIVE_MIN + 1).solid, false, "past the window the engine went quiet, so dim");
+  assert.equal(connDisplay(conn("keepalive"), next - 10 * 60_000).solid, false, "keepalive is never solid");
+  assert.equal(connDisplay(conn("live", "not a time"), next).solid, false, "an unreadable nudge time never claims solid");
+  const hover = connDisplay(conn("live"), next).hover;
+  assert.match(hover, /budget 2/);
+  assert.match(hover, /next nudge/);
+  assert.match(connDisplay(conn("keepalive"), next).hover, /keep-alive/);
+});
+
+test("text show prints a set priority beside the status, and nothing when unset", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Urgent", "--estimate", "30", "--priority", "1");
+  await w.run("ticket", "add", "Plain", "--estimate", "30");
+  const { text } = await w.run("show");
+  assert.match(text, /o1  Open  P1  30 min  Urgent/);
+  assert.match(text, /o2  Open  30 min  Plain/);
+});
+
+test("ticket show reads one ticket as text or json and refuses an unknown id", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Urgent", "--estimate", "30", "--priority", "1");
+  const text = await w.run("ticket", "show", "o1");
+  assert.equal(text.code, 0);
+  assert.match(text.text, /o1  Open  P1  30 min  Urgent/);
+  const json = JSON.parse((await w.run("ticket", "show", "o1", "--json")).text);
+  assert.deepEqual([json.ticket.id, json.ticket.status, json.ticket.priority], ["o1", "open", 1]);
+  const unknown = await w.run("ticket", "show", "o9");
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.text, /No ticket o9/);
+});
+
+test("show --json filters tickets by --status and --priority, and --ready lists what the seat may pull", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  const add = (title: string, ...flags: string[]) => w.run("ticket", "add", title, "--estimate", "10", ...flags);
+  await add("A", "--priority", "0");
+  await add("B", "--priority", "2", "--status", "in_progress");
+  await add("C", "--priority", "3");
+  await add("D");
+  await add("E", "--priority", "1", "--status", "blocked");
+  await add("F", "--priority", "0", "--status", "closed", "--close-reason", "done");
+  const ids = async (...flags: string[]) => JSON.parse((await w.run("show", "--json", ...flags)).text).dashboard.tickets.map((ticket: Ticket) => ticket.id);
+  assert.deepEqual(await ids("--status", "open"), ["o1", "o3", "o4"]);
+  assert.deepEqual(await ids("--status", "open,in_progress"), ["o1", "o2", "o3", "o4"]);
+  assert.deepEqual(await ids("--priority", "0-2"), ["o1", "o2", "o5", "o6"]);
+  assert.deepEqual(await ids("--priority", "none"), ["o4"], "no priority is its own filter");
+  assert.deepEqual(await ids("--priority", "3,none"), ["o3", "o4"]);
+  assert.deepEqual(await ids("--ready"), ["o1", "o2"], "ready: open or in progress, P0 to P2; owner-held (P3, P4, none) never");
+  assert.equal((await w.run("show", "--json", "--status", "done")).code, 1, "an unknown status is refused");
+  assert.equal((await w.run("show", "--json", "--priority", "9")).code, 1, "an unknown priority is refused");
+});
+
+test("conn set --clear stores a clear flag that a plain rewrite drops", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  const next = minutes(55).toISOString();
+  const set = (...extra: string[]) => w.run("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", next, ...extra);
+  assert.equal((await set("--clear")).code, 0);
+  assert.equal((await w.dashboard()).dashboard.conn?.clear, true);
+  assert.equal(JSON.parse((await w.run("show", "--json")).text).dashboard.conn.clear, true, "show --json carries it");
+  assert.match((await w.run("show")).text, /Conn: on, budget 2, clear, live, since/, "text show prints it by the budget");
+  assert.match(connDisplay({ ...(await w.dashboard()).dashboard.conn!, clear: true }, Date.parse(next)).hover, /clear/, "the hover says it");
+  await set();
+  assert.equal("clear" in (await w.dashboard()).dashboard.conn!, false, "a rewrite without --clear drops it, key and all");
+  assert.doesNotMatch((await w.run("show")).text, /budget 2, clear/);
+});
+
+test("closing the last open P0-P2 objective clears a conn that carries --clear, and says so", async (t) => {
+  const w = await worktree(t);
+  const next = minutes(55).toISOString();
+  const conn = (...extra: string[]) => w.run("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", next, ...extra);
+  const hasConn = async () => "conn" in JSON.parse((await w.run("show", "--json")).text).dashboard;
+  const add = (title: string, ...flags: string[]) => w.run("ticket", "add", title, "--estimate", "10", ...flags);
+  const LINE = /Board is clear: full auto clear is off\. Remove the ♾️ from your agent name and workspace name\./;
+  await w.run("start", "Run");
+  await add("Urgent", "--priority", "1");
+  await add("Held", "--priority", "3");
+  await conn("--clear");
+  const closed = await w.run("ticket", "done", "o1");
+  assert.match(closed.text, LINE);
+  assert.equal(await hasConn(), false, "a P3 left open does not keep a clear conn alive");
+
+  await conn();
+  await add("Urgent again", "--priority", "0");
+  const plain = await w.run("ticket", "done", "o3");
+  assert.doesNotMatch(plain.text, /Board is clear/);
+  assert.equal(await hasConn(), true, "a conn without clear is never touched");
+
+  await conn("--clear");
+  await add("Other", "--priority", "2");
+  await add("Working", "--priority", "4", "--status", "in_progress");
+  assert.doesNotMatch((await w.run("ticket", "done", "o4")).text, /Board is clear/);
+  assert.equal(await hasConn(), true, "an objective in progress keeps it alive, whatever its priority");
+  assert.match((await w.run("ticket", "done", "o5")).text, LINE);
+  assert.equal(await hasConn(), false);
+
+  await conn("--clear");
+  await add("To skip", "--priority", "1");
+  assert.match((await w.run("ticket", "update", "o6", "--status", "closed", "--close-reason", "skipped")).text, LINE, "a skipped close counts");
+  assert.equal(await hasConn(), false);
+});
+
+test("conn clear with no conn, or no run at all, exits 0 and changes nothing", async (t) => {
+  const w = await worktree(t);
+  assert.equal((await w.run("conn", "clear")).code, 0, "no run, no conn");
+  await w.run("start", "Run");
+  assert.equal((await w.run("conn", "clear")).code, 0, "a run with no conn");
+  assert.equal("conn" in (await w.dashboard()).dashboard, false);
+});
+
+test("only open or in-progress P0-P2 objectives are auto-pullable, conn or no conn", () => {
+  const make = (status: Ticket["status"], priority?: number): Ticket => ({ id: "o1", title: "", estimateMin: 10, status, statusSince: "", history: [], priority });
+  assert.deepEqual([0, 1, 2].map((priority) => isAutoPullable(make("open", priority))), [true, true, true]);
+  assert.equal(isAutoPullable(make("in_progress", 2)), true);
+  assert.deepEqual([3, 4, undefined].map((priority) => isAutoPullable(make("open", priority))), [false, false, false], "P3, P4 and no priority are owner-held");
+  assert.equal(isAutoPullable(make("closed", 0)), false, "a finished objective is not picked up");
+  assert.equal(isAutoPullable(make("blocked", 0)), false, "a blocked objective is not picked up");
+});
+
+test("conn set refuses a missing or invalid budget, mode or nudge time", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  const next = minutes(55).toISOString();
+  for (const argv of [
+    ["--budget", "0", "--mode", "live", "--next-nudge-at", next],
+    ["--budget", "two", "--mode", "live", "--next-nudge-at", next],
+    ["--budget", "2", "--mode", "auto", "--next-nudge-at", next],
+    ["--budget", "2", "--mode", "live"],
+    ["--budget", "2", "--mode", "live", "--next-nudge-at", "tomorrow"],
+  ]) assert.equal((await w.run("conn", "set", ...argv)).code, 1, argv.join(" "));
+  assert.equal("conn" in (await w.dashboard()).dashboard, false, "a refused set writes nothing");
+});
+
+test("conn set takes --workspace so the engine can write a seat's board from outside it", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Seat board", "--workspace", "wks_a");
+  const next = minutes(55).toISOString();
+  assert.equal((await w.run("conn", "set", "--workspace", "wks_a", "--budget", "2", "--mode", "live", "--next-nudge-at", next)).code, 0);
+  assert.equal((await readProgress(w.store, minutes(0), "wks_a")).dashboard.conn?.budget, 2);
+  assert.equal((await readProgress(w.store, minutes(0), "wks_b")).dashboard.conn, undefined, "another workspace's board has no conn");
 });
 
 test("a flag on a finished objective stops counting as stuck; a flag with no objective stays", async (t) => {

@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, displayPriority, splitFinished, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, connDisplay, displayPriority, indicatorLabel, isAutoPullable, splitFinished, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -291,9 +291,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
             line; the scope toggle lives at the end of the tab strip. */}
         {/* The name shrinks and ellipsizes; the indicator keeps its width. */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
-            {dashboard.run?.title ?? "Progress"}
-          </Text>
+          <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {dashboard.conn ? <ConnSign colors={colors} conn={dashboard.conn} now={now} /> : null}
+            <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+              {dashboard.run?.title ?? "Progress"}
+            </Text>
+          </View>
           <StatusIndicator colors={colors} statuses={boardStatuses(dashboard, agentRunning)} />
         </View>
         {/* One status slot: the icon morphs from spinner (or stalled pulse) to the check on finish. */}
@@ -505,7 +508,18 @@ function Shimmer() {
 
 const STUCK_ICON: Record<StuckItem["kind"], string> = { blocked: "Ban", overdue: "Hourglass", manual: "Flag" };
 
-const INDICATOR_WORD = { idle: "Idle", active: "Active", stale: "Stale", stuck: "Stuck" } as const;
+// The conn sign before the board name: the infinity sign and the FM budget,
+// solid while live work is outstanding, dimmed when the engine only has the
+// keep-alive pending or has gone quiet. Hover: budget, state, next nudge.
+function ConnSign({ colors, conn, now }: { colors: Colors; conn: Conn; now: number }) {
+  const { solid, hover } = connDisplay(conn, now);
+  return (
+    <Text accessibilityLabel={hover} {...({ title: hover } as object)}
+      style={{ flexShrink: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600", opacity: solid ? 1 : 0.35 }}>
+      {`♾️(${conn.budget})${conn.clear ? " clear" : ""}`}
+    </Text>
+  );
+}
 
 // The board-name line's indicator: a filled dot per status (Idle's is hollow),
 // green for idle and active, red for stale and stuck, all bold. Counts ride
@@ -515,7 +529,7 @@ function StatusIndicator({ colors, statuses }: { colors: Colors; statuses: Indic
     <View accessibilityRole="text" style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 0 }}>
       {statuses.map((status) => {
         const color = status.kind === "stale" || status.kind === "stuck" ? colors.statusDanger : colors.statusSuccess;
-        const label = status.kind === "idle" ? INDICATOR_WORD.idle : `${INDICATOR_WORD[status.kind]} ${status.count}`;
+        const label = indicatorLabel(status);
         return (
           <View key={status.kind} accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
             <View style={{ width: 9, height: 9, borderRadius: 5, borderWidth: 1.5, borderColor: color, backgroundColor: status.kind === "idle" ? "transparent" : color }} />
@@ -625,6 +639,7 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, de
       dim={!muted && !working}
       strike={muted}
       priority={displayPriority(ticket)}
+      autoPull={isAutoPullable(ticket)}
       detail={
         <>
           {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}

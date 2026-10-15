@@ -1,8 +1,23 @@
-import type { Dashboard } from "./dashboard.ts";
+import type { Dashboard, Ticket } from "./dashboard.ts";
 import { headlineText, shortTitle, ticketName } from "./dashboard.ts";
 import { formatAgo, formatClock, formatEstimate, formatMinutes, formatWorkDone, minutesSince } from "./format.ts";
 
 const STATUS: Record<string, string> = { open: "Open", in_progress: "In progress", blocked: "Blocked" };
+
+// One objective as plain text: its line (id, status, a set priority, estimate,
+// composed name) and its source. An unset priority prints nothing.
+export function ticketLines(ticket: Ticket): string[] {
+  const stage = ticket.status === "in_progress" && ticket.stage ? `, ${ticket.stage} stage` : "";
+  const status = ticket.waitingFor ? `Waiting for ${ticket.waitingFor.id}`
+    : ticket.status === "closed" ? (ticket.closeReason === "skipped" ? "Skipped" : "Done")
+    : STATUS[ticket.status];
+  const priority = ticket.priority === undefined ? "" : `P${ticket.priority}  `;
+  // The name column carries the full composed form (id + linked bead and
+  // GitHub issue + title): the machine surface for agents.
+  const lines = [`  ${ticket.id}  ${status}${stage}  ${priority}${formatEstimate(ticket.estimateMin)}  ${ticketName(ticket)}`];
+  if (ticket.source) lines.push(`      Source: ${ticket.source.path ?? ticket.source.url}${ticket.source.label ? ` (${ticket.source.label})` : ""}`);
+  return lines;
+}
 
 // The dashboard as plain text, so an agent can check what the user sees.
 export function dashboardText(dashboard: Dashboard, nowMs: number): string {
@@ -35,16 +50,7 @@ export function dashboardText(dashboard: Dashboard, nowMs: number): string {
     }
   }
   lines.push("", `${dashboard.run?.itemLabel ?? "Objective"}s`);
-  for (const ticket of dashboard.tickets) {
-    const stage = ticket.status === "in_progress" && ticket.stage ? `, ${ticket.stage} stage` : "";
-    const status = ticket.waitingFor ? `Waiting for ${ticket.waitingFor.id}`
-      : ticket.status === "closed" ? (ticket.closeReason === "skipped" ? "Skipped" : "Done")
-      : STATUS[ticket.status];
-    // The name column carries the full composed form (id + linked bead and
-    // GitHub issue + title): the machine surface for agents.
-    lines.push(`  ${ticket.id}  ${status}${stage}  ${formatEstimate(ticket.estimateMin)}  ${ticketName(ticket)}`);
-    if (ticket.source) lines.push(`      Source: ${ticket.source.path ?? ticket.source.url}${ticket.source.label ? ` (${ticket.source.label})` : ""}`);
-  }
+  for (const ticket of dashboard.tickets) lines.push(...ticketLines(ticket));
   if (dashboard.questions.open.length) {
     lines.push("", "Questions waiting");
     for (const question of dashboard.questions.open) {

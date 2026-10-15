@@ -54,7 +54,7 @@ export function UnifiedStatusIcon({ colors, status, nested = false }: { colors: 
 // the tight id + title, the priority pill, the row's detail lines, its chips
 // — then, only on the objectives, the deliverables slot and the estimate.
 // Beads and GH rows carry no time element; nothing is invented for them.
-export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = tone === "potential", strike = false, priority, tag, italic = false, detail, chips, estimateMin, deliverables, onOpen, accessibilityLabel, narrow = false, depth = 0 }: {
+export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = tone === "potential", strike = false, priority, tag, autoPull = false, italic = false, detail, chips, estimateMin, deliverables, onOpen, accessibilityLabel, narrow = false, depth = 0 }: {
   colors: Colors;
   // The status mark in the slot every view shares; the label carries the
   // status word for reading.
@@ -71,6 +71,8 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
   priority?: number;
   // A small chip after the name: the objective id on a promoted bead.
   tag?: string;
+  // Full auto would pick this row up: the infinity sign leads the id.
+  autoPull?: boolean;
   // The name in italics: a promoted bead's name in the list.
   italic?: boolean;
   detail?: React.ReactNode;
@@ -92,7 +94,7 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
         {/* At most 100 characters, ending in an ellipsis (owner ruling o6.1,
             revised 12 Oct); the card has the title in full. */}
         <Text style={{ color: strike ? colors.foregroundMuted : colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: tone === "running" ? "600" : "400", fontStyle: italic ? "italic" : "normal", opacity: dim ? POTENTIAL_OPACITY : 1, textDecorationLine: strike ? "line-through" : "none" }}>
-          {id}  {clip(title, TITLE_MAX)}
+          {autoPull ? <Text>{"♾️ "}</Text> : null}{id}  {clip(title, TITLE_MAX)}
           {/* The priority rides the name (owner ruling): 0 is most urgent. */}
           {tag ? " " : null}
           {tag ? <Text style={{ backgroundColor: colors.surface2, color: colors.foregroundMuted, fontSize: 10, fontWeight: "600", fontStyle: "normal" }}>{tag}</Text> : null}

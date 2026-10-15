@@ -4,8 +4,8 @@ import { realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { isSettled, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
-import { CLOSE_REASONS, DELIVERABLE_KINDS, type BoardStatus, type CloseReason, type FileLink, type ProgressEvent } from "../shared/events.ts";
+import { boardIsClear, boardStatuses, filterTickets, indicatorLabel, isSettled, READY_TO_PULL, type TicketFilter, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
+import { CLOSE_REASONS, CONN_MODES, DELIVERABLE_KINDS, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type ProgressEvent } from "../shared/events.ts";
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
 import { resolveWorkspaceId } from "./workspace.ts";
@@ -13,7 +13,7 @@ import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { installLauncher } from "./launcher.ts";
 import { closeBackingBeads } from "./beads.ts";
 import { findStore, saveRunCopy } from "./store.ts";
-import { dashboardText } from "../shared/show.ts";
+import { dashboardText, ticketLines } from "../shared/show.ts";
 import { imageMimeType } from "../shared/attachments.ts";
 import { homedir } from "node:os";
 
@@ -582,6 +582,29 @@ const commands: Record<string, Command> = {
       return { event: { type: "stuck.set", id, reason, ticket: ticket?.id }, message: `Flagged ${id}: ${reason}` };
     },
   },
+  "conn set": {
+    usage: `conn set --budget <n> --mode <live|keepalive> --next-nudge-at <iso> [--clear]`,
+    summary: "Store the conn (full auto) state the DCI engine owns; the panel and show display it. Rewrite it on every nudge: it keeps its since until conn clear. --clear marks full auto clear (work the board down, then turn off at idle); a rewrite without it drops the mark. --workspace <id> targets a seat's board from outside it. Live means work is outstanding; keepalive means only the cache keep-alive is pending.",
+    options: { budget: { type: "string" }, mode: { type: "string" }, "next-nudge-at": { type: "string" }, clear: { type: "boolean" } },
+    run({ values }) {
+      const budget = Number(required(stringOption(values.budget), "--budget <n>"));
+      if (!Number.isInteger(budget) || budget < 1) throw new UsageError("--budget is a whole number of 1 or more.");
+      const mode = required(stringOption(values.mode), `--mode <${CONN_MODES.join("|")}>`);
+      if (!(CONN_MODES as readonly string[]).includes(mode)) throw new UsageError(`--mode is one of ${CONN_MODES.join(", ")}.`);
+      const next = new Date(required(stringOption(values["next-nudge-at"]), "--next-nudge-at <iso>"));
+      if (Number.isNaN(next.getTime())) throw new UsageError("--next-nudge-at is an ISO date and time, like 2026-10-15T09:30:00Z.");
+      const nextNudgeAt = next.toISOString();
+      const clear = values.clear === true;
+      return { event: { type: "conn.set", budget, mode: mode as ConnMode, nextNudgeAt, ...(clear ? { clear: true as const } : {}) }, message: `Conn on: budget ${budget}${clear ? ", clear" : ""}, ${mode}, next nudge ${nextNudgeAt}` };
+    },
+  },
+  "conn clear": {
+    usage: `conn clear`,
+    summary: "Turn the stored conn state off; show leaves its conn fields out. --workspace <id> targets a seat's board from outside it.",
+    run() {
+      return { event: { type: "conn.clear" }, message: "Conn off" };
+    },
+  },
   "stuck clear": {
     usage: `stuck clear <id>`,
     summary: "Clear a flagged blocker.",
@@ -614,7 +637,9 @@ function guessKind(target: string, isUrl: boolean, cwd: string): (typeof DELIVER
   return "file";
 }
 
-const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Progress panel. Flags: --mine (only your work), --all (every workspace), --json (machine-readable).";
+const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Progress panel. Flags: --mine (only your work), --all (every workspace), --json (machine-readable, with the board indicator), --status <open,in_progress,blocked,closed> and --priority <0-4, none, a list or a range like 0-2> to cut the objectives, --ready (open or in progress, P0 to P2: what a seat may pull; P3, P4 and none are owner-held). While conn is on, the conn state and indicator print too. --workspace <id> reads another workspace's board.";
+const TICKET_SHOW_USAGE = "ticket show <id> [--json]";
+const TICKET_SHOW_SUMMARY = "Print one objective: its status, priority (when set), estimate and name. --json gives the whole objective for a machine.";
 const INSTALL_SUMMARY = "Write the paseo-progress launcher (default ~/.local/bin/paseo-progress). It runs this command from whichever copy of the plugin Paseo is running.";
 const DEFAULT_LAUNCHER = "~/.local/bin/paseo-progress";
 
@@ -628,17 +653,83 @@ function help(): string {
     ...Object.values(commands).flatMap((command) => [`  ${command.usage}`, `      ${command.summary}`]),
     `  show`,
     `      ${SHOW_SUMMARY}`,
+    `  ${TICKET_SHOW_USAGE}`,
+    `      ${TICKET_SHOW_SUMMARY}`,
     `  install-launcher [path]`,
     `      ${INSTALL_SUMMARY}`,
   ].join("\n");
 }
 
-export async function runCli(argv: string[], options: CliOptions): Promise<number> {
+const BOARD_CLEAR_LINE = "Board is clear: full auto clear is off. Remove the ♾️ from your agent name and workspace name.";
+
+const BOARD_STATUS_WORDS: readonly BoardStatus[] = ["open", "in_progress", "blocked", "closed"];
+
+// One --priority token: a priority 0-4, "none", or a range like 0-2.
+function priorityTokens(token: string): Array<number | "none"> {
+  const word = token.trim();
+  if (word === "none") return ["none"];
+  const range = /^([0-4])(?:-([0-4]))?$/.exec(word);
+  if (!range || (range[2] !== undefined && Number(range[2]) < Number(range[1]))) throw new UsageError("--priority is 0 to 4, none, a list like 0,2, or a range like 0-2.");
+  const from = Number(range[1]);
+  const to = range[2] === undefined ? from : Number(range[2]);
+  return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+}
+
+// show's cut of the objectives: --status, --priority, and --ready (open or in
+// progress, P0 to P2). An explicit flag narrows what --ready names.
+function showFilter(values: { status?: unknown; priority?: unknown; ready?: unknown }): TicketFilter | undefined {
+  const status = stringOption(values.status);
+  const priority = stringOption(values.priority);
+  if (status === undefined && priority === undefined && values.ready !== true) return undefined;
+  const base = values.ready === true ? READY_TO_PULL : {};
+  const statuses = status === undefined ? base.statuses : status.split(",").map((word) => {
+    const name = word.trim() as BoardStatus;
+    if (!BOARD_STATUS_WORDS.includes(name)) throw new UsageError(`--status is a list of: ${BOARD_STATUS_WORDS.join(", ")}.`);
+    return name;
+  });
+  return { statuses, priorities: priority === undefined ? base.priorities : priority.split(",").flatMap(priorityTokens) };
+}
+
+// While conn is on: its state and the indicator the panel shows (a running
+// agent is not known here, so Stale can read stricter than the panel). With
+// conn off nothing is added, so plain show stays byte-identical to 0.4.0;
+// show --json always carries the indicator.
+function statusText(dashboard: Dashboard): string {
+  const { conn } = dashboard;
+  if (!conn) return "";
+  return `\n\nConn: on, budget ${conn.budget}${conn.clear ? ", clear" : ""}, ${conn.mode}, since ${conn.since}, next nudge ${conn.nextNudgeAt}\nStatus: ${boardStatuses(dashboard, false).map(indicatorLabel).join(", ")}`;
+}
+
+// --workspace <id>, anywhere in the arguments: act on that workspace's board
+// instead of the caller's, so a process outside the seat (the DCI engine) can
+// write the seat's conn state.
+function takeWorkspaceFlag(argv: string[]): { rest: string[]; workspace?: string; missing: boolean } {
+  const rest: string[] = [];
+  let workspace: string | undefined;
+  let missing = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg.startsWith("--workspace=")) workspace = arg.slice("--workspace=".length);
+    else if (arg === "--workspace") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) missing = true;
+      else { workspace = value; index += 1; }
+    } else rest.push(arg);
+  }
+  return { rest, workspace: workspace || undefined, missing: missing || workspace === "" };
+}
+
+export async function runCli(rawArgv: string[], options: CliOptions): Promise<number> {
   const out = options.out ?? ((line: string) => console.log(line));
   const now = options.now ?? (() => new Date());
+  const { rest: argv, workspace, missing } = takeWorkspaceFlag(rawArgv);
+  if (missing) {
+    out("--workspace needs a workspace id.");
+    return 1;
+  }
   // The workspace id resolves once per call: every read and write in this
   // call scopes to it. No agent, or no record, is unscoped (All, as 0.4.0).
-  const scope = options.workspaceId ?? (options.agentId ? resolveWorkspaceId(options.agentId) : undefined);
+  const scope = workspace ?? options.workspaceId ?? (options.agentId ? resolveWorkspaceId(options.agentId) : undefined);
   const [first, second] = argv;
   if (!first || first === "--help" || first === "-h" || first === "help") {
     out(help());
@@ -654,18 +745,26 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
       const store = await findStore(root);
       let parsed;
       try {
-        parsed = parseArgs({ args: argv.slice(1), options: { mine: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" } }, allowPositionals: true, strict: true });
+        parsed = parseArgs({ args: argv.slice(1), options: { mine: { type: "boolean" }, all: { type: "boolean" }, json: { type: "boolean" }, status: { type: "string" }, priority: { type: "string" }, ready: { type: "boolean" } }, allowPositionals: true, strict: true });
       } catch (error) {
-        out(`${(error as Error).message}\nUsage: ${USAGE_NAME} show [--mine] [--all] [--json]`);
+        out(`${(error as Error).message}\nUsage: ${USAGE_NAME} show [--mine] [--all] [--json] [--status <list>] [--priority <list|range|none>] [--ready]`);
+        return 1;
+      }
+      let filter: TicketFilter | undefined;
+      try {
+        filter = showFilter(parsed.values);
+      } catch (error) {
+        if (!(error instanceof UsageError)) throw error;
+        out(`${error.message}\nUsage: ${USAGE_NAME} show [--mine] [--all] [--json] [--status <list>] [--priority <list|range|none>] [--ready]`);
         return 1;
       }
       const flags = { mine: parsed.values.mine === true, all: parsed.values.all === true, json: parsed.values.json === true };
-      if (!flags.mine && !flags.all && !flags.json) {
+      if (!flags.mine && !flags.all && !flags.json && !filter) {
         // Plain show: byte-identical to 0.4.0 for an unscoped call, and this
         // workspace's own board for a scoped one.
         const { dashboard } = await readProgress(store.directory, now(), scope);
         const added = addedByOthersText(addedByOthers(await readLatestRun(store.directory), dashboard, options.agentId), dashboard);
-        out(`Worktree: ${root}\n\n${dashboardText(dashboard, now().getTime())}${added}`);
+        out(`Worktree: ${root}\n\n${dashboardText(dashboard, now().getTime())}${added}${statusText(dashboard)}`);
         return 0;
       }
       if (flags.mine && options.agentId === undefined) {
@@ -686,16 +785,44 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
           questions: { ...dashboard.questions, open: dashboard.questions.open.filter((question) => askedByMe.has(question.id)) },
         };
       }
+      if (filter) view = { ...view, tickets: filterTickets(view.tickets, filter) };
       if (flags.json) {
-        out(JSON.stringify({ worktree: root, dashboard: view }, null, 2));
+        out(JSON.stringify({ worktree: root, dashboard: view, indicator: boardStatuses(view, false) }, null, 2));
         return 0;
       }
       const added = flags.mine ? "" : addedByOthersText(addedByOthers(await readLatestRun(store.directory), view, options.agentId), view);
-      out(`Worktree: ${root}\n\n${dashboardText(view, now().getTime())}${added}`);
+      out(`Worktree: ${root}\n\n${dashboardText(view, now().getTime())}${added}${statusText(view)}`);
       return 0;
     }
     const target = resolve(options.cwd, (argv[1] ?? DEFAULT_LAUNCHER).replace(/^~(?=$|\/)/, homedir()));
     out(await installLauncher(target) ? `Installed the launcher at ${target}` : `The launcher at ${target} is already current`);
+    return 0;
+  }
+  if (first === "ticket" && second === "show") {
+    if (argv.slice(2).includes("--help") || argv.slice(2).includes("-h")) {
+      out(`Usage: ${USAGE_NAME} ${TICKET_SHOW_USAGE}\n\n${TICKET_SHOW_SUMMARY}`);
+      return 0;
+    }
+    let parsed;
+    try {
+      parsed = parseArgs({ args: argv.slice(2), options: { json: { type: "boolean" } }, allowPositionals: true, strict: true });
+    } catch (error) {
+      out(`${(error as Error).message}\nUsage: ${USAGE_NAME} ${TICKET_SHOW_USAGE}`);
+      return 1;
+    }
+    const wanted = parsed.positionals[0];
+    if (!wanted) {
+      out(`Missing ticket id.\nUsage: ${USAGE_NAME} ${TICKET_SHOW_USAGE}`);
+      return 1;
+    }
+    const store = await findStore(findRoot(options.cwd));
+    const { dashboard } = await readProgress(store.directory, now(), scope);
+    const ticket = dashboard.tickets.find((candidate) => candidate.id === displayId(wanted));
+    if (!ticket) {
+      out(`No ticket ${wanted} in this run. Tickets: ${dashboard.tickets.map((candidate) => candidate.id).join(", ") || "none"}.`);
+      return 1;
+    }
+    out(parsed.values.json ? JSON.stringify({ worktree: findRoot(options.cwd), ticket }, null, 2) : ticketLines(ticket).join("\n"));
     return 0;
   }
   const twoWord = commands[`${first} ${second}`];
@@ -725,7 +852,8 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
     const moveVerb = command === commands["ticket move"] || command === commands["ticket claim-from-all"];
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
-      if (finished && command !== commands.start && command !== commands.rename) {
+      // Conn is the seat's state, not an objective: it still lands on a finished board.
+      if (finished && command !== commands.start && command !== commands.rename && command !== commands["conn set"] && command !== commands["conn clear"]) {
         // No agent id means the unscoped board, whose latest run may be one
         // another workspace finished. A sandbox that strips PASEO_* variables
         // (context-mode's ctx_execute) lands an agent here; say so.
@@ -738,7 +866,15 @@ export async function runCli(argv: string[], options: CliOptions): Promise<numbe
         cascade = { refs: event.refs ?? ticket?.refs ?? [], reason: event.closeReason ?? "done" };
       }
       const added = command === commands.start ? "" : addedByOthersText(addedByOthers(state.events, state.dashboard, options.agentId), state.dashboard);
-      return { event: { ...event, by: options.agentId, ws: scope }, result: `${message}${added}` };
+      // Full auto clear: the close that leaves nothing to work turns the conn off, as conn clear does.
+      const closedId = event.type === "ticket.update" && event.status === "closed" ? event.id : undefined;
+      const boardCleared = closedId !== undefined && state.dashboard.conn?.clear === true
+        && boardIsClear(state.dashboard.tickets.map((ticket) => (ticket.id === closedId ? { ...ticket, status: "closed" as const } : ticket)));
+      return {
+        event: { ...event, by: options.agentId, ws: scope },
+        followUp: boardCleared ? { type: "conn.clear", by: options.agentId, ws: scope } : undefined,
+        result: `${message}${added}${boardCleared ? `\n${BOARD_CLEAR_LINE}` : ""}`,
+      };
     }, (text) => saveRunCopy(root, text), moveVerb ? UNION_SCOPE : scope);
     if (cascade && cascade.refs.length) {
       // Fail soft: the close already landed; a bd fault is logged, never fatal.

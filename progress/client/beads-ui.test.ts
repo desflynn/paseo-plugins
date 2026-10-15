@@ -316,6 +316,17 @@ test("the priority pill rides the title line instead of taking its own row", () 
   assert.ok(!bare.texts.some((text) => /^P\d$/.test(text)), "no pill without a priority");
 });
 
+test("a row full auto would pick up carries the infinity sign before its id", () => {
+  const { UnifiedRow } = load("client/unified-list.tsx");
+  const sign = (autoPull?: boolean) => {
+    const tree = treeOf(UnifiedRow({ colors, icon: null, id: "o3", title: "Pulled", tone: "potential", priority: 1, autoPull }));
+    return tree.nodes.find((node) => node.type === rn.Text && typeof node.props?.children === "string" && node.props.children.startsWith("♾️"));
+  };
+  assert.ok(sign(true), "the sign shows");
+  assert.equal(sign(false), undefined, "no mark on a row it won't pick up");
+  assert.equal(sign(undefined), undefined, "no mark by default");
+});
+
 test("the ref chip shows the ref as muted mono and appears only when there is one", () => {
   const { RefChip } = load("client/row.tsx");
   const withRef = treeOf(RefChip({ colors, ref: "bead:rvr-1" }));

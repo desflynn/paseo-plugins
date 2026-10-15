@@ -1,4 +1,4 @@
-import { CLOSE_REASONS, DELIVERABLE_KINDS, EVENT_VERSION, eventSchema, type BoardStatus, type CloseReason, type FileLink, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
+import { CLOSE_REASONS, DELIVERABLE_KINDS, EVENT_VERSION, eventSchema, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
 
 // One recorded change to a ticket, oldest first. `stage: ""` clears the stage.
 export interface TicketChange {
@@ -110,6 +110,19 @@ export interface ProgressSegment {
   waiting?: boolean;
 }
 
+// Conn ("full auto"): state the DCI engine writes with conn set and rewrites on
+// every nudge. `since` is when it first came on (kept across rewrites).
+export interface Conn {
+  on: true;
+  budget: number;
+  mode: ConnMode;
+  nextNudgeAt: string;
+  since: string;
+  // Full auto clear: work the board down, then turn off at idle. The engine
+  // owns the behaviour; set only while the last write carried --clear.
+  clear?: true;
+}
+
 export interface Dashboard {
   run: {
     title: string;
@@ -132,6 +145,8 @@ export interface Dashboard {
   activity: Activity[];
   // `by` is the Paseo agent that set it, when set from Paseo.
   ticker: { text: string; since: string; by?: string } | null;
+  // The conn state, present only while conn is on.
+  conn?: Conn;
   // Share of estimated minutes in done tickets. Skipped tickets are left out.
   // `tookMin`: once every counted ticket is done, the real time from the run's
   // start to the last one finishing.
@@ -486,6 +501,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
   const deliverables = new Map<string, Deliverable>();
   const activity = new Map<string, Activity>();
   let ticker: Dashboard["ticker"] = null;
+  let conn: Conn | undefined;
   const manualStuck = new Map<string, { id: string; reason: string; ticket?: string; since: string }>();
   let updatedAt: string | null = null;
 
@@ -662,6 +678,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
       case "ticker.clear":
         ticker = null;
         break;
+      case "conn.set":
+        conn = { on: true, budget: event.budget, mode: event.mode, nextNudgeAt: event.nextNudgeAt, since: conn?.since ?? event.ts, ...(event.clear ? { clear: true as const } : {}) };
+        break;
+      case "conn.clear":
+        conn = undefined;
+        break;
       case "stuck.set":
         manualStuck.set(key(wsKey, event.id), { id: event.id, reason: event.reason, ticket: event.ticket ? displayId(event.ticket) : undefined, since: event.ts });
         break;
@@ -724,6 +746,8 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     questions: { open, answered },
     activity: [...activity.values()].reverse(),
     ticker,
+    // Left out entirely while conn is off.
+    ...(conn ? { conn } : {}),
     deliverables: [...deliverables.values()].reverse().map((deliverable) => {
       const ticket = deliverable.ticketId ? tickets.get(deliverable.ticketId) : undefined;
       return ticket ? { ...deliverable, ticketLabel: shortTitle(ticket.title) } : deliverable;
@@ -906,6 +930,34 @@ export function githubIssueUrl(gh: { owner: string; repo: string; number: number
 // under an open heading still joins this group. A child orders the same way
 // among its siblings and stays under its parent. Ties keep their recorded order.
 export const NO_PRIORITY_BAND = 5;
+// A read-only cut of the objectives, for the engine reading a seat's board.
+// Priorities match the stored value, so "none" is its own entry and never
+// counts as 0 to 2; owner-held is P3, P4 or none, derived, not a field.
+export interface TicketFilter {
+  statuses?: BoardStatus[];
+  priorities?: Array<number | "none">;
+}
+// Open or in progress, P0 to P2: what a seat may pull without the owner.
+export const READY_TO_PULL: TicketFilter = { statuses: ["open", "in_progress"], priorities: [0, 1, 2] };
+
+// Whether full auto would pick this objective up (open or in progress, P0 to
+// P2). A property of the objective, shown whether or not conn is on.
+export function isAutoPullable(ticket: Ticket): boolean {
+  return filterTickets([ticket], READY_TO_PULL).length === 1;
+}
+
+// Nothing left for a full-auto-clear conn to work: no objective in progress
+// (at any priority) and no open P0 to P2. P3, P4 and no priority are owner-held.
+export function boardIsClear(tickets: Ticket[]): boolean {
+  return !tickets.some((ticket) => ticket.status === "in_progress" || (ticket.status === "open" && ticket.priority !== undefined && ticket.priority <= 2));
+}
+
+export function filterTickets(tickets: Ticket[], filter: TicketFilter): Ticket[] {
+  return tickets.filter((ticket) =>
+    (!filter.statuses || filter.statuses.includes(ticket.status))
+    && (!filter.priorities || filter.priorities.includes(ticket.priority ?? "none")));
+}
+
 // What the priority card shows. An objective with no priority reads P5, but
 // only on screen: the stored priority stays unset, so nothing can mistake it
 // for P0 to P2 (the auto-backlog band).
@@ -1012,6 +1064,24 @@ export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stal
   if (working) statuses.push({ kind: board.stale && !agentRunning ? "stale" : "active", count: working });
   if (board.stuck.length) statuses.push({ kind: "stuck", count: board.stuck.length });
   return statuses.length ? statuses : [{ kind: "idle" }];
+}
+
+// The conn sign in the panel header. Solid only while the engine says live AND
+// it is still inside its window: the DCI engine rewrites nextNudgeAt on every
+// nudge, so a time more than CONN_GRACE_MIN past it means the engine went quiet
+// and the sign dims rather than claim live work. Keepalive is never solid.
+export const CONN_GRACE_MIN = 5;
+export function connDisplay(conn: Conn, nowMs: number): { solid: boolean; hover: string } {
+  const due = Date.parse(conn.nextNudgeAt);
+  const solid = conn.mode === "live" && nowMs <= due + CONN_GRACE_MIN * 60_000;
+  const next = Number.isNaN(due) ? "unknown" : new Date(due).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const state = conn.mode === "keepalive" ? "keep-alive pending" : solid ? "work outstanding" : "engine quiet past its nudge";
+  return { solid, hover: `Conn on, budget ${conn.budget}${conn.clear ? ", clear (turns off at idle)" : ""}, ${state}, next nudge ${next}` };
+}
+
+// The indicator's word: "Idle", or the kind with its count, like "Stuck 2".
+export function indicatorLabel(status: Indicator): string {
+  return status.kind === "idle" ? "Idle" : `${status.kind[0].toUpperCase()}${status.kind.slice(1)} ${status.count}`;
 }
 
 export function isFinished(ticket: Ticket): boolean {

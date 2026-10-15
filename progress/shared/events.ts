@@ -15,6 +15,9 @@ export const EVENT_VERSION = 1;
 export const TICKET_STATUSES = ["open", "in_progress", "blocked", "closed"] as const;
 export type BoardStatus = (typeof TICKET_STATUSES)[number];
 export const CLOSE_REASONS = ["done", "skipped"] as const;
+// Live: work is outstanding. Keepalive: only the cache keep-alive nudge is pending.
+export const CONN_MODES = ["live", "keepalive"] as const;
+export type ConnMode = (typeof CONN_MODES)[number];
 export type CloseReason = (typeof CLOSE_REASONS)[number];
 // What events may carry: the canonical words plus the 0.4.0 ones, which the
 // fold translates, so historical files parse forever.
@@ -171,6 +174,11 @@ export const eventSchema = z.discriminatedUnion("type", [
   // One line at the top saying what the agent is doing right now.
   z.object({ ...base, type: z.literal("ticker.set"), text }),
   z.object({ ...base, type: z.literal("ticker.clear") }),
+  // Conn ("full auto") is state the DCI engine owns and rewrites on every nudge
+  // and state change; the board stores and displays it, and decides nothing.
+  // `since` is derived in the fold: the first set after the last clear.
+  z.object({ ...base, type: z.literal("conn.set"), budget: z.number().int().positive(), mode: z.enum(CONN_MODES), nextNudgeAt: z.iso.datetime(), clear: z.literal(true).optional() }),
+  z.object({ ...base, type: z.literal("conn.clear") }),
 ]);
 
 export type ProgressEvent = z.infer<typeof eventSchema>;

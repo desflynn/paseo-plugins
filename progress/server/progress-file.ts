@@ -75,7 +75,8 @@ export async function appendProgress<T>(
   directory: string,
   now: () => Date,
   // `events` is the run the scope shows (the latest run when no scope), oldest first.
-  write: (state: { dashboard: Dashboard; nextIds: NextIds; events: ProgressEvent[] }) => { event: EventDraft; result: T },
+  // A `followUp` is a second event the same write lands right after the first, under the same lock.
+  write: (state: { dashboard: Dashboard; nextIds: NextIds; events: ProgressEvent[] }) => { event: EventDraft; result: T; followUp?: EventDraft },
   // Runs before the lock is released, with the whole file as it now is.
   after?: (text: string) => Promise<void>,
   // `scope` takes writer state from one workspace's run; with no scope, exactly 0.4.0.
@@ -89,14 +90,17 @@ export async function appendProgress<T>(
     // concurrent writers in different workspaces different nextIds and they
     // would collide (pinned by the concurrent-writers test).
     const { dashboard, nextIds } = reduceProgress(parsed, now(), scope);
-    const { event, result } = write({ dashboard, nextIds, events: scopeEvents(parsed.events, scope).map((line) => line.event) });
-    const checked = eventSchema.safeParse({ v: EVENT_VERSION, ts: now().toISOString(), ...withoutUndefined(event) });
-    if (!checked.success) {
-      throw new InvalidEvent(checked.error.issues.map((issue) => `${issue.path.join(".") || "value"}: ${issue.message}`).join("; "));
-    }
+    const { event, result, followUp } = write({ dashboard, nextIds, events: scopeEvents(parsed.events, scope).map((line) => line.event) });
+    const lines = [event, ...(followUp ? [followUp] : [])].map((draft) => {
+      const checked = eventSchema.safeParse({ v: EVENT_VERSION, ts: now().toISOString(), ...withoutUndefined(draft) });
+      if (!checked.success) {
+        throw new InvalidEvent(checked.error.issues.map((issue) => `${issue.path.join(".") || "value"}: ${issue.message}`).join("; "));
+      }
+      return JSON.stringify(checked.data);
+    });
     // A line cut short (a killed command, a hand edit) would swallow this event, so start a new line.
     const lead = text && !text.endsWith("\n") ? "\n" : "";
-    const line = `${lead}${JSON.stringify(checked.data)}\n`;
+    const line = `${lead}${lines.join("\n")}\n`;
     await appendFile(join(directory, PROGRESS_FILE_NAME), line);
     await after?.(text + line);
     return result;
