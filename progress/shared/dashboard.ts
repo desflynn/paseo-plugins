@@ -1,4 +1,4 @@
-import { CLOSE_REASONS, DELIVERABLE_KINDS, EVENT_VERSION, eventSchema, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
+import { CLOSE_REASONS, DELIVERABLE_KINDS, EVENT_VERSION, eventSchema, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type HoldKind, type ProgressEvent, type QuestionOption, type TicketStatus } from "./events.ts";
 
 // One recorded change to a ticket, oldest first. `stage: ""` clears the stage.
 export interface TicketChange {
@@ -123,6 +123,15 @@ export interface Conn {
   clear?: true;
 }
 
+// Hold: the owner's board-wide stop (o34). Items can still be added, but no
+// work starts. `since` is when it first came on, kept across rewrites.
+export interface Hold {
+  on: true;
+  kind: HoldKind;
+  note?: string;
+  since: string;
+}
+
 export interface Dashboard {
   run: {
     title: string;
@@ -147,6 +156,8 @@ export interface Dashboard {
   ticker: { text: string; since: string; by?: string } | null;
   // The conn state, present only while conn is on.
   conn?: Conn;
+  // The hold state, present only while the board is on hold.
+  hold?: Hold;
   // Share of estimated minutes in done tickets. Skipped tickets are left out.
   // `tookMin`: once every counted ticket is done, the real time from the run's
   // start to the last one finishing.
@@ -502,6 +513,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
   const activity = new Map<string, Activity>();
   let ticker: Dashboard["ticker"] = null;
   let conn: Conn | undefined;
+  let hold: Hold | undefined;
   const manualStuck = new Map<string, { id: string; reason: string; ticket?: string; since: string }>();
   let updatedAt: string | null = null;
 
@@ -684,6 +696,12 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
       case "conn.clear":
         conn = undefined;
         break;
+      case "hold.set":
+        hold = { on: true, kind: event.kind, ...(event.note ? { note: event.note } : {}), since: hold?.since ?? event.ts };
+        break;
+      case "hold.clear":
+        hold = undefined;
+        break;
       case "stuck.set":
         manualStuck.set(key(wsKey, event.id), { id: event.id, reason: event.reason, ticket: event.ticket ? displayId(event.ticket) : undefined, since: event.ts });
         break;
@@ -748,6 +766,8 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     ticker,
     // Left out entirely while conn is off.
     ...(conn ? { conn } : {}),
+    // Left out entirely while the board is not on hold.
+    ...(hold ? { hold } : {}),
     deliverables: [...deliverables.values()].reverse().map((deliverable) => {
       const ticket = deliverable.ticketId ? tickets.get(deliverable.ticketId) : undefined;
       return ticket ? { ...deliverable, ticketLabel: shortTitle(ticket.title) } : deliverable;
@@ -941,7 +961,8 @@ export interface TicketFilter {
 export const READY_TO_PULL: TicketFilter = { statuses: ["open", "in_progress"], priorities: [0, 1, 2] };
 
 // Whether full auto would pick this objective up (open or in progress, P0 to
-// P2). A property of the objective, shown whether or not conn is on.
+// P2). A property of the objective, shown whether or not conn is on, and
+// whether or not the board is held: a hold only pauses the pulling.
 export function isAutoPullable(ticket: Ticket): boolean {
   return filterTickets([ticket], READY_TO_PULL).length === 1;
 }
@@ -1076,6 +1097,19 @@ export function tickerIcon(statuses: Indicator[], finished: boolean): TickerIcon
   if (statuses.some((status) => status.kind === "stale")) return "stale";
   if (statuses.some((status) => status.kind === "active")) return "live";
   return "idle";
+}
+
+// The hold sign in the panel header, beside the conn sign: which hold it is,
+// and (on hover) what it means for the work.
+export function holdLabel(hold: Hold): string {
+  return hold.kind === "closed" ? "⏸️ Closed" : "⏸️ Speccing";
+}
+
+export function holdHover(hold: Hold): string {
+  const meaning = hold.kind === "closed"
+    ? "Board on hold: closed to work, items can still be added"
+    : "Board on hold: speccing with the owner here, items can still be added and no work starts";
+  return hold.note ? `${meaning}. ${hold.note}` : meaning;
 }
 
 // The conn sign in the panel header. Solid only while the engine says live AND

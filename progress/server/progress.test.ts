@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { boardStatuses, connDisplay, connLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
+import { boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -1645,6 +1645,99 @@ test("the folder picker lists the repo's folders, without .git or links", async 
   assert.deepEqual(await list("src"), { folder: "src", folders: ["app"] });
   assert.deepEqual(await list("new/folder"), { folder: "new/folder", folders: [] }, "a folder that doesn't exist yet is empty");
   await assert.rejects(list("../"), /inside the repo/);
+});
+
+test("hold set and clear keep one stored state, left out when off, and refuse a bad kind", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  assert.equal("hold" in (await w.dashboard()).dashboard, false, "no hold until set");
+  w.at(1);
+  assert.equal((await w.run("hold", "set", "--kind", "speccing", "--note", "with Des")).code, 0);
+  assert.deepEqual((await w.dashboard()).dashboard.hold, { on: true, kind: "speccing", note: "with Des", since: minutes(1).toISOString() });
+  w.at(30);
+  await w.run("hold", "set", "--kind", "closed");
+  assert.deepEqual((await w.dashboard()).dashboard.hold, { on: true, kind: "closed", since: minutes(1).toISOString() }, "a rewrite keeps the since and drops a note it did not carry");
+  w.at(40);
+  assert.equal((await w.run("hold", "clear")).code, 0);
+  assert.equal("hold" in (await w.dashboard()).dashboard, false, "cleared hold leaves the field out");
+  for (const argv of [["hold", "set"], ["hold", "set", "--kind", "paused"]]) {
+    const refused = await w.run(...argv);
+    assert.equal(refused.code, 1, argv.join(" "));
+    assert.match(refused.text, /--kind/);
+  }
+});
+
+test("while the board is on hold, items can be added and closed but no work starts", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Running", "--estimate", "30");
+  await w.run("ticket", "add", "Waiting", "--estimate", "30");
+  await w.run("ticket", "update", "o1", "--status", "in_progress");
+  await w.run("hold", "set", "--kind", "closed");
+  const refusals = [
+    ["ticket", "claim", "o2"],
+    ["ticket", "update", "o2", "--status", "in_progress"],
+    ["ticket", "add", "Eager", "--estimate", "30", "--status", "in_progress"],
+  ];
+  for (const argv of refusals) {
+    const refused = await w.run(...argv);
+    assert.equal(refused.code, 1, argv.join(" "));
+    assert.match(refused.text, /on hold.*closed.*hold clear/is, "names the hold and how to lift it");
+  }
+  assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o2")?.status, "open", "nothing started");
+  for (const argv of [
+    ["ticket", "add", "Spec this", "--estimate", "30"],
+    ["ticket", "update", "o2", "--priority", "1", "--note", "scoped"],
+    ["ticket", "update", "o1", "--note", "still going", "--status", "in_progress"],
+    ["ticket", "done", "o1"],
+  ]) assert.equal((await w.run(...argv)).code, 0, argv.join(" "));
+  await w.run("hold", "clear");
+  assert.equal((await w.run("ticket", "claim", "o2")).code, 0, "work starts again once the hold is lifted");
+});
+
+test("show carries the hold, --ready lists nothing while it is on, and plain show is unchanged when off", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Urgent", "--estimate", "30", "--priority", "0");
+  const plain = (await w.run("show")).text;
+  assert.doesNotMatch(plain, /Hold:/);
+  assert.match((await w.run("show", "--ready")).text, /o1/);
+  await w.run("hold", "set", "--kind", "speccing", "--note", "with Des");
+  const held = (await w.run("show")).text;
+  assert.match(held, /Hold: speccing, since \S+, with Des$/m);
+  assert.doesNotMatch((await w.run("show", "--ready")).text, /o1 /, "nothing is ready to pull while on hold");
+  assert.deepEqual(JSON.parse((await w.run("show", "--json")).text).dashboard.hold.kind, "speccing");
+});
+
+test("a speccing hold only pauses full auto: conn and the objective marks stay, and clearing the hold needs no re-activation", async (t) => {
+  const w = await worktree(t);
+  const next = minutes(55).toISOString();
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Urgent", "--estimate", "30", "--priority", "1");
+  await w.run("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", next, "--clear");
+  const before = (await w.dashboard()).dashboard.conn;
+  assert.equal(before?.clear, true);
+  for (const kind of ["speccing", "closed"]) {
+    await w.run("hold", "set", "--kind", kind);
+    const held = (await w.dashboard()).dashboard;
+    assert.deepEqual(held.conn, before, `${kind}: conn is exactly as it was, since and all`);
+    assert.equal(isAutoPullable(held.tickets.find((ticket) => ticket.id === "o1")!), true, `${kind}: the objective keeps its mark`);
+    assert.match((await w.run("show")).text, /Conn: on, budget 2, clear, live/, `${kind}: text show still says full auto is on`);
+    await w.run("hold", "clear");
+    const lifted = (await w.dashboard()).dashboard;
+    assert.deepEqual(lifted.conn, before, `${kind}: full auto runs again after the hold clears, nothing re-activated`);
+    assert.equal("hold" in lifted, false);
+    assert.match((await w.run("show", "--ready")).text, /o1 /, `${kind}: the ready list is back`);
+  }
+});
+
+test("the hold sign and hover say which hold it is, and a held board keeps the auto-pullable mark on its objectives", () => {
+  assert.equal(holdLabel({ on: true, kind: "closed", since: "x" }), "⏸️ Closed");
+  assert.equal(holdLabel({ on: true, kind: "speccing", since: "x" }), "⏸️ Speccing");
+  assert.match(holdHover({ on: true, kind: "closed", since: "x" }), /closed to work.*items can still be added/i);
+  assert.match(holdHover({ on: true, kind: "speccing", note: "with Des", since: "x" }), /speccing with the owner.*with Des/i);
+  const urgent = { id: "o1", status: "open", priority: 0 } as Ticket;
+  assert.equal(isAutoPullable(urgent), true);
 });
 
 // Saved runs per workspace (HHC3 report, 15 Oct): the repo has one shared

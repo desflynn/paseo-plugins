@@ -18,6 +18,10 @@ export const CLOSE_REASONS = ["done", "skipped"] as const;
 // Live: work is outstanding. Keepalive: only the cache keep-alive nudge is pending.
 export const CONN_MODES = ["live", "keepalive"] as const;
 export type ConnMode = (typeof CONN_MODES)[number];
+// A held board takes new items but starts no work: closed to work altogether,
+// or speccing with the owner here (o34).
+export const HOLD_KINDS = ["closed", "speccing"] as const;
+export type HoldKind = (typeof HOLD_KINDS)[number];
 export type CloseReason = (typeof CLOSE_REASONS)[number];
 // What events may carry: the canonical words plus the 0.4.0 ones, which the
 // fold translates, so historical files parse forever.
@@ -179,6 +183,9 @@ export const eventSchema = z.discriminatedUnion("type", [
   // `since` is derived in the fold: the first set after the last clear.
   z.object({ ...base, type: z.literal("conn.set"), budget: z.number().int().positive(), mode: z.enum(CONN_MODES), nextNudgeAt: z.iso.datetime(), clear: z.literal(true).optional() }),
   z.object({ ...base, type: z.literal("conn.clear") }),
+  // Hold: the owner's board-wide stop. `since` is derived in the fold, as conn's is.
+  z.object({ ...base, type: z.literal("hold.set"), kind: z.enum(HOLD_KINDS), note: text.optional() }),
+  z.object({ ...base, type: z.literal("hold.clear") }),
 ]);
 
 export type ProgressEvent = z.infer<typeof eventSchema>;

@@ -11,7 +11,7 @@ import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, connDisplay, connLabel, displayPriority, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -296,6 +296,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }}>
             {dashboard.conn ? <ConnSign colors={colors} conn={dashboard.conn} now={now} /> : null}
+            {dashboard.hold ? <HoldSign colors={colors} hold={dashboard.hold} /> : null}
             <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
               {dashboard.run?.title ?? "Progress"}
             </Text>
@@ -516,7 +517,7 @@ const STUCK_ICON: Record<StuckItem["kind"], string> = { blocked: "Ban", overdue:
 // The conn sign before the board name: the infinity sign and the FM budget,
 // solid while live work is outstanding, dimmed when the engine only has the
 // keep-alive pending or has gone quiet. Hover: budget, state, next nudge.
-function ConnSign({ colors, conn, now }: { colors: Colors; conn: Conn; now: number }) {
+export function ConnSign({ colors, conn, now }: { colors: Colors; conn: Conn; now: number }) {
   const { solid, hover } = connDisplay(conn, now);
   return (
     <Text accessibilityLabel={hover} {...({ title: hover } as object)}
@@ -526,10 +527,22 @@ function ConnSign({ colors, conn, now }: { colors: Colors; conn: Conn; now: numb
   );
 }
 
+// o34: the hold sign beside the conn sign. Always full strength: a hold is the
+// owner's word, so it never dims like an engine that went quiet.
+export function HoldSign({ colors, hold }: { colors: Colors; hold: Hold }) {
+  const hover = holdHover(hold);
+  return (
+    <Text accessibilityLabel={hover} {...({ title: hover } as object)}
+      style={{ flexShrink: 0, color: colors.statusWarning, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+      {holdLabel(hold)}
+    </Text>
+  );
+}
+
 // The board-name line's indicator: a filled dot per status (Idle's is hollow),
 // green for idle and active, red for stale and stuck, all bold. Counts ride
 // the word; the reasons ride the objective rows.
-function StatusIndicator({ colors, statuses }: { colors: Colors; statuses: Indicator[] }) {
+export function StatusIndicator({ colors, statuses }: { colors: Colors; statuses: Indicator[] }) {
   return (
     <View accessibilityRole="text" style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 0 }}>
       {statuses.map((status) => {
@@ -599,6 +612,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
   const row = (ticket: Ticket) => (
     <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
       reason={reasons.get(ticket.id) ?? (ticket.status === "in_progress" ? quiet : undefined)}
+      autoPull={isAutoPullable(ticket)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />
   );
   const done = finished.filter((ticket) => ticket.closeReason !== "skipped").length;
@@ -622,7 +636,7 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
 // One objective in the shared row style (O2600): the status mark, the tight
 // id + title, the priority pill, the stage/started/waiting/note lines, the
 // linkage chips — and the estimate, the one view that carries hours.
-function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; reason?: string; depth?: number }) {
+function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, autoPull, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; reason?: string; autoPull: boolean; depth?: number }) {
   const muted = ticket.status === "closed" && ticket.closeReason === "skipped";
   const working = ticket.status === "in_progress";
   // Narrow: tighter gaps and no chevron (the whole row still presses), so the title keeps its width.
@@ -644,7 +658,7 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, de
       dim={!muted && !working}
       strike={muted}
       priority={displayPriority(ticket)}
-      autoPull={isAutoPullable(ticket)}
+      autoPull={autoPull}
       detail={
         <>
           {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}

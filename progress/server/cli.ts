@@ -5,7 +5,7 @@ import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { boardIsClear, boardStatuses, filterTickets, indicatorLabel, isSettled, READY_TO_PULL, type TicketFilter, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
-import { CLOSE_REASONS, CONN_MODES, DELIVERABLE_KINDS, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type ProgressEvent } from "../shared/events.ts";
+import { CLOSE_REASONS, CONN_MODES, DELIVERABLE_KINDS, HOLD_KINDS, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type HoldKind, type ProgressEvent } from "../shared/events.ts";
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
 import { resolveWorkspaceId } from "./workspace.ts";
@@ -605,6 +605,24 @@ const commands: Record<string, Command> = {
       return { event: { type: "conn.clear" }, message: "Conn off" };
     },
   },
+  "hold set": {
+    usage: `hold set --kind <closed|speccing> [--note <text>]`,
+    summary: "Put the board on hold: items can still be added, but no work starts (claim and moving an objective into progress are refused until hold clear). closed means closed to work; speccing means the owner is here speccing. Rewrite it to change the kind or note: it keeps its since until hold clear. --workspace <id> targets a seat's board from outside it.",
+    options: { kind: { type: "string" }, note: { type: "string" } },
+    run({ values }) {
+      const kind = required(stringOption(values.kind), `--kind <${HOLD_KINDS.join("|")}>`);
+      if (!(HOLD_KINDS as readonly string[]).includes(kind)) throw new UsageError(`--kind is one of ${HOLD_KINDS.join(", ")}.`);
+      const note = stringOption(values.note);
+      return { event: { type: "hold.set", kind: kind as HoldKind, ...(note ? { note } : {}) }, message: `Board on hold: ${kind}${note ? `, ${note}` : ""}` };
+    },
+  },
+  "hold clear": {
+    usage: `hold clear`,
+    summary: "Lift the hold: work may start again. --workspace <id> targets a seat's board from outside it.",
+    run() {
+      return { event: { type: "hold.clear" }, message: "Hold lifted" };
+    },
+  },
   "stuck clear": {
     usage: `stuck clear <id>`,
     summary: "Clear a flagged blocker.",
@@ -695,9 +713,21 @@ function showFilter(values: { status?: unknown; priority?: unknown; ready?: unkn
 // conn off nothing is added, so plain show stays byte-identical to 0.4.0;
 // show --json always carries the indicator.
 function statusText(dashboard: Dashboard): string {
-  const { conn } = dashboard;
-  if (!conn) return "";
-  return `\n\nConn: on, budget ${conn.budget}${conn.clear ? ", clear" : ""}, ${conn.mode}, since ${conn.since}, next nudge ${conn.nextNudgeAt}\nStatus: ${boardStatuses(dashboard, false).map(indicatorLabel).join(", ")}`;
+  const { conn, hold } = dashboard;
+  const connLines = conn ? `\n\nConn: on, budget ${conn.budget}${conn.clear ? ", clear" : ""}, ${conn.mode}, since ${conn.since}, next nudge ${conn.nextNudgeAt}\nStatus: ${boardStatuses(dashboard, false).map(indicatorLabel).join(", ")}` : "";
+  // A held board says so last, so a reader stops there: items only, no work.
+  const holdLine = hold ? `${conn ? "\n" : "\n\n"}Hold: ${hold.kind}, since ${hold.since}${hold.note ? `, ${hold.note}` : ""}` : "";
+  return `${connLines}${holdLine}`;
+}
+
+// Whether an event starts work: a new objective already in progress, or an
+// existing one moving into progress. A hold refuses exactly these.
+function startsWork(event: EventDraft, dashboard: Dashboard): boolean {
+  if (event.type === "ticket.add") return event.status === "in_progress";
+  if (event.type === "ticket.update" && event.status === "in_progress") {
+    return dashboard.tickets.find((ticket) => ticket.id === displayId(event.id))?.status !== "in_progress";
+  }
+  return false;
 }
 
 // --workspace <id>, anywhere in the arguments: act on that workspace's board
@@ -785,7 +815,8 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
           questions: { ...dashboard.questions, open: dashboard.questions.open.filter((question) => askedByMe.has(question.id)) },
         };
       }
-      if (filter) view = { ...view, tickets: filterTickets(view.tickets, filter) };
+      // A held board has nothing ready to pull.
+      if (filter) view = { ...view, tickets: parsed.values.ready === true && dashboard.hold ? [] : filterTickets(view.tickets, filter) };
       if (flags.json) {
         out(JSON.stringify({ worktree: root, dashboard: view, indicator: boardStatuses(view, false) }, null, 2));
         return 0;
@@ -852,8 +883,9 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
     const moveVerb = command === commands["ticket move"] || command === commands["ticket claim-from-all"];
     const message = await appendProgress(store.directory, now, (state) => {
       const finished = state.dashboard.run?.finished;
-      // Conn is the seat's state, not an objective: it still lands on a finished board.
-      if (finished && command !== commands.start && command !== commands.rename && command !== commands["conn set"] && command !== commands["conn clear"]) {
+      // Conn and hold are board state, not objectives: they still land on a finished board.
+      const boardState = command === commands["conn set"] || command === commands["conn clear"] || command === commands["hold set"] || command === commands["hold clear"];
+      if (finished && command !== commands.start && command !== commands.rename && !boardState) {
         // No agent id means the unscoped board, whose latest run may be one
         // another workspace finished. A sandbox that strips PASEO_* variables
         // (context-mode's ctx_execute) lands an agent here; say so.
@@ -861,6 +893,10 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
         throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>" --replace (nothing open is lost: a finished board has no open objectives).${noId}`);
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root, scope });
+      const { hold } = state.dashboard;
+      if (hold && startsWork(event, state.dashboard)) {
+        throw new UsageError(`The board is on hold (${hold.kind}${hold.note ? `: ${hold.note}` : ""}). Items can be added, but no work starts. The owner lifts it with: ${USAGE_NAME} hold clear`);
+      }
       if (event.type === "ticket.update" && event.status === "closed") {
         const ticket = state.dashboard.tickets.find((candidate) => candidate.id === event.id);
         cascade = { refs: event.refs ?? ticket?.refs ?? [], reason: event.closeReason ?? "done" };
