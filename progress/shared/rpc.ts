@@ -1,6 +1,8 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import type { Dashboard } from "./dashboard.ts";
+import { BOARD_MODES } from "./modes.ts";
+import type { BoardSummary } from "./overview.ts";
 
 // `panelOpened`: the Progress panel has been opened for this worktree before.
 // `root`: the worktree root the file was read from, which stored paths are
@@ -38,6 +40,16 @@ export const getAttention = defineRpc({
     workspaceDirectory: z.string().min(1),
   }),
   output: z.custom<AttentionResult>(),
+});
+
+// o36: the Progress page. One call folds each listed workspace's own board to
+// its summary, null where a workspace has no board.
+export const getOverview = defineRpc({
+  name: "progress.overview",
+  input: z.object({
+    workspaces: z.array(z.object({ workspaceId: z.string().min(1), workspaceDirectory: z.string().min(1) })),
+  }),
+  output: z.custom<{ boards: Record<string, BoardSummary | null> }>(),
 });
 
 // Records that the Progress panel was opened, so the "Progress" pill goes away for good.
@@ -120,6 +132,19 @@ export const setHistoryFolder = defineRpc({
     folder: z.string().nullable(),
   }),
   output: z.object({ savedTo: z.string().nullable() }),
+});
+
+// o38: sets a board's state from the Progress page. A hold is written to the
+// board; a change to the seat's full auto goes to `agentId` as a prompt.
+export const setBoardMode = defineRpc({
+  name: "progress.mode.set",
+  input: z.object({
+    workspaceId: z.string().min(1),
+    workspaceDirectory: z.string().min(1),
+    mode: z.enum(BOARD_MODES),
+    agentId: z.string().min(1).optional(),
+  }),
+  output: z.object({ mode: z.enum(BOARD_MODES), pinged: z.boolean(), error: z.string().optional() }),
 });
 
 // Opens a recorded local deliverable on the daemon host with its default app.

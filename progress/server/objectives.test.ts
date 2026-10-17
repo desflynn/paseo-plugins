@@ -218,6 +218,24 @@ test("a ticket can sit under another, and the fold carries the parent migrated",
   assert.equal(byId("o1").under, undefined);
 });
 
+test("a child added with --under and no --priority takes a P0-P2 parent's priority and says so", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Inherit");
+  await w.run("ticket", "add", "Urgent epic", "--estimate", "60", "--priority", "0");
+  await w.run("ticket", "add", "Parked epic", "--estimate", "60", "--priority", "3");
+  await w.run("ticket", "add", "Loose epic", "--estimate", "60");
+  const inherited = await w.run("ticket", "add", "Child", "--estimate", "20", "--under", "o1");
+  assert.match(inherited.text, /Added o1\.1: .*at P0 \(from o1\)/);
+  assert.match((await w.run("ticket", "add", "Grandchild", "--estimate", "10", "--under", "o1.1")).text, /at P0 \(from o1\.1\)/, "the inherited priority passes down");
+  const explicit = await w.run("ticket", "add", "Chosen", "--estimate", "20", "--under", "o1", "--priority", "2");
+  assert.doesNotMatch(explicit.text, /from o1/, "an explicit --priority wins and nothing is inherited");
+  assert.doesNotMatch((await w.run("ticket", "add", "Under parked", "--estimate", "20", "--under", "o2")).text, /from o2/);
+  assert.doesNotMatch((await w.run("ticket", "add", "Under loose", "--estimate", "20", "--under", "o3")).text, /from o3/);
+  const { dashboard } = await w.dashboard();
+  const priority = (id: string) => dashboard.tickets.find((ticket) => ticket.id === id)?.priority;
+  assert.deepEqual(["o1.1", "o1.1.1", "o1.2", "o2.1", "o3.1"].map(priority), [0, 0, 2, undefined, undefined]);
+});
+
 test("the CLI mints child ids with --under, any depth, and never reuses a removed number", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Tree");

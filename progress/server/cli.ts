@@ -272,7 +272,7 @@ const commands: Record<string, Command> = {
   },
   "ticket add": {
     usage: `ticket add "<title>" --estimate <minutes> [--under <id>] [--status <status>] [--priority <0-4>] [--close-reason <done|skipped>] [--waits-for <id>] [--source <path or http(s) URL>[=<label>]] [--ref <ref> ...]`,
-    summary: `Add a ticket. Prints its id (o1, o2, ...). --under nests it as the next child of another ticket, any depth (o1.1, o1.1.2). Statuses: open, in_progress, blocked, closed, with --close-reason done|skipped when closing. --priority is how urgent it is, 0-4. --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>; repeat it to link more than one, and the name composes from the links.`,
+    summary: `Add a ticket. Prints its id (o1, o2, ...). --under nests it as the next child of another ticket, any depth (o1.1, o1.1.2). Statuses: open, in_progress, blocked, closed, with --close-reason done|skipped when closing. --priority is how urgent it is, 0-4; a child added with --under and no --priority takes its parent's priority when that is P0, P1 or P2 (only those are pulled to run), and the output says so. --waits-for names a ticket it can't start before; that is the order of work, not a blocker. --source is where the ticket is written up, like its spec file or issue link. --ref is where the work came from, like bead:<id>, gh:<owner>/<repo>#<n> or teams:<messageId>; repeat it to link more than one, and the name composes from the links.`,
     options: { estimate: { type: "string" }, under: { type: "string" }, status: { type: "string" }, priority: { type: "string" }, "close-reason": { type: "string" }, "waits-for": { type: "string" }, source: { type: "string" }, ref: { type: "string", multiple: true } },
     run({ positionals, values, state, cwd, root }) {
       const waitsFor = values["waits-for"] === undefined ? undefined : existingTicket(state, stringOption(values["waits-for"])).id;
@@ -281,12 +281,16 @@ const commands: Record<string, Command> = {
       if (estimateMin === undefined) throw new UsageError("Missing --estimate <minutes>.");
       const source = values.source === undefined ? undefined : parseFile(String(values.source), cwd, root);
       const refs = refsOption(values);
-      const under = values.under === undefined ? undefined : existingTicket(state, stringOption(values.under)).id;
+      const parent = values.under === undefined ? undefined : existingTicket(state, stringOption(values.under));
+      const under = parent?.id;
       const id = under ? nextChildId(state.events, under) : state.nextIds.ticket;
       const status = statusOption(values.status);
+      // Des's rule: only P0-P2 are pulled to run, so a child with no priority of its own takes a P0-P2 parent's. An explicit --priority wins.
+      const explicit = priorityOption(values.priority);
+      const inherited = explicit === undefined && parent?.priority !== undefined && parent.priority <= 2 ? parent.priority : undefined;
       return {
-        event: { type: "ticket.add", id, title, estimateMin, under, status: status?.status, closeReason: closeReasonOption(values["close-reason"]) ?? status?.closeReason, priority: priorityOption(values.priority), waitsFor, source, refs },
-        message: `Added ${id}: ${title} (${estimateMin} min)${under ? `, under ${under}` : ""}${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}${refs ? `, ref ${refs.join(", ")}` : ""}`,
+        event: { type: "ticket.add", id, title, estimateMin, under, status: status?.status, closeReason: closeReasonOption(values["close-reason"]) ?? status?.closeReason, priority: explicit ?? inherited, waitsFor, source, refs },
+        message: `Added ${id}: ${title} (${estimateMin} min)${under ? `, under ${under}` : ""}${inherited !== undefined ? `, at P${inherited} (from ${under})` : ""}${waitsFor ? `, waits for ${waitsFor}` : ""}${source ? `, source ${source.path ?? source.url}` : ""}${refs ? `, ref ${refs.join(", ")}` : ""}`,
       };
     },
   },

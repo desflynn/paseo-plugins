@@ -15,6 +15,8 @@ export function clientHarness(pluginDirectory, modules = {}) {
   const opened = [];
   const panels = [];
   const commandItems = [];
+  const screens = [];
+  const sidebarItems = [];
   const openedPanels = [];
   const responses = { 'time-since.last-reply.list': { lastReplyAt: {} } };
   let nextTimer = 0;
@@ -116,6 +118,8 @@ export function clientHarness(pluginDirectory, modules = {}) {
     addHeaderButton: (target) => add({ ...target, placement: 'header' }),
     addWorkspacePanel(panel) { const entry = { ...panel, removed: false }; panels.push(entry); return () => { entry.removed = true; }; },
     addCommandCenterItem(item) { const entry = { ...item, removed: false }; commandItems.push(entry); return () => { entry.removed = true; }; },
+    addScreen(screen) { const entry = { ...screen, removed: false }; screens.push(entry); return () => { entry.removed = true; }; },
+    addSidebarHeaderItem(item) { const entry = { ...item, removed: false }; sidebarItems.push(entry); return () => { entry.removed = true; }; },
     openPanel(id, options) { openedPanels.push({ id, ...options }); },
     async rpc(contract, input) {
       requests.push({ name: contract.name, input });
@@ -126,7 +130,7 @@ export function clientHarness(pluginDirectory, modules = {}) {
       throw new Error(`Unexpected RPC ${contract.name}`);
     },
   };
-  return { client, load, agents, workspaces, registrations, requests, watches, opened, panels, commandItems, openedPanels, timers, responses,
+  return { client, load, agents, workspaces, registrations, requests, watches, opened, panels, commandItems, screens, sidebarItems, openedPanels, timers, responses,
     async flush() { for (let i = 0; i < 10; i++) await Promise.resolve(); },
     async tick(delay) { for (const [id, timer] of [...timers]) if (timer.delay === delay) { if (!timer.repeat) timers.delete(id); await timer.callback(); } },
   };

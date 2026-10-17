@@ -73,6 +73,8 @@ Give an objective a priority when urgency matters: `--priority <0-4>` on `ticket
 | P1 to P4 | Less and less urgent |
 | none | Counts as 5: it sits after P4, at the bottom |
 
+Only P0, P1 and P2 are pulled to run under full auto; P3, P4 and none are owner-held. So a child added with `--under` and no `--priority` takes its parent's priority when the parent is P0, P1 or P2, and the output says so (`Added o12.3: ..., at P0 (from o12)`). A child under a P3, P4 or unprioritised parent stays unprioritised, and an explicit `--priority` always wins. Still set the priority yourself on anything you hand to a helper.
+
 The panel and `show` order objectives the same way Beads are ordered: by priority band first (P0, then P1, down to P4, then none), and inside a band by o-number, lowest first. A sub-objective orders the same way among its siblings and stays under its parent. Closed objectives sink below the open ones.
 
 Work the list from the top down. Finish the P0s first. When there are no P0s left, the P1s are next, then the P2s, and so on. Do not skip ahead to a lower band because it looks easier or more interesting.
@@ -93,7 +95,7 @@ Des puts a board on hold with `hold set --kind <closed|speccing> [--note <text>]
 
 - On hold, add all the objectives you like. Notes, priorities, blocks and closes also work, so running work can finish.
 - On hold, nothing starts. `ticket claim` and moving an objective into progress are refused, with a message that names the hold.
-- `show` prints a `Hold:` line and `show --json` carries `dashboard.hold`. `show --ready` lists nothing, and no objective carries the ♾️ mark.
+- `show` prints a `Hold:` line and `show --json` carries `dashboard.hold`. `show --ready` lists nothing. A hold only pauses full auto: the conn state, the ♾️ on your names and the ♾️ on P0-P2 objectives all stay, and full auto resumes by itself when the owner clears the hold.
 - Only the owner lifts a hold. Do not run `hold clear` yourself.
 - The DCI engine reads `dashboard.hold` and does not nudge or pull while it is on.
 

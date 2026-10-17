@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { runCli } from "./cli.ts";
-import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetHistoryFolder } from "./dashboard.ts";
+import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetBoardMode, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
 import { boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
@@ -18,7 +18,7 @@ import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
-import { findStore, outsideDirectory, runFileName } from "./store.ts";
+import { findStore, originIsPublic, outsideDirectory, runFileName } from "./store.ts";
 import { ticketStory } from "../shared/ticket-story.ts";
 import { parseWriteUp, writeUpExcerpt } from "../shared/write-up.ts";
 
@@ -396,10 +396,12 @@ test("the objectives list keeps every finished ticket the fold doesn't take", ()
 });
 
 test("the board status shows idle, active, stale and stuck, at most two together", () => {
-  const board = (statuses: Ticket["status"][], stuck: number, stale: boolean) => ({
-    tickets: statuses.map((status, index) => ({ id: `o${index + 1}`, title: "", estimateMin: 10, status, statusSince: "", history: [] })) as Ticket[],
-    stuck: Array.from({ length: stuck }, () => ({})) as Dashboard["stuck"],
+  // Stuck items point at a P1 objective (o1); the Stuck rule lives in its own test below.
+  const board = (statuses: Ticket["status"][], stuck: number, stale: boolean, conn = false) => ({
+    tickets: statuses.map((status, index) => ({ id: `o${index + 1}`, title: "", estimateMin: 10, status, priority: 1, statusSince: "", history: [] })) as Ticket[],
+    stuck: Array.from({ length: stuck }, () => ({ kind: "blocked", ticketId: "o1" })) as unknown as Dashboard["stuck"],
     stale,
+    ...(conn ? { conn: { on: true } } : {}),
   });
   const status = (b: ReturnType<typeof board>, agentRunning = false) => boardStatuses(b, agentRunning);
   assert.deepEqual(status(board([], 0, false)), [{ kind: "idle" }]);
@@ -407,7 +409,8 @@ test("the board status shows idle, active, stale and stuck, at most two together
   assert.deepEqual(status(board(["in_progress", "in_progress", "open"], 0, false)), [{ kind: "active", count: 2 }]);
   assert.deepEqual(status(board(["in_progress", "in_progress"], 0, true)), [{ kind: "stale", count: 2 }]);
   assert.deepEqual(status(board(["in_progress"], 0, true), true), [{ kind: "active", count: 1 }], "a running agent keeps quiet work active");
-  assert.deepEqual(status(board(["open"], 3, false)), [{ kind: "stuck", count: 3 }], "stuck alone replaces idle");
+  assert.deepEqual(status(board(["open"], 3, false)), [{ kind: "idle" }], "nothing running and no full auto: a blocker is not stuck");
+  assert.deepEqual(status(board(["open"], 3, false, true)), [{ kind: "stuck", count: 3 }], "on full auto, stuck alone replaces idle");
   assert.deepEqual(status(board(["in_progress"], 1, false)), [{ kind: "active", count: 1 }, { kind: "stuck", count: 1 }]);
   assert.deepEqual(status(board(["in_progress"], 2, true)), [{ kind: "stale", count: 1 }, { kind: "stuck", count: 2 }]);
 });
@@ -1495,9 +1498,12 @@ async function newRepo(t: TestContext) {
   const linked = `${directory}-linked`;
   t.after(() => Promise.all([directory, linked].map((path) => rm(path, { recursive: true, force: true }))));
   await git(directory, "init", "-q");
+  // A public origin keeps run saving off, as before o22; the o22 tests set their own.
+  await git(directory, "remote", "add", "origin", "https://github.com/example/widgets.git");
   const output: string[] = [];
   return {
     directory, linked,
+    setOrigin: (url: string | null) => (url === null ? git(directory, "remote", "remove", "origin") : git(directory, "remote", "set-url", "origin", url)),
     async run(cwd: string, ...argv: string[]) {
       output.length = 0;
       const code = await runCli(argv, { cwd, now: () => minutes(0), out: (line) => output.push(line) });
@@ -1647,6 +1653,8 @@ test("the folder picker lists the repo's folders, without .git or links", async 
   await assert.rejects(list("../"), /inside the repo/);
 });
 
+// o34: HOLD the board. A stored state like conn: items can still be added, but
+// nothing starts. Closed means no work at all; speccing means the owner is here.
 test("hold set and clear keep one stored state, left out when off, and refuse a bad kind", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");
@@ -1731,6 +1739,50 @@ test("a speccing hold only pauses full auto: conn and the objective marks stay, 
   }
 });
 
+// o38 (Des, 16 Oct): the Progress page sets a board's state, and an idle board
+// turning active pings its owner seat to continue.
+test("setBoardMode writes the hold for hold and spec, lifts it going active, and pings the owner only when a board turns active", async (t) => {
+  const w = await worktree(t);
+  const input = { workspaceId: "ws", workspaceDirectory: w.directory };
+  const cli = (...argv: string[]) => runCli(argv, { cwd: w.directory, workspaceId: "ws", now: () => minutes(0), out: () => {} });
+  const sent: [string, string][] = [];
+  const ctx = { paseo: { agents: { ref: (id: string) => ({ send: async (text: string) => { sent.push([id, text]); } }) } } as unknown as PluginHandlerContext["paseo"] };
+  const board = async () => (await handleGetDashboard(input, ctx) as { dashboard: Dashboard }).dashboard;
+  await cli("start", "Run");
+
+  assert.deepEqual(await handleSetBoardMode({ ...input, mode: "spec", agentId: "seat" }, ctx), { mode: "spec", pinged: false });
+  assert.equal((await board()).hold?.kind, "speccing");
+  assert.deepEqual(sent, [], "going idle pings nobody");
+  assert.deepEqual(await handleSetBoardMode({ ...input, mode: "hold", agentId: "seat" }, ctx), { mode: "hold", pinged: false });
+  assert.equal((await board()).hold?.kind, "closed", "hold swaps the kind");
+
+  const up = await handleSetBoardMode({ ...input, mode: "fullauto", agentId: "seat" }, ctx);
+  assert.deepEqual(up, { mode: "fullauto", pinged: true });
+  assert.equal((await board()).hold, undefined, "going active lifts the hold");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], "seat");
+  assert.match(sent[0][1], /^\/fullauto — Des switched this board to Full auto from the Progress page\. Continue\.$/);
+
+  // A board with its full auto already on: spec, then back, needs only Continue.
+  await cli("conn", "set", "--budget", "2", "--mode", "live", "--next-nudge-at", minutes(55).toISOString());
+  await handleSetBoardMode({ ...input, mode: "spec", agentId: "seat" }, ctx);
+  assert.equal((await board()).conn?.budget, 2, "the spec left the conn alone");
+  await handleSetBoardMode({ ...input, mode: "fullauto", agentId: "seat" }, ctx);
+  assert.equal(sent.at(-1)?.[1], "Des switched this board to Full auto from the Progress page. Continue.");
+  assert.equal((await board()).conn?.budget, 2);
+});
+
+test("setBoardMode still changes the board when there is nobody to ping or the ping fails, and says so", async (t) => {
+  const w = await worktree(t);
+  const input = { workspaceId: "ws", workspaceDirectory: w.directory };
+  await runCli(["start", "Run"], { cwd: w.directory, workspaceId: "ws", now: () => minutes(0), out: () => {} });
+  const quiet = { paseo: { agents: { ref: () => { throw new Error("must not send"); } } } as unknown as PluginHandlerContext["paseo"] };
+  assert.deepEqual(await handleSetBoardMode({ ...input, mode: "clear" }, quiet), { mode: "clear", pinged: false, error: "No agent to tell." });
+  const broken = { paseo: { agents: { ref: () => ({ send: async () => { throw new Error("daemon down"); } }) } } as unknown as PluginHandlerContext["paseo"] };
+  const result = await handleSetBoardMode({ ...input, mode: "fullauto", agentId: "seat" }, broken);
+  assert.deepEqual(result, { mode: "fullauto", pinged: false, error: "Could not tell the agent: daemon down" });
+});
+
 test("the hold sign and hover say which hold it is, and a held board keeps the auto-pullable mark on its objectives", () => {
   assert.equal(holdLabel({ on: true, kind: "closed", since: "x" }), "⏸️ Closed");
   assert.equal(holdLabel({ on: true, kind: "speccing", since: "x" }), "⏸️ Speccing");
@@ -1738,6 +1790,62 @@ test("the hold sign and hover say which hold it is, and a held board keeps the a
   assert.match(holdHover({ on: true, kind: "speccing", note: "with Des", since: "x" }), /speccing with the owner.*with Des/i);
   const urgent = { id: "o1", status: "open", priority: 0 } as Ticket;
   assert.equal(isAutoPullable(urgent), true);
+});
+
+// o22 (Des, 15 Oct): "DEFAULT to repo unless public origin". Run history saves
+// into the repo by default; a public origin keeps it local; a folder or an
+// explicit off the user chose always wins.
+test("an origin counts as public when it is on a public forge or cannot be told apart from one", () => {
+  for (const url of [
+    "https://github.com/desflynn/paseo-plugins.git",
+    "git@github.com:desflynn/paseo-plugins.git",
+    "ssh://git@github.com/desflynn/paseo-plugins.git",
+    "https://user:token@GitHub.com/desflynn/x",
+    "https://gitlab.com/x/y.git",
+    "git@bitbucket.org:x/y.git",
+    "https://www.github.com/x/y",
+  ]) assert.equal(originIsPublic(url), true, url);
+  for (const url of [null, "", "  ", "/srv/git/widgets.git", "file:///srv/git/widgets.git", "git@git.rvr.ie:team/widgets.git", "https://git.internal.example/team/widgets"]) {
+    assert.equal(originIsPublic(url), false, String(url));
+  }
+});
+
+test("run history saves to history/ by default when the repo has no public origin", async (t) => {
+  for (const origin of [null, "git@git.rvr.ie:team/widgets.git"]) {
+    const repo = await newRepo(t);
+    await repo.setOrigin(origin);
+    await repo.run(repo.directory, "start", "First run");
+    const file = runFileName(minutes(0).toISOString(), "First run");
+    assert.deepEqual(await repo.visible(), [`history/${file}`], `saved by default, origin ${origin}`);
+    const result = await handleGetDashboard({ workspaceId: "ws-1", workspaceDirectory: repo.directory }, context);
+    assert.ok("dashboard" in result);
+    assert.equal(result.savedTo, "history", "the panel shows where it saves");
+  }
+});
+
+test("a public origin keeps run history local, and a folder the user picked still wins", async (t) => {
+  const repo = await newRepo(t);
+  await repo.run(repo.directory, "start", "Local run");
+  assert.deepEqual(await repo.visible(), [], "github origin: nothing written into the repo");
+  const set = (folder: string | null) => handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder }, context);
+  assert.deepEqual(await set("notes"), { savedTo: "notes" });
+  await repo.run(repo.directory, "activity", "add", "Now saved");
+  assert.deepEqual(await repo.visible(), [`notes/${runFileName(minutes(0).toISOString(), "Local run")}`], "a chosen folder overrides the public origin");
+});
+
+test("stopping saving is remembered, and does not fall back to the default", async (t) => {
+  const repo = await newRepo(t);
+  await repo.setOrigin(null);
+  const set = (folder: string | null) => handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder }, context);
+  assert.deepEqual(await set(null), { savedTo: null });
+  await repo.run(repo.directory, "start", "Quiet run");
+  assert.deepEqual(await repo.visible(), [], "explicitly off stays off with no origin");
+  const result = await handleGetDashboard({ workspaceId: "ws-1", workspaceDirectory: repo.directory }, context);
+  assert.ok("dashboard" in result);
+  assert.equal(result.savedTo, null);
+  assert.deepEqual(await set("history"), { savedTo: "history" }, "choosing a folder turns it back on");
+  await repo.run(repo.directory, "activity", "add", "Saved again");
+  assert.deepEqual(await repo.visible(), [`history/${runFileName(minutes(0).toISOString(), "Quiet run")}`]);
 });
 
 // Saved runs per workspace (HHC3 report, 15 Oct): the repo has one shared
@@ -1754,7 +1862,7 @@ async function savedRuns(repo: { directory: string }) {
 
 test("each workspace's run is saved to its own file, complete from its run.start, with none of another's events", async (t) => {
   const repo = await newRepo(t);
-  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  await repo.setOrigin(null);
   const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
   await as("wks_a", "start", "Alpha board");
   await as("wks_b", "start", "Beta board");
@@ -1775,7 +1883,7 @@ test("each workspace's run is saved to its own file, complete from its run.start
 
 test("two workspaces whose runs would share a file name each keep a file of their own", async (t) => {
   const repo = await newRepo(t);
-  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  await repo.setOrigin(null);
   const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
   await as("wks_a", "start", "Same board");
   await as("wks_b", "start", "Same board");
@@ -1792,7 +1900,7 @@ test("two workspaces whose runs would share a file name each keep a file of thei
 
 test("a saved file that already mixes workspaces heals on its workspace's next write", async (t) => {
   const repo = await newRepo(t);
-  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: "history" }, context);
+  await repo.setOrigin(null);
   const as = (ws: string, ...argv: string[]) => repo.run(repo.directory, ...argv, "--workspace", ws);
   await as("wks_a", "start", "Alpha board");
   await as("wks_b", "start", "Beta board");

@@ -10,6 +10,8 @@ export function clientHarness(pluginDirectory: string, modules?: Record<string, 
   /** Workspace panels and Command Center items the contribution registered. */
   panels: Array<any & { removed: boolean }>;
   commandItems: Array<any & { removed: boolean }>;
+  screens: Array<any & { removed: boolean }>;
+  sidebarItems: Array<any & { removed: boolean }>;
   /** Calls to client.openPanel. */
   openedPanels: Array<{ id: string; workspaceId?: string; location?: string }>;
   /** URLs passed to openExternalUrl. */

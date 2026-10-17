@@ -1079,11 +1079,21 @@ export type Indicator =
   | { kind: "idle" }
   | { kind: "active" | "stale" | "stuck"; count: number };
 
-export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stale">, agentRunning: boolean): Indicator[] {
+// Des, 16 Oct: "Stucks are only 0/1/2s and active or fullauto." A stuck item
+// counts only when its objective is P0 to P2, and only on a board that has work
+// in progress or a full auto on. A flag with no objective behind it has no
+// priority, so it does not count.
+export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stale"> & { conn?: unknown }, agentRunning: boolean): Indicator[] {
   const working = board.tickets.filter((ticket) => ticket.status === "in_progress").length;
+  const live = working > 0 || Boolean(board.conn);
+  const owed = (item: StuckItem) => {
+    const priority = item.ticketId === undefined ? undefined : board.tickets.find((ticket) => ticket.id === item.ticketId)?.priority;
+    return priority !== undefined && priority <= 2;
+  };
+  const stuck = live ? board.stuck.filter(owed).length : 0;
   const statuses: Indicator[] = [];
   if (working) statuses.push({ kind: board.stale && !agentRunning ? "stale" : "active", count: working });
-  if (board.stuck.length) statuses.push({ kind: "stuck", count: board.stuck.length });
+  if (stuck) statuses.push({ kind: "stuck", count: stuck });
   return statuses.length ? statuses : [{ kind: "idle" }];
 }
 

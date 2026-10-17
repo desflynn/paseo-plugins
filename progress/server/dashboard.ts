@@ -4,6 +4,9 @@ import { join } from "node:path";
 import type { Dashboard } from "../shared/dashboard.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { PROGRESS_FILE_NAME } from "../shared/events.ts";
+import { type BoardMode, planModeChange } from "../shared/modes.ts";
+import { type BoardSummary, summariseBoard } from "../shared/overview.ts";
+import { runCli } from "./cli.ts";
 import type { AttentionResult, DashboardResult } from "../shared/rpc.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { findRoot } from "./paths.ts";
@@ -43,6 +46,52 @@ export async function handleGetDashboard(
   }
   const { version } = cached;
   return input.since === version ? { unchanged: true, version } : { ...result, file, savedTo, inRepo, root, version };
+}
+
+// o36: each workspace's own board as a summary. A workspace whose store cannot
+// be read has no board here, and never fails the rest.
+export async function handleGetOverview(
+  input: { workspaces: { workspaceId: string; workspaceDirectory: string }[] },
+  _context: PluginHandlerContext,
+): Promise<{ boards: Record<string, BoardSummary | null> }> {
+  const boards: Record<string, BoardSummary | null> = {};
+  for (const { workspaceId, workspaceDirectory } of input.workspaces) {
+    try {
+      const { configured, dashboard } = await readProgress((await findStore(findRoot(workspaceDirectory))).directory, undefined, workspaceId);
+      boards[workspaceId] = configured ? summariseBoard(dashboard) : null;
+    } catch {
+      boards[workspaceId] = null;
+    }
+  }
+  return { boards };
+}
+
+// o38: the Progress page sets a board's state. A hold is written to the board
+// here; the seat's full auto is the seat's own (it renames itself and files
+// its wakes), so a change to it goes to the owner seat as a prompt. A failed
+// ping never undoes the board change: it is reported back for the page to show.
+export async function handleSetBoardMode(
+  input: { workspaceId: string; workspaceDirectory: string; mode: BoardMode; agentId?: string },
+  context: PluginHandlerContext,
+): Promise<{ mode: BoardMode; pinged: boolean; error?: string }> {
+  const { workspaceId, workspaceDirectory, mode, agentId } = input;
+  const { dashboard } = await readProgress((await findStore(findRoot(workspaceDirectory))).directory, undefined, workspaceId);
+  const plan = planModeChange(dashboard, mode);
+  const run = async (...argv: string[]) => {
+    const lines: string[] = [];
+    const code = await runCli(argv, { cwd: workspaceDirectory, workspaceId, out: (line) => lines.push(line) });
+    if (code !== 0) throw new Error(lines.join(" ") || `paseo-progress ${argv.join(" ")} failed`);
+  };
+  if (plan.hold === "clear") await run("hold", "clear");
+  else if (plan.hold !== "none") await run("hold", "set", "--kind", plan.hold.kind);
+  if (!plan.ping) return { mode, pinged: false };
+  if (!agentId) return { mode, pinged: false, error: "No agent to tell." };
+  try {
+    await context.paseo.agents.ref(agentId).send(plan.ping);
+    return { mode, pinged: true };
+  } catch (error) {
+    return { mode, pinged: false, error: `Could not tell the agent: ${error instanceof Error ? error.message : String(error)}` };
+  }
 }
 
 // Just what a message-box pill needs, so polling every workspace stays small.

@@ -18,8 +18,21 @@ test("registers the Progress panel and a Command Center item that opens it as a 
   item.onSelect({ openPanel: (id: string, options?: object) => h.client.openPanel(id, { workspaceId: "w", ...options }) });
   assert.deepEqual(plain(h.openedPanels), [{ id: "progress", workspaceId: "w", location: "explorer" }], "Command Center opens the panel in Explorer");
   assert.equal(h.requests.length, 0, "nothing is read until a panel is shown");
+  assert.deepEqual(plain(h.screens.map(({ id, title }) => ({ id, title }))), [{ id: "progress-all", title: "Progress" }], "o36: the all-workspaces page is a screen");
+  const [sidebar] = h.sidebarItems;
+  assert.equal(sidebar.title, "Progress");
+  // Des's ruling: the sidebar link is the Lucide flag, then the word Progress.
+  const opened: unknown[] = [];
+  const row = sidebar.Component({ currentScreen: null, openScreen: (input: unknown) => opened.push(input) });
+  assert.equal(row.props.icon, "Flag");
+  assert.equal(row.props.label, "Progress");
+  assert.equal(row.props.active, false);
+  row.props.onPress();
+  assert.deepEqual(plain(opened), [{ screenId: "progress-all" }]);
+  assert.equal(sidebar.Component({ currentScreen: { screenId: "progress-all", params: {} }, openScreen() {} }).props.active, true);
   stop();
   assert.ok(h.panels.every((panel) => panel.removed) && h.commandItems.every((entry) => entry.removed));
+  assert.ok(h.screens.every((entry) => entry.removed) && h.sidebarItems.every((entry) => entry.removed), "the page and its sidebar row go with the plugin");
 });
 
 test("on a phone, where Paseo doesn't draw Explorer, Progress opens as a tab", () => {

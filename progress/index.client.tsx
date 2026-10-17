@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { PROGRESS_SCREEN_ID, ProgressOverviewScreen, ProgressSidebarItem } from "./client/overview";
 import { ProgressPanel } from "./client/panel";
 import { contributePills, progressPanel } from "./client/pills";
 
@@ -25,7 +26,12 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
+  const stopScreen = client.addScreen({ id: PROGRESS_SCREEN_ID, title: "Progress", Component: ProgressOverviewScreen });
+  const stopSidebar = client.addSidebarHeaderItem({ id: "progress", title: "Progress", Component: ProgressSidebarItem });
+
   return () => {
+    void stopScreen();
+    void stopSidebar();
     void stopPanel();
     void stopCommand();
     stopPills();

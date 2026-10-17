@@ -121,15 +121,36 @@ export async function inGitRepo(root: string): Promise<boolean> {
   return (await configFile(root)) !== null;
 }
 
-// The folder runs are saved to, relative to the worktree root, or null.
+// Where runs go when nobody chose a folder (o22).
+const DEFAULT_HISTORY_FOLDER = "history";
+// Forges that host public repos. Whether a repo there is private cannot be
+// told offline, so an origin on one counts as public unless the user picked a
+// folder (the Save to repo button), which always wins.
+const PUBLIC_HOSTS = new Set(["github.com", "gitlab.com", "bitbucket.org"]);
+
+// Whether a git origin URL is on a public forge. No origin, a local path or a
+// self-hosted server is not public.
+export function originIsPublic(url: string | null): boolean {
+  const text = (url ?? "").trim();
+  if (!text) return false;
+  // https://user:token@host/x, ssh://git@host/x, then the scp form git@host:x.
+  const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/@]*@)?([^/:]+)/i.exec(text)?.[1] ?? /^(?:[^/@:]+@)?([^/:]+):/.exec(text)?.[1];
+  return host !== undefined && PUBLIC_HOSTS.has(host.toLowerCase().replace(/^www\./, ""));
+}
+
+// The folder runs are saved to, relative to the worktree root, or null. A
+// folder the user set wins, and an explicit off (an empty setting) stays off.
+// With no setting, runs save to history/ unless the origin is public (o22).
 export async function historyFolder(root: string): Promise<string | null> {
   const file = await configFile(root);
   if (file === null) return null;
   const mtimeMs = (await stat(file).catch(() => null))?.mtimeMs ?? 0;
   const cached = savedFolders.get(file);
   if (cached && cached.mtimeMs === mtimeMs) return cached.folder;
-  const { stdout } = await git(root, ["config", "--get", SAVE_RUNS_KEY]);
-  const folder = stdout.trim() || null;
+  const set = await git(root, ["config", "--get", SAVE_RUNS_KEY]);
+  let folder: string | null;
+  if (set.code === 0) folder = set.stdout.trim() || null;
+  else folder = originIsPublic((await git(root, ["config", "--get", "remote.origin.url"])).stdout.trim()) ? null : DEFAULT_HISTORY_FOLDER;
   savedFolders.set(file, { mtimeMs, folder });
   return folder;
 }
@@ -145,11 +166,12 @@ export function checkFolder(raw: string): { folder: string } | { error: string }
 }
 
 // Starts or stops saving runs for the whole repo. Files already saved stay.
+// Stopping stores an empty setting, so it is remembered rather than falling
+// back to the default (o22).
 export async function setHistoryFolder(root: string, raw: string | null): Promise<string | null> {
   if (raw === null) {
-    const { code } = await git(root, ["config", "--local", "--unset-all", SAVE_RUNS_KEY]);
-    // 5: it wasn't set, which is what was asked for.
-    if (code !== 0 && code !== 5) throw new Error("Could not change this repo's git settings.");
+    const { code } = await git(root, ["config", "--local", SAVE_RUNS_KEY, ""]);
+    if (code !== 0) throw new Error("Could not change this repo's git settings.");
     return null;
   }
   const checked = checkFolder(raw);
