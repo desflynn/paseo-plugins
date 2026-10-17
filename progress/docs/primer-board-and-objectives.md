@@ -12,7 +12,7 @@ A **board** is the same thing seen as persistent — `server/cli.ts` says it in 
 
 An **objective** and a **ticket** are the same object, and the code says so: the events are `ticket.add` and the CLI verbs `ticket claim` and `ticket done`, while "Objective" is the default item label the panel and `show` use (`start --item-label` renames it). Ticket is the machine word; objective the human one.
 
-A **bag** — NOT CONFIRMED. No such term appears in the plugin's code or docs. The closest object is the per-checkout storage folder of section 2. If "bag" means something else in the fleet, this doc does not cover it.
+A **bag** is not a plugin word, and not a word from Des's fleet either: it is slang from Joey's home-lab deep dive for the per-worktree event store and its key. In the plugin's own terms, a bag is the per-checkout folder of section 2: `<basename>-<sha1 of the real git-root path, first 8 hex>/progress.jsonl`. Two Paseo workspaces on one checkout share the same bag. One nuance: they share the file, but each folds only its own slice of it, so each still has its own run and its own board; "one bag, one run, one flat list" holds only while a single workspace uses the checkout.
 
 ## 2. The event-sourced file: where state actually lives
 
