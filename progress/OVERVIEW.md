@@ -49,7 +49,7 @@ paseo-progress hold set --kind closed --note "waiting on the owner"
 paseo-progress hold clear
 ```
 
-`--kind` is `closed` (closed to work) or `speccing` (the owner is here speccing); `--note` is optional. The `hold.set` and `hold.clear` events ([shared/events.ts](shared/events.ts), `HOLD_KINDS`) fold into `dashboard.hold` like conn state. Items can still be added while held, but no work starts: claiming and moving an objective into progress are refused with a message that names `hold clear` as the lift. `show --ready` comes back empty, the infinity marks are suppressed (`isAutoPullable` in [shared/dashboard.ts](shared/dashboard.ts) returns false for a held board), and the hold shows in the panel header and on the Progress page (`holdLabel`, `holdHover`). Text `show` prints a `Hold:` line last, with the kind, the since time and any note.
+`--kind` is `closed` (closed to work) or `speccing` (the owner is here speccing); `--note` is optional. The `hold.set` and `hold.clear` events ([shared/events.ts](shared/events.ts), `HOLD_KINDS`) fold into `dashboard.hold` like conn state. Items can still be added while held, but no work starts: claiming and moving an objective into progress are refused with a message that names `hold clear` as the lift. `show --ready` comes back empty, the infinity marks stay on P0 to P2 rows (a hold pauses the pulling, not the property; `isAutoPullable` in [shared/dashboard.ts](shared/dashboard.ts) ignores the hold), and the hold shows in the panel header and on the Progress page (`holdLabel`, `holdHover`). Text `show` prints a `Hold:` line last, with the kind, the since time and any note.
 
 ## Showing and cutting the board
 
