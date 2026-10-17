@@ -1,5 +1,6 @@
-import { type PluginWorkspacePanelProps, useRpc, useWorkspace } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { type PluginWorkspacePanelProps, usePaseo, useRpc, useWorkspace } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { loadWorkspaceOwner } from "./agents-list";
 import { DeliverablesList } from "./deliverables";
 import { LauncherBanner, SkillBanner } from "./launcher";
 import { HistoryRow } from "./history";
@@ -274,6 +275,19 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   const [wide, setWide] = useState(false);
   const narrow = useNarrow();
   const attachmentContext = { workspaceId, workspaceDirectory, navigation };
+  // o41: tapping the board name opens the agent that owns the board, through the host's own
+  // navigation (the same call the ticket dialog uses), so nothing reloads. Read on the tap, not on a timer.
+  const paseo = usePaseo();
+  const toast = useToast();
+  const openOwner = navigation ? async () => {
+    try {
+      const owner = await loadWorkspaceOwner(paseo, workspaceId);
+      if (owner) navigation.openAgent({ agentId: owner.id });
+      else toast.show("No agent owns this board yet.", { variant: "warning" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open the owner.");
+    }
+  } : undefined;
   const [openTicket, setOpenTicket] = useState<string | null>(null);
   // The section the top tab row shows; Tickets first, always.
   const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
@@ -297,9 +311,12 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
           <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }}>
             {dashboard.conn ? <ConnSign colors={colors} conn={dashboard.conn} now={now} /> : null}
             {dashboard.hold ? <HoldSign colors={colors} hold={dashboard.hold} /> : null}
-            <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
-              {dashboard.run?.title ?? "Progress"}
-            </Text>
+            <Pressable accessibilityRole={openOwner ? "link" : "header"} accessibilityLabel={`${dashboard.run?.title ?? "Progress"}. Open the agent that owns this board`} {...(openOwner ? { title: "Open the agent that owns this board" } as object : {})}
+              disabled={!openOwner} onPress={openOwner} style={({ pressed }) => ({ flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 })}>
+              <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
+                {dashboard.run?.title ?? "Progress"}
+              </Text>
+            </Pressable>
           </View>
           <StatusIndicator colors={colors} statuses={statuses} />
         </View>

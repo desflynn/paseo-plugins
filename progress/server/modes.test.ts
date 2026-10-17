@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Conn, Hold } from "../shared/dashboard.ts";
-import { autoUnderneath, BOARD_MODES, isActiveMode, modeOf, ownerAgent, planModeChange } from "../shared/modes.ts";
+import { autoUnderneath, BOARD_MODES, isActiveMode, modeOf, ownerAgent, planModeChange, workspaceOwner } from "../shared/modes.ts";
 import type { AgentRef } from "../shared/overview.ts";
 
 const conn = (clear?: boolean): Conn => ({ on: true, budget: 2, mode: "live", since: "x", nextNudgeAt: "y", ...(clear ? { clear: true } : {}) }) as Conn;
@@ -60,6 +60,22 @@ test("going manual lifts any hold and, if a full auto is on, tells the seat to t
   assert.match(off.ping ?? "", /^\/fullauto off — Des switched this board to Manual from the Progress page\./);
   assert.match(planModeChange({ conn: conn(true), hold: hold("speccing") }, "manual").ping ?? "", /^\/fullauto off — /);
   assert.equal(planModeChange({ conn: conn(true), hold: hold("speccing") }, "manual").hold, "clear");
+});
+
+test("a workspace's owner is picked from the raw agent list: its own seats only, never a helper or a closed agent", () => {
+  const entry = (id: string, workspaceId: string | null, title: string, status = "idle", parentAgentId: string | null = null) => ({ agent: { id, workspaceId, title, status, parentAgentId } });
+  const list = [
+    entry("x1", "w2", "PP Head Guy"),
+    entry("a1", "w1", "Zoe"),
+    entry("a2", "w1", "HHC3 Head Guy ♾️ 🟧"),
+    entry("h1", "w1", "helper", "running", "a2"),
+    entry("c1", "w1", "Old", "closed"),
+    entry("n1", null, "No workspace"),
+  ];
+  assert.equal(workspaceOwner(list, "w1")?.id, "a2", "the Head Guy wearing the full auto mark beats the other seat");
+  assert.equal(workspaceOwner(list, "w2")?.id, "x1");
+  assert.equal(workspaceOwner(list, "w9"), null, "no agents there, no owner");
+  assert.equal(workspaceOwner([], "w1"), null);
 });
 
 test("the owner to ping is the live top-level seat wearing the full auto icon, else a Head Guy, else the busiest", () => {

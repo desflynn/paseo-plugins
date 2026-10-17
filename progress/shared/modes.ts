@@ -66,3 +66,13 @@ export function ownerAgent(agents: AgentRef[]): AgentRef | null {
   const score = (agent: AgentRef) => (agent.title?.includes("♾️") ? 0 : /head guy/i.test(agent.title ?? "") ? 1 : 2);
   return [...seats].sort((a, b) => score(a) - score(b) || order[a.status] - order[b.status])[0] ?? null;
 }
+
+// The raw rows of Paseo's agent list, as the plugin client gets them.
+export interface AgentRow { agent: { id: string; workspaceId?: string | null; title?: string | null; status: string; parentAgentId?: string | null } }
+
+// The owner of one workspace, picked from the raw agent list. Used when a tap should open the seat that owns the board.
+export function workspaceOwner(rows: AgentRow[], workspaceId: string): AgentRef | null {
+  const agents = rows.flatMap(({ agent }) => (agent.workspaceId === workspaceId
+    ? [{ id: agent.id, workspaceId, status: agent.status as AgentRef["status"], title: agent.title ?? null, parentAgentId: agent.parentAgentId ?? null }] : []));
+  return ownerAgent(agents);
+}

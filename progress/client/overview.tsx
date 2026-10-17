@@ -8,6 +8,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getOverview } from "../shared/rpc";
+import { listAll, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
 
@@ -19,20 +20,6 @@ import { BoardCard, ChatsCard, isHovered } from "./overview-card";
 export const PROGRESS_SCREEN_ID = "progress-all";
 
 type Colors = PluginScreenProps["theme"]["colors"];
-type Paseo = ReturnType<typeof usePaseo>;
-type Page = { entries: unknown[]; pageInfo: { hasMore: boolean; nextCursor?: string | null } };
-
-// Every page of a directory listing, not just the first.
-async function listAll(list: (options?: { page?: { cursor: string; limit: number } }) => Promise<Page>): Promise<unknown[]> {
-  const entries: unknown[] = [];
-  let page = await list();
-  entries.push(...page.entries);
-  while (page.pageInfo.hasMore && page.pageInfo.nextCursor) {
-    page = await list({ page: { cursor: page.pageInfo.nextCursor, limit: 100 } });
-    entries.push(...page.entries);
-  }
-  return entries;
-}
 
 type WorkspaceEntryPayload = { id: string; projectId: string; projectDisplayName?: string; projectRootPath: string; name: string; title?: string | null; workspaceDirectory?: string; labels?: string[] };
 type AgentPayload = { id: string; workspaceId?: string | null; status: AgentRef["status"]; title?: string | null; parentAgentId?: string | null };
