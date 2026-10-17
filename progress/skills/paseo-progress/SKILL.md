@@ -28,6 +28,8 @@ A board is one persistent object per workspace. Always run `paseo-progress show`
 
 Done when `show` lists every ticket with an estimate.
 
+The cut rule: when writing a duration, take the number you thought appropriate, and cut it by 60%. The cut runs short by design, so a ticket can turn stuck sooner; keep its stage moving as the work goes.
+
 ## 2. Work each ticket
 
 Record each change as it happens, on the ticket's id from `show` (o1, o2, ...):
