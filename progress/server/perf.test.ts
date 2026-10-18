@@ -18,13 +18,21 @@ test("reported lines are appended, one per line, in order", async () => {
   }
 });
 
-test("a log past its size cap stops growing", async () => {
+test("a full log keeps a readable tail and the new lines", async () => {
+  // o47: a log that silently drops every line goes blind, and we lose the
+  // evidence exactly when we need it. Past the cap, keep the newest lines that
+  // fit, cut on a line start, then carry on.
   const dir = mkdtempSync(join(tmpdir(), "pp-perf-"));
   try {
     const log = join(dir, "perf.log");
-    writeFileSync(log, "x".repeat(PERF_LOG_MAX_BYTES));
-    await handleReportPerf({ lines: ["too late"] }, undefined as never, log);
-    assert.ok(!readFileSync(log, "utf8").includes("too late"));
+    const old = Array.from({ length: 1000 }, (_, index) => `old line ${index} ${"x".repeat(2000)}`).join("\n") + "\n";
+    writeFileSync(log, old);
+    await handleReportPerf({ lines: ["fresh line"] }, undefined as never, log, 100_000);
+    const text = readFileSync(log, "utf8");
+    assert.ok(text.includes("fresh line"), "the new line lands");
+    assert.ok(text.includes("old line 999"), "the newest old line survives");
+    assert.ok(!text.includes("old line 0 "), "the oldest lines are dropped");
+    assert.ok(text.length <= 150_000, "the log comes back under its cap");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
