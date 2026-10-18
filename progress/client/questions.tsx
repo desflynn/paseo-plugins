@@ -123,7 +123,7 @@ function AnswerSummary({ colors, question, now }: { colors: Colors; question: Qu
         </Text>
       </Text>
       <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>
-        Answer recorded <When colors={colors} iso={answer.at} now={now} />{question.raisedBy ? `, raised by ${question.raisedBy}` : ""}
+        Answer recorded <When colors={colors} iso={answer.at} />{question.raisedBy ? `, raised by ${question.raisedBy}` : ""}
       </Text>
     </View>
   );
@@ -235,7 +235,7 @@ export function QuestionDetail({ colors, question, now, onCopy, onOpenAttachment
       ) : null}
       <AttachmentList colors={colors} attachments={questionAttachments(question)} onOpen={onOpenAttachment} />
       <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>
-        Asked <When colors={colors} iso={question.askedAt} now={now} />{question.raisedBy ? `, raised by ${question.raisedBy}` : ""}
+        Asked <When colors={colors} iso={question.askedAt} />{question.raisedBy ? `, raised by ${question.raisedBy}` : ""}
       </Text>
     </View>
   );

@@ -10,11 +10,12 @@ import { IconSwap, Presence, StaggerRoot, nativeDriver } from "./motion";
 import { SectionTitle } from "./section-title";
 import { raised, sidebarTone } from "./surfaces";
 import { When } from "./when";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NowProvider, useNowClock } from "./now";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { boardStatuses, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
-import { formatMinutes, formatWorkDone, minutesSince } from "../shared/format";
+import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
 import { countRender, mark, watchPanel } from "./perf";
 import { useDashboard } from "./dashboard-query";
@@ -224,6 +225,11 @@ function StatusLine({ icon, children }: { icon: React.ReactNode; children: React
   );
 }
 
+// The panel clock's cadence (o47.4): the tick lives in DashboardView and
+// reaches the tree through the Now context, so only the leaves that show a
+// time repaint.
+export const NOW_TICK_MS = 15_000;
+
 // Re-renders on an interval so "x min ago" keeps counting between polls.
 function useNow(intervalMs: number, visible: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -258,7 +264,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   visible: boolean;
 }) {
   useCommitMark("DashboardView");
-  const now = useNow(15_000, visible);
+  const now = useNow(NOW_TICK_MS, visible);
   useWhyRendered("DashboardView", { colors, dashboard, agentRunning, compact, workspaceId, workspaceDirectory, file, navigation, scope, onScopeChange, gitOnly, beads, onBeadsShowing, visible, now });
   // Quiet isn't stale while an agent in the workspace is still running.
   const statuses = boardStatuses(dashboard, agentRunning);
@@ -274,7 +280,8 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // Two columns when opened as a wide tab; one in the narrow Explorer pane.
   const [wide, setWide] = useState(false);
   const narrow = useNarrow();
-  const attachmentContext = { workspaceId, workspaceDirectory, navigation };
+  // Stable identity, so the memoised sections it feeds skip the tick (o47.4).
+  const attachmentContext = useMemo(() => ({ workspaceId, workspaceDirectory, navigation }), [workspaceId, workspaceDirectory, navigation]);
   // o41: tapping the board name opens the agent that owns the board, through the host's own
   // navigation (the same call the ticket dialog uses), so nothing reloads. Read on the tap, not on a timer.
   const paseo = usePaseo();
@@ -295,12 +302,16 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   useEffect(() => onBeadsShowing(section === "beads"), [section, onBeadsShowing]);
   const ticketsBody = (
     <View>
-      <TicketList colors={colors} dashboard={dashboard} live={live} now={now} workspaceId={workspaceId} onOpen={setOpenTicket} />
+      <TicketList colors={colors} dashboard={dashboard} live={live} workspaceId={workspaceId} onOpen={setOpenTicket} />
       <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
     </View>
   );
   const sections = sectionTabs(colors, dashboard, beads, ticketsBody, workspaceId, workspaceDirectory);
+  // The tick hands its clock to the tree once, here (o47.4): the When and
+  // quiet leaves below read it through context, and the memoised lists
+  // between them skip the tick entirely.
   return (
+    <NowProvider now={now}>
     <StaggerRoot>
       <Presence show order={0}>
       <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -333,7 +344,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
             {dashboard.run?.finished ? (
               <>
                 <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-                  <Text style={{ color: colors.statusSuccess, fontWeight: "600" }}>Finished</Text> <When colors={colors} iso={dashboard.run.finished.at} now={now} />
+                  <Text style={{ color: colors.statusSuccess, fontWeight: "600" }}>Finished</Text> <When colors={colors} iso={dashboard.run.finished.at} />
                 </Text>
                 <Text style={{ color: colors.foreground, fontSize: 12, lineHeight: 18 }}>{dashboard.run.finished.outcome}</Text>
               </>
@@ -347,7 +358,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
         {dashboard.updatedAt && !dashboard.run?.finished && !(dashboard.progress.totalMin > 0) ? (
           <StatusLine icon={<Icon name="Clock" size={12} color={colors.foregroundMuted} />}>
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-              Last updated <When colors={colors} iso={dashboard.updatedAt} now={now} />
+              Last updated <When colors={colors} iso={dashboard.updatedAt} />
             </Text>
           </StatusLine>
         ) : null}
@@ -355,7 +366,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
       </Presence>
       <Presence show={Boolean(dashboard.issues.length)} order={1}>{dashboard.issues.length ? <IssuesNotice colors={colors} issues={dashboard.issues} file={file} /> : null}</Presence>
       <Presence show={Boolean(dashboard.progress.totalMin > 0)} order={2}>{dashboard.progress.totalMin > 0 ? <ProgressBar colors={colors} progress={dashboard.progress} live={live}
-        updated={dashboard.updatedAt && !dashboard.run?.finished ? <When colors={colors} iso={dashboard.updatedAt} now={now} /> : null} /> : null}</Presence>
+        updated={dashboard.updatedAt && !dashboard.run?.finished ? <When colors={colors} iso={dashboard.updatedAt} /> : null} /> : null}</Presence>
       <View onLayout={(event) => setWide(event.nativeEvent.layout.width >= WIDE_MIN)}
         style={{ flexDirection: wide ? "row" : "column", alignItems: "flex-start" }}>
         <View style={{ flex: wide ? 3 : undefined, alignSelf: "stretch", minWidth: 0 }}>
@@ -363,7 +374,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
             <QuestionsSection colors={colors} questions={dashboard.questions.open} answered={dashboard.questions.answered} now={now} context={attachmentContext} />
           ) : null}</Presence>
           {/* The indicator is the alert and each stuck objective's row carries its reason; only a flag with no objective needs a home here. */}
-          <Presence show={Boolean(orphanStuck.length)} order={3}>{orphanStuck.length ? <StuckSection colors={colors} items={orphanStuck} now={now} /> : null}</Presence>
+          <Presence show={Boolean(orphanStuck.length)} order={3}>{orphanStuck.length ? <StuckSection colors={colors} items={orphanStuck} /> : null}</Presence>
           <Presence show order={4}>
           {/* Panel B (owner ruling): the tabs live in the panel's own header —
               Objectives, Beads, GH Issues — and the chosen list renders under
@@ -386,11 +397,11 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
             {showHistory ? (
               <HistoryCard colors={colors} workspaceId={workspaceId} tabs={[
                 { id: "activity", label: "Activity", icon: "Activity", count: dashboard.activity.length, empty: "No activity yet.",
-                  content: <ActivityList colors={colors} activity={dashboard.activity} now={now} /> },
+                  content: <ActivityList colors={colors} activity={dashboard.activity} /> },
                 { id: "answered", label: "Answered", icon: "CircleCheck", count: dashboard.questions.answered.length, empty: "No answered questions yet.",
                   content: <AnsweredQuestionsList colors={colors} questions={dashboard.questions.answered} now={now} context={attachmentContext} /> },
                 { id: "deliverables", label: "Deliverables", icon: "Package", count: dashboard.deliverables.length, empty: "No deliverables yet.",
-                  content: <DeliverablesList colors={colors} deliverables={dashboard.deliverables} now={now} workspaceId={workspaceId}
+                  content: <DeliverablesList colors={colors} deliverables={dashboard.deliverables} workspaceId={workspaceId}
                     workspaceDirectory={workspaceDirectory} navigation={navigation} /> },
               ]} />
             ) : null}
@@ -398,6 +409,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
         </View>
       </View>
     </StaggerRoot>
+    </NowProvider>
   );
 }
 
@@ -433,8 +445,9 @@ function HistoryCard({ colors, workspaceId, tabs }: { colors: Colors; workspaceI
   );
 }
 
-// Newest first, 10 at a time (see usePaged).
-function ActivityList({ colors, activity, now }: { colors: Colors; activity: Activity[]; now: number }) {
+// Newest first, 10 at a time (see usePaged). Memoised (o47.4): the clock
+// moved to its When leaf, so a tick skips the list.
+const ActivityList = React.memo(function ActivityList({ colors, activity }: { colors: Colors; activity: Activity[] }) {
   const paged = usePaged(activity);
   return (
     <View>
@@ -443,14 +456,14 @@ function ActivityList({ colors, activity, now }: { colors: Colors; activity: Act
           {/* Muted: a log to glance at, not something to act on. Two lines at most (o6.1). */}
           <Text selectable numberOfLines={2} style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{entry.text}</Text>
           <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, opacity: 0.8 }}>
-            <When colors={colors} iso={entry.at} now={now} />
+            <When colors={colors} iso={entry.at} />
           </Text>
         </View>
       ))}
       <ShowMoreRow colors={colors} total={activity.length} paged={paged} />
     </View>
   );
-}
+});
 
 // Small and non-blocking: the rest of the dashboard still renders.
 function IssuesNotice({ colors, issues, file }: { colors: Colors; issues: FileIssue[]; file: string }) {
@@ -576,7 +589,8 @@ export function StatusIndicator({ colors, statuses }: { colors: Colors; statuses
   );
 }
 
-function StuckSection({ colors, items, now }: { colors: Colors; items: StuckItem[]; now: number }) {
+// Memoised (o47.4): the clock moved to its When leaf, so a tick skips it.
+const StuckSection = React.memo(function StuckSection({ colors, items }: { colors: Colors; items: StuckItem[] }) {
   const narrow = useNarrow();
   return (
     <View style={{ margin: 12, marginBottom: 0, borderWidth: 1, borderColor: colors.statusDanger, borderRadius: 6, overflow: "hidden" }}>
@@ -591,14 +605,14 @@ function StuckSection({ colors, items, now }: { colors: Colors; items: StuckItem
             {item.kind === "overdue" ? `No update for longer than its ${formatMinutes(item.estimateMin)} estimate. Last update ` : null}
             {item.kind === "blocked" ? `Blocked${item.note ? `: ${item.note}` : ""}${narrow ? ", " : ". Since "}` : null}
             {item.kind === "manual" ? `${item.ticketId ? `${item.reason}. ` : ""}Flagged ` : null}
-            <When colors={colors} iso={item.since} now={now} />
+            <When colors={colors} iso={item.since} />
           </Text>
           </View>
         </View>
       ))}
     </View>
   );
-}
+});
 
 // Whether the finished tickets at the top are shown, per workspace, kept for
 // the app session like the history tab.
@@ -608,7 +622,10 @@ const finishedShown = new Map<string, boolean>();
 // order, the finished ones folded behind a count header that opens, the
 // whole list flat when everything is finished. Nested objectives (O1800)
 // keep their numeric slug order and their depth indent.
-function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { colors: Colors; dashboard: Dashboard; live: boolean; now: number; workspaceId: string; onOpen(id: string): void }) {
+// Memoised (o47.4): its props are stable across a tick, so an unchanged
+// dashboard object bails the tick before the list body runs; the When leaves
+// inside its rows still repaint, through context. Exported for the memo pin.
+export const TicketList = React.memo(function TicketList({ colors, dashboard, live, workspaceId, onOpen }: { colors: Colors; dashboard: Dashboard; live: boolean; workspaceId: string; onOpen(id: string): void }) {
   const [shown, setShown] = useState(() => finishedShown.get(workspaceId) ?? false);
   const toggle = () => {
     finishedShown.set(workspaceId, !shown);
@@ -625,10 +642,10 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
       : item.kind === "overdue" ? `No update for longer than its ${formatMinutes(item.estimateMin)} estimate`
       : item.reason);
   }
-  const quiet = !live && dashboard.updatedAt ? `No update for ${formatMinutes(minutesSince(dashboard.updatedAt, now))}` : undefined;
   const row = (ticket: Ticket) => (
-    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} now={now} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
-      reason={reasons.get(ticket.id) ?? (ticket.status === "in_progress" ? quiet : undefined)}
+    <TicketRow key={ticket.id} colors={colors} ticket={ticket} live={live} onOpen={() => onOpen(ticket.id)} depth={ticketDepth(ticket, dashboard.tickets)}
+      reason={reasons.get(ticket.id)}
+      quiet={!reasons.has(ticket.id) && ticket.status === "in_progress" ? <QuietNote colors={colors} live={live} updatedAt={dashboard.updatedAt} /> : undefined}
       autoPull={isAutoPullable(ticket)}
       deliverables={dashboard.deliverables.filter((deliverable) => deliverable.ticketId === ticket.id).length} />
   );
@@ -648,12 +665,12 @@ function TicketList({ colors, dashboard, live, now, workspaceId, onOpen }: { col
       empty={`No ${(dashboard.run?.itemLabel ?? "ticket").toLowerCase()}s yet.`}
     />
   );
-}
+});
 
 // One objective in the shared row style (O2600): the status mark, the tight
 // id + title, the priority pill, the stage/started/waiting/note lines, the
 // linkage chips — and the estimate, the one view that carries hours.
-function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, autoPull, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; now: number; onOpen(): void; deliverables: number; reason?: string; autoPull: boolean; depth?: number }) {
+function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, autoPull, depth = 0 }: { colors: Colors; ticket: Ticket; live: boolean; onOpen(): void; deliverables: number; reason?: string; quiet?: React.ReactNode; autoPull: boolean; depth?: number }) {
   const muted = ticket.status === "closed" && ticket.closeReason === "skipped";
   const working = ticket.status === "in_progress";
   // Narrow: tighter gaps and no chevron (the whole row still presses), so the title keeps its width.
@@ -679,14 +696,15 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, au
       detail={
         <>
           {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}
+          {quiet}
           {working && ticket.stage && ticket.stageSince ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-              {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} now={now} />
+              {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} />
             </Text>
           ) : null}
           {working && ticket.startedAt ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-              {narrow ? "Started " : "Working since "}<When colors={colors} iso={ticket.startedAt} now={now} />
+              {narrow ? "Started " : "Working since "}<When colors={colors} iso={ticket.startedAt} />
             </Text>
           ) : null}
           {ticket.waitingFor ? (
@@ -703,6 +721,15 @@ function TicketRow({ colors, ticket, live, now, onOpen, deliverables, reason, au
       accessibilityLabel={`${ticket.id} details`}
     />
   );
+}
+
+// The quiet line under a working objective ("No update for 23 min"): reads
+// the clock here, in a leaf, so neither the list nor the row re-renders on
+// the tick — only this line repaints (o47.4).
+function QuietNote({ colors, live, updatedAt }: { colors: Colors; live: boolean; updatedAt: string | null }) {
+  const now = useNowClock();
+  if (live || !updatedAt) return null;
+  return <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{quietSince(updatedAt, now)}</Text>;
 }
 
 function StatusIcon({ colors, status, live, waiting, nested = false }: { colors: Colors; status: BoardStatus; live: boolean; waiting: boolean; nested?: boolean }) {

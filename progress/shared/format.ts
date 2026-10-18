@@ -51,3 +51,9 @@ export function formatAgo(iso: string, nowMs: number): string {
 export function minutesSince(iso: string, nowMs: number): number {
   return Math.max(0, (nowMs - Date.parse(iso)) / 60_000);
 }
+
+// The working objective's quiet line: how long since the board last moved.
+// Takes the clock it reads, so it stays honest wherever it renders.
+export function quietSince(updatedAt: string | null, nowMs: number): string | undefined {
+  return updatedAt ? `No update for ${formatMinutes(minutesSince(updatedAt, nowMs))}` : undefined;
+}

@@ -5,6 +5,7 @@ import { Text, View } from "react-native";
 import type { Deliverable } from "../shared/dashboard";
 import { type Attachment, attachmentIcon, deliverableAttachment, shortName, useAttachmentOpener } from "./attachments";
 import { formatAgo } from "../shared/format";
+import { useNowClock } from "./now";
 import { PressScale } from "./motion";
 import { PreviewDialog, previewable } from "./preview";
 import { PressableRow } from "./row";
@@ -15,10 +16,21 @@ export { absolutePath } from "./attachments";
 type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 type Navigation = PluginWorkspacePanelProps["navigation"];
 
-// The Deliverables tab: newest first, 10 at a time (see usePaged).
-export function DeliverablesList({ colors, deliverables, now, workspaceId, workspaceDirectory, navigation }: {
+// The row's second line: name · ticket · age. Reads the clock here, in a
+// leaf, so the list skips the tick and only this line repaints (o47.4).
+function DeliverableLine({ colors, deliverable }: { colors: Colors; deliverable: Deliverable }) {
+  const now = useNowClock();
+  return (
+    <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
+      {[shortName(deliverableAttachment(deliverable)), deliverable.ticketLabel ?? deliverable.ticketId, formatAgo(deliverable.addedAt, now)].filter(Boolean).join(" · ")}
+    </Text>
+  );
+}
+
+// The Deliverables tab: newest first, 10 at a time (see usePaged). Memoised
+// (o47.4): the clock moved to the DeliverableLine leaf, so a tick skips it.
+export const DeliverablesList = React.memo(function DeliverablesList({ colors, deliverables, workspaceId, workspaceDirectory, navigation }: {
   colors: Colors;
-  now: number;
   deliverables: Deliverable[];
   workspaceId: string;
   workspaceDirectory: string;
@@ -41,9 +53,7 @@ export function DeliverablesList({ colors, deliverables, now, workspaceId, works
             {/* What the agent found is the headline; the row itself is what opens. */}
             <Text numberOfLines={3} style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{deliverable.title}</Text>
             {/* Just the name, ticket and age. The full path is one press of Copy away. */}
-            <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-              {[shortName(deliverableAttachment(deliverable)), deliverable.ticketLabel ?? deliverable.ticketId, formatAgo(deliverable.addedAt, now)].filter(Boolean).join(" · ")}
-            </Text>
+            <DeliverableLine colors={colors} deliverable={deliverable} />
           </View>
           {deliverable.path ? (
             // Optical: the 22px button centers on the 18px title line.
@@ -64,4 +74,4 @@ export function DeliverablesList({ colors, deliverables, now, workspaceId, works
         gallery={{ items: previewable(deliverables.map(deliverableAttachment)), onSelect: setPreviewing }} />
     </View>
   );
-}
+});
