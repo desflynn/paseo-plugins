@@ -8,7 +8,7 @@ import { boardStatuses, parseProgress, reduceProgress } from "../shared/dashboar
 import { BOARD_MODES, MODE_LABEL } from "../shared/modes.ts";
 import {
   archiveConfirm, archivedFor, barSegments, cardAgents, plainName, buildSections, cardCount, chatsSpan, gridLayout, MODE_BUTTONS, MODE_TINT, modeConfirm, packRepos, repoSpan, spanWidth, headerCounts, optionHint, priorityChips, repoSummary, resultLine, splitGroup, statusDots, readyRows,
-  groupOverview, summariseBoard, type AgentRef, type BoardSummary, type WorkspaceRef,
+  groupOverview, summariseBoard, summaryOf, type AgentRef, type BoardSummary, type WorkspaceRef,
 } from "../shared/overview.ts";
 
 const T0 = Date.parse("2026-10-15T10:00:00.000Z");
@@ -45,6 +45,16 @@ test("a board folds to its title, counts, indicator and conn; no run means no bo
   assert.equal("hold" in (idle ?? {}), false, "hold is left out when off");
   const held = summariseBoard(board(line({ type: "run.start", title: "Spec" }), line({ type: "hold.set", kind: "speccing", note: "with Des" }, 1)));
   assert.deepEqual(held?.hold, { on: true, kind: "speccing", note: "with Des", since: at(1) });
+});
+
+test("a board's summary is built once per snapshot, not once per poll", () => {
+  // The Progress page asks for every board every 3 s; an unchanged board must
+  // not pay the sort and the passes again.
+  const dashboard = board(line({ type: "run.start", title: "PP HG's board" }), add("o1"));
+  const first = summaryOf(dashboard);
+  assert.ok(first);
+  assert.strictEqual(summaryOf(dashboard), first, "the same snapshot hands back the same summary");
+  assert.notStrictEqual(summaryOf(board(line({ type: "run.start", title: "PP HG's board" }), add("o1"))), first, "a new snapshot is summarised again");
 });
 
 const ws = (id: string, projectId: string, projectName: string, name: string, labels: string[] = []): WorkspaceRef => ({ id, projectId, projectName, name, directory: `/repo/${id}`, ...(labels.length ? { labels } : {}) });

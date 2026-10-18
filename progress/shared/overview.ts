@@ -72,6 +72,16 @@ export function summariseBoard(dashboard: Dashboard): BoardSummary | null {
   };
 }
 
+// The Progress page asks for every board on every poll (3 s). A summary costs a
+// sort and several passes over the objectives, and a dashboard object is
+// replaced only when its file or a validity window changes, so keep the summary
+// beside it: an unchanged board costs a WeakMap hit instead of 0.9 ms.
+const summaries = new WeakMap<Dashboard, BoardSummary | null>();
+export function summaryOf(dashboard: Dashboard): BoardSummary | null {
+  if (!summaries.has(dashboard)) summaries.set(dashboard, summariseBoard(dashboard));
+  return summaries.get(dashboard) ?? null;
+}
+
 export interface WorkspaceRef {
   id: string;
   projectId: string;

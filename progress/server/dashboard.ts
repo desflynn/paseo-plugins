@@ -5,7 +5,7 @@ import type { Dashboard } from "../shared/dashboard.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { PROGRESS_FILE_NAME } from "../shared/events.ts";
 import { type BoardMode, planModeChange } from "../shared/modes.ts";
-import { type BoardSummary, summariseBoard } from "../shared/overview.ts";
+import { type BoardSummary, summaryOf } from "../shared/overview.ts";
 import { runCli } from "./cli.ts";
 import type { AttentionResult, DashboardResult } from "../shared/rpc.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
@@ -58,7 +58,7 @@ export async function handleGetOverview(
   for (const { workspaceId, workspaceDirectory } of input.workspaces) {
     try {
       const { configured, dashboard } = await readProgress((await findStore(findRoot(workspaceDirectory))).directory, undefined, workspaceId);
-      boards[workspaceId] = configured ? summariseBoard(dashboard) : null;
+      boards[workspaceId] = configured ? summaryOf(dashboard) : null;
     } catch {
       boards[workspaceId] = null;
     }
