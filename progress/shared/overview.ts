@@ -269,9 +269,17 @@ export function sectionOf(group: ProjectGroup): SectionId {
   return !paused && boards.some((board) => board.autoCount > 0) ? "idle" : "quiet";
 }
 
+// Des, 18 Oct: when both Tops and every agent in their repos are idle, Top
+// folds itself and says so. A running, starting or errored agent keeps it open.
+export const TOPS_IDLE = "Zoe and Joey are idle.";
+
 export function buildSections(groups: ProjectGroup[]): { id: SectionId; title: string; sub: string; foldedByDefault: boolean; groups: ProjectGroup[] }[] {
   return (Object.keys(SECTIONS) as SectionId[])
-    .map((id) => ({ id, ...SECTIONS[id], groups: groups.filter((group) => sectionOf(group) === id).sort((a, b) => repoRank(a) - repoRank(b)) }))
+    .map((id) => {
+      const section = { id, ...SECTIONS[id], groups: groups.filter((group) => sectionOf(group) === id).sort((a, b) => repoRank(a) - repoRank(b)) };
+      const everyoneIdle = section.groups.every((group) => group.workspaces.every((entry) => entry.agents.every((agent) => agent.status === "idle")));
+      return id === "top" && section.groups.length && everyoneIdle ? { ...section, foldedByDefault: true, sub: TOPS_IDLE } : section;
+    })
     .filter((section) => section.groups.length);
 }
 

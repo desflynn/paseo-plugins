@@ -272,6 +272,23 @@ test("repos with BRO-labelled boards sit in Top while all those boards are idle;
   assert.equal(buildSections([named])[0].id, "idle", "a board called Zoe without the BRO label is not Top");
 });
 
+test("Top folds itself when the Tops and every agent in their repos are idle", () => {
+  const top = (statuses: AgentRef["status"][]) => {
+    const groups = groupOverview(
+      [ws("w1", "central", "central", "Zoe", ["BRO"]), ws("w2", "home-lab", "home-lab", "Joey", ["BRO"])],
+      { w1: live([{ kind: "idle" }]), w2: live([{ kind: "idle" }]) },
+      statuses.map((status, index) => agent(`a${index}`, index === 0 ? "w1" : "w2", status)),
+    );
+    return buildSections(groups)[0];
+  };
+  const idle = top(["idle", "idle"]);
+  assert.equal(idle.foldedByDefault, true, "everyone idle: the section folds itself");
+  assert.equal(idle.sub, "Zoe and Joey are idle.");
+  const busy = top(["idle", "running"]);
+  assert.equal(busy.foldedByDefault, false, "a running agent keeps it open");
+  assert.equal(busy.sub, "BRO boards, while all of them are idle", "the usual line stays");
+});
+
 test("across repos, a section runs BRO, Head Guy, Ninja, anyone else, then repos with only unboarded agents", () => {
   const repo = (id: string, project: string, board: string | null, status: BoardSummary["statuses"]) =>
     groupOverview([ws(id, project, project, board ?? "chat", board === "Joey" ? ["BRO"] : [])], { [id]: board ? live(status) : null }, board ? [] : [agent(`a-${id}`, id, "idle")])[0];
