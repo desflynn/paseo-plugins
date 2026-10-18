@@ -415,6 +415,23 @@ test("the board status shows idle, active, stale and stuck, at most two together
   assert.deepEqual(status(board(["in_progress"], 2, true)), [{ kind: "stale", count: 1 }, { kind: "stuck", count: 2 }]);
 });
 
+test("Active counts pursued goals: a worked child is not a second active parent", () => {
+  // Des, 18 Oct: the parent is worked through its child, so that is one goal.
+  // Two live siblings are two goals, at any depth.
+  const tree = (...entries: Array<{ id: string; status: Ticket["status"]; under?: string }>) => ({
+    tickets: entries.map((entry) => ({ title: "", estimateMin: 10, priority: 1, statusSince: "", history: [], ...entry })) as Ticket[],
+    stuck: [] as Dashboard["stuck"],
+    stale: false,
+  });
+  const live = (b: ReturnType<typeof tree>, stale = false) => boardStatuses({ ...b, stale }, false)[0];
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "in_progress", under: "o19" })), { kind: "active", count: 1 }, "a parent worked through its one live child is one goal");
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "in_progress", under: "o19" }, { id: "o19.7", status: "in_progress", under: "o19" })), { kind: "active", count: 2 }, "two live siblings are two goals");
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "in_progress", under: "o19" }, { id: "o19.6.1", status: "in_progress", under: "o19.6" })), { kind: "active", count: 1 }, "a three-level chain is one goal");
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "open", under: "o19" })), { kind: "active", count: 1 }, "a live parent with no live child counts itself");
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "in_progress", under: "o19" }, { id: "o20", status: "in_progress" })), { kind: "active", count: 2 }, "a separate live objective is its own goal");
+  assert.deepEqual(live(tree({ id: "o19", status: "in_progress" }, { id: "o19.6", status: "in_progress", under: "o19" }), true), { kind: "stale", count: 1 }, "stale counts pursued goals too");
+});
+
 test("removed tickets leave the dashboard and their ids are never reused", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");

@@ -1084,7 +1084,13 @@ export type Indicator =
 // in progress or a full auto on. A flag with no objective behind it has no
 // priority, so it does not count.
 export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stale"> & { conn?: unknown }, agentRunning: boolean): Indicator[] {
-  const working = board.tickets.filter((ticket) => ticket.status === "in_progress").length;
+  // A parent is worked through its live child, so count only the deepest live
+  // objective in each chain: two live siblings are two goals, a parent and its
+  // one live child are one, at any depth (Des, 18 Oct).
+  const byId = new Map(board.tickets.map((ticket) => [ticket.id, ticket]));
+  const inProgress = board.tickets.filter((ticket) => ticket.status === "in_progress");
+  const covered = new Set(inProgress.flatMap((ticket) => ancestry(ticket, byId).slice(0, -1).map((level) => level.id)));
+  const working = inProgress.filter((ticket) => !covered.has(ticket.id)).length;
   const live = working > 0 || Boolean(board.conn);
   const owed = (item: StuckItem) => {
     const priority = item.ticketId === undefined ? undefined : board.tickets.find((ticket) => ticket.id === item.ticketId)?.priority;
