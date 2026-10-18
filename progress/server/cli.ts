@@ -734,6 +734,30 @@ function startsWork(event: EventDraft, dashboard: Dashboard): boolean {
   return false;
 }
 
+// The ancestors of a ticket (or of a ticket about to be added under `parent`)
+// that are not in progress, topmost first. A child cannot be in progress under
+// a parent nobody has claimed: the dashboard would show work with no owner on
+// the objective above it.
+function idleAncestors(dashboard: Dashboard, parent: string | undefined): Ticket[] {
+  const idle: Ticket[] = [];
+  const seen = new Set<string>();
+  let id = parent === undefined || parent === "" ? undefined : displayId(parent);
+  while (id !== undefined && !seen.has(id)) {
+    seen.add(id);
+    const ticket = dashboard.tickets.find((candidate) => candidate.id === id);
+    if (!ticket) break;
+    if (ticket.status !== "in_progress") idle.unshift(ticket);
+    id = ticket.under === undefined || ticket.under === "" ? undefined : displayId(ticket.under);
+  }
+  return idle;
+}
+
+function parentOf(event: EventDraft, dashboard: Dashboard): string | undefined {
+  if (event.type === "ticket.add") return event.under;
+  if (event.type === "ticket.update") return dashboard.tickets.find((ticket) => ticket.id === displayId(event.id))?.under;
+  return undefined;
+}
+
 // --workspace <id>, anywhere in the arguments: act on that workspace's board
 // instead of the caller's, so a process outside the seat (the DCI engine) can
 // write the seat's conn state.
@@ -900,6 +924,13 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
       const { hold } = state.dashboard;
       if (hold && startsWork(event, state.dashboard)) {
         throw new UsageError(`The board is on hold (${hold.kind}${hold.note ? `: ${hold.note}` : ""}). Items can be added, but no work starts. The owner lifts it with: ${USAGE_NAME} hold clear`);
+      }
+      if (startsWork(event, state.dashboard)) {
+        const idle = idleAncestors(state.dashboard, parentOf(event, state.dashboard));
+        if (idle.length) {
+          const names = idle.map((ticket) => `${ticket.id} (${ticket.status})`).join(", ");
+          throw new UsageError(`A child cannot be in progress while its parent is not: ${names} ${idle.length === 1 ? "is" : "are"} not in progress. The agent that owns the objective claims the parent first: ${USAGE_NAME} ticket claim ${idle[0].id}${idle.length > 1 ? ", then each below it" : ""}. A helper does not own the parent it works under; ask your sponsor to claim it.`);
+        }
       }
       if (event.type === "ticket.update" && event.status === "closed") {
         const ticket = state.dashboard.tickets.find((candidate) => candidate.id === event.id);

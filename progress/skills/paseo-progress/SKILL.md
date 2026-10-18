@@ -91,6 +91,23 @@ The board must read true at a glance. Built and tested is Done: `ticket done <id
 
 **Close-out check.** Before ending a turn, and whenever Des asks "where do we stand", run `paseo-progress show` and read it: every status must be true — nothing finished sits in progress, nothing waiting on Des sits outside Des to UAT.
 
+## A child in progress needs every parent in progress (Des, 18 Oct)
+
+A sub-objective cannot be in progress while its parent is not. If any child is in progress, every objective above it is claimed and in progress too. The agent owns the mid-level objective; its workers work the sub-objectives beneath it.
+
+- The agent that owns an objective claims it, and claims it before any child under it starts: `ticket claim o4.4`, then the helper takes `o4.4.1`.
+- A helper claims only the child it works. It does not own the parent, so it never claims it. If the claim is refused for an idle parent, tell the sponsor; the sponsor claims the parent.
+- The CLI refuses `ticket claim`, `ticket update --status in_progress` and `ticket add --status in_progress` on a child with an ancestor that is not in progress. The refusal names the ancestors and the claim that fixes it.
+- A board that already shows a child in progress under an open parent is a false dashboard. The owner claims the parent now.
+
+```yaml
+PARENT FIRST:
+  - bad: o4.4 stays open while o4.4.1 is in progress, so the dashboard shows work nobody owns above it
+    good: the owner claims o4.4, then the helper claims o4.4.1
+  - bad: the helper's claim of o4.4.1 is refused, so it claims o4.4 itself
+    good: the helper tells its sponsor; the sponsor, who owns o4.4, claims it
+```
+
 ## Hold: the board is open for items, closed for work (Des, 15 Oct)
 
 Des puts a board on hold with `hold set --kind <closed|speccing> [--note <text>]` and lifts it with `hold clear`. `closed` means closed to work. `speccing` means Des is here speccing the work with you.

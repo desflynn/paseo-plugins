@@ -1720,6 +1720,34 @@ test("while the board is on hold, items can be added and closed but no work star
   assert.equal((await w.run("ticket", "claim", "o2")).code, 0, "work starts again once the hold is lifted");
 });
 
+test("a child cannot start while any ancestor is not in progress; the owner claims the parent first", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Run");
+  await w.run("ticket", "add", "Mid", "--estimate", "30");
+  await w.run("ticket", "add", "Step", "--estimate", "30", "--under", "o1");
+  await w.run("ticket", "add", "Leaf", "--estimate", "30", "--under", "o1.1");
+  const refusals = [
+    ["ticket", "claim", "o1.1"],
+    ["ticket", "update", "o1.1", "--status", "in_progress"],
+    ["ticket", "add", "Eager", "--estimate", "30", "--under", "o1", "--status", "in_progress"],
+    ["ticket", "claim", "o1.1.1"],
+  ];
+  for (const argv of refusals) {
+    const refused = await w.run(...argv);
+    assert.equal(refused.code, 1, argv.join(" "));
+    assert.match(refused.text, /not in progress/i, "names the parent problem");
+    assert.match(refused.text, /ticket claim o1\b/, "names the claim that fixes it");
+    assert.match(refused.text, /does not own/i, "a helper does not claim a parent it does not own");
+  }
+  assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o1.1")?.status, "open", "nothing started");
+  assert.equal((await w.run("ticket", "claim", "o1")).code, 0, "a top-level objective has no ancestor to wait on");
+  const deep = await w.run("ticket", "claim", "o1.1.1");
+  assert.equal(deep.code, 1, "every ancestor, not just the parent");
+  assert.match(deep.text, /o1\.1\b/);
+  assert.equal((await w.run("ticket", "claim", "o1.1")).code, 0, "the parent is claimed, so its child may start");
+  assert.equal((await w.run("ticket", "claim", "o1.1.1")).code, 0, "and so on down the chain");
+});
+
 test("show carries the hold, --ready lists nothing while it is on, and plain show is unchanged when off", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Run");
