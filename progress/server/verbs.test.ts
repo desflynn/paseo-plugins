@@ -234,3 +234,56 @@ test("ticket move refuses a no-op move; claim-from-all needs a workspace", async
   assert.equal(noSeat.code, 1);
   assert.match(noSeat.text, /needs a Paseo agent/);
 });
+
+// Ghost writes (Des, 2026-10-19, seen live): board content folded only from the
+// last run.start, so an event written with no run folded to nothing while the
+// command reported success. `ticket add` must refuse, not write a ghost.
+test("board content refuses without a run instead of writing a ghost", async (t) => {
+  const w = await worktree(t);
+  const added = await w.runAs(undefined, "ticket", "add", "Ghost", "--estimate", "24", "--priority", "0");
+  assert.equal(added.code, 1, "a ticket add with no run must fail");
+  assert.match(added.text, /No run yet/i);
+  assert.match(added.text, /start "/, "the refusal names how to start a run");
+  assert.doesNotMatch(added.text, /Added o1/, "no success message for a ghost write");
+  // Nothing landed on disk: the file is either absent or holds no ticket.
+  const store = await findStore(findRoot(w.directory));
+  const text = await readFile(join(store.directory, PROGRESS_FILE_NAME), "utf8").catch(() => "");
+  assert.doesNotMatch(text, /"type":"ticket\.add"/, "no ticket.add event reaches the file");
+  // Every board-content verb refuses the same way, not only ticket add.
+  for (const argv of [
+    ["activity", "add", "note"],
+    ["ticker", "set", "working"],
+    ["question", "ask", "Q", "Why?", "--option", "A=yes | it works", "--recommend", "A"],
+  ] as string[][]) {
+    const refusal = await w.runAs(undefined, ...argv);
+    assert.equal(refusal.code, 1, `${argv.join(" ")} must refuse with no run`);
+    assert.match(refusal.text, /No run yet/i, argv.join(" "));
+  }
+  // conn clear stays a no-op exit 0 with no run (0.4.0 behaviour, pinned above).
+  assert.equal((await w.runAs(undefined, "conn", "clear")).code, 0, "board state still lands with no run");
+  // After start, the same add lands and show sees it.
+  assert.equal((await w.runAs(undefined, "start", "Run")).code, 0);
+  const real = await w.runAs(undefined, "ticket", "add", "Ghost", "--estimate", "24");
+  assert.equal(real.code, 0, real.text);
+  assert.match(real.text, /Added o1/);
+  assert.match((await w.runAs(undefined, "show")).text, /Ghost/);
+});
+
+// The parent is looked up against the run, so a child add under a ghost ticket
+// must refuse at the parent, never mint an orphan under a phantom id.
+test("a child add with no run refuses at the parent, not at the child", async (t) => {
+  const w = await worktree(t);
+  await w.runAs(undefined, "ticket", "add", "Parent", "--estimate", "10");
+  const child = await w.runAs(undefined, "ticket", "add", "Child", "--estimate", "5", "--under", "o1");
+  assert.equal(child.code, 1);
+  assert.match(child.text, /No ticket o1|No run yet/i);
+});
+
+test("--quiet is accepted and silence is a clean exit", async (t) => {
+  const w = await worktree(t);
+  await w.runAs(undefined, "start", "Run");
+  const quiet = await w.runAs(undefined, "ticket", "add", "Quiet one", "--estimate", "5", "--quiet");
+  assert.equal(quiet.code, 0, quiet.text);
+  assert.doesNotMatch(quiet.text, /Unknown option/, "--quiet is a real flag");
+  assert.match((await w.runAs(undefined, "show")).text, /Quiet one/, "--quiet still writes");
+});

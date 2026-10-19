@@ -724,6 +724,30 @@ function statusText(dashboard: Dashboard): string {
   return `${connLines}${holdLine}`;
 }
 
+// Whether an event is board content: it folds only from the last `run.start`
+// on, so writing one with no run makes it invisible while the command reports
+// success (Des saw this live, 2026-10-19: an add that `show` never showed).
+// Conn and hold are board state, not content, and still land with no run.
+const BOARD_CONTENT_EVENTS: ReadonlySet<ProgressEvent["type"]> = new Set([
+  "ticket.add",
+  "ticket.update",
+  "ticket.remove",
+  "ticket.move",
+  "stuck.set",
+  "stuck.clear",
+  "question.ask",
+  "question.answer",
+  "question.update",
+  "question.remove",
+  "deliverable.add",
+  "deliverable.remove",
+  "activity.add",
+  "activity.update",
+  "activity.remove",
+  "ticker.set",
+  "ticker.clear",
+]);
+
 // Whether an event starts work: a new objective already in progress, or an
 // existing one moving into progress. A hold refuses exactly these.
 function startsWork(event: EventDraft, dashboard: Dashboard): boolean {
@@ -777,10 +801,21 @@ function takeWorkspaceFlag(argv: string[]): { rest: string[]; workspace?: string
   return { rest, workspace: workspace || undefined, missing: missing || workspace === "" };
 }
 
+// --quiet / -q, anywhere in the arguments: Paseo's own CLI advertises it as a
+// global flag, so a caller that passes it here must not be refused as an
+// unknown option (Des, 2026-10-19). It silences a successful command's result
+// line; errors and `show` output still print.
+function takeQuietFlag(argv: string[]): { rest: string[]; quiet: boolean } {
+  const rest = argv.filter((arg) => arg !== "--quiet" && arg !== "-q");
+  return { rest, quiet: rest.length !== argv.length };
+}
+
 export async function runCli(rawArgv: string[], options: CliOptions): Promise<number> {
   const out = options.out ?? ((line: string) => console.log(line));
   const now = options.now ?? (() => new Date());
-  const { rest: argv, workspace, missing } = takeWorkspaceFlag(rawArgv);
+  const quietFlag = takeQuietFlag(rawArgv);
+  const { rest: argv, workspace, missing } = takeWorkspaceFlag(quietFlag.rest);
+  const quiet = quietFlag.quiet;
   if (missing) {
     out("--workspace needs a workspace id.");
     return 1;
@@ -921,6 +956,12 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
         throw new UsageError(`The run "${state.dashboard.run!.title}" is finished. Start new work with: ${USAGE_NAME} start "<title>" --replace (nothing open is lost: a finished board has no open objectives).${noId}`);
       }
       const { event, message } = command.run({ positionals: parsed.positionals, values: parsed.values, state, cwd: options.cwd, root, scope });
+      // Refuse board content with no run rather than writing an event the fold
+      // will never show: persist-or-refuse (Des, 2026-10-19). The caller reads
+      // one line telling it to start the run, and nothing reaches the file.
+      if (!state.dashboard.run && BOARD_CONTENT_EVENTS.has(event.type)) {
+        throw new UsageError(`No run yet. Start one with: ${USAGE_NAME} start "<title>". Nothing was written.`);
+      }
       const { hold } = state.dashboard;
       if (hold && startsWork(event, state.dashboard)) {
         throw new UsageError(`The board is on hold (${hold.kind}${hold.note ? `: ${hold.note}` : ""}). Items can be added, but no work starts. The owner lifts it with: ${USAGE_NAME} hold clear`);
@@ -952,7 +993,7 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
       const failures = await closeBackingBeads(root, cascade.refs, cascade.reason);
       for (const failure of failures) console.error(`cascade: could not close bead ${failure.id}: ${failure.message}`);
     }
-    out(message);
+    if (!quiet) out(message);
     return 0;
   } catch (error) {
     if (error instanceof UsageError || error instanceof InvalidEvent) {

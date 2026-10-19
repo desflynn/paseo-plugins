@@ -223,14 +223,23 @@ export async function promoteBead(
 ): Promise<{ state: "ok"; ticketId: string | null } | { state: "none" } | { state: "error"; message: string }> {
   const detail = await readBeadDetail(root, id, bdRunner);
   if (detail.state !== "ok") return detail;
+  // The bead's priority carries over (0 is a priority, so test for a number).
+  const addArgv = ["ticket", "add", detail.bead.title, "--estimate", String(UPGRADE_ESTIMATE_MIN), "--ref", `bead:${id}`,
+    ...(typeof detail.bead.priority === "number" ? ["--priority", String(detail.bead.priority)] : [])];
+  const cliOptions = { cwd: root, ...(workspaceId ? { workspaceId } : {}) };
   let run: { code: number; out: string[] };
   try {
-    run = await cliRunner(
-      // The bead's priority carries over (0 is a priority, so test for a number).
-      ["ticket", "add", detail.bead.title, "--estimate", String(UPGRADE_ESTIMATE_MIN), "--ref", `bead:${id}`,
-        ...(typeof detail.bead.priority === "number" ? ["--priority", String(detail.bead.priority)] : [])],
-      { cwd: root, ...(workspaceId ? { workspaceId } : {}) },
-    );
+    run = await cliRunner(addArgv, cliOptions);
+    // A workspace that has never had a board: `ticket add` refuses rather than
+    // writing an event no run will show (Des, 2026-10-19), so the Upgrade
+    // button opens the board first — named for the bead — then adds.
+    if (run.code !== 0 && run.out.some((line) => /No run yet/.test(line))) {
+      const started = await cliRunner(["start", detail.bead.title], cliOptions);
+      if (started.code !== 0) {
+        return { state: "error", message: started.out.join("\n").trim() || `paseo-progress exited ${started.code}` };
+      }
+      run = await cliRunner(addArgv, cliOptions);
+    }
   } catch (error) {
     return { state: "error", message: error instanceof Error ? error.message : String(error) };
   }
