@@ -181,6 +181,7 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId 
 function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"] }) {
   const feed = pageFeed(groups);
   const [full, setFull] = useState(false);
+  const [open, setOpen] = useState(true);
   const [owners, setOwners] = useState<Record<string, { id: string; name: string }>>({});
   const paseo = usePaseo();
   const single = useWindowDimensions().width >= 700;
@@ -204,10 +205,11 @@ function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups:
   const rows = full ? feed.changes : feed.changes.slice(0, 7);
   return (
     <View style={{ marginHorizontal: 16, marginTop: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }}>
-      <View style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surface1, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}
+        style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surface1, borderBottomWidth: open ? 1 : 0, borderBottomColor: colors.border }}>
         <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>Feed</Text>
-      </View>
-      <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}>
+      </Pressable>
+      {open ? <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}>
         {rows.map((row) => {
           const done = row.what === "Completed";
           const owner = owners[row.workspaceId];
@@ -228,7 +230,7 @@ function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups:
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{full ? "Show less" : `More info (${feed.changes.length})`}</Text>
           </Pressable>
         ) : null}
-      </View>
+      </View> : null}
     </View>
   );
 }
