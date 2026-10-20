@@ -13,7 +13,7 @@ import { When } from "./when";
 import { NowProvider, useNowClock } from "./now";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, objectiveHistory, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -298,10 +298,13 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   const [openTicket, setOpenTicket] = useState<string | null>(null);
   // The section the top tab row shows; Tickets first, always.
   const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
+  // Whether the top-of-board history shows every closed objective (o50).
+  const [historyOpen, setHistoryOpen] = useState(false);
   // Also fires on mount, so a new run (fresh tabs) tells the panel Beads is hidden again.
   useEffect(() => onBeadsShowing(section === "beads"), [section, onBeadsShowing]);
   const ticketsBody = (
     <View>
+      <ObjectiveHistory colors={colors} tickets={dashboard.tickets} expanded={historyOpen} onToggle={() => setHistoryOpen(!historyOpen)} />
       <TicketList colors={colors} dashboard={dashboard} live={live} workspaceId={workspaceId} onOpen={setOpenTicket} />
       <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
     </View>
@@ -720,6 +723,41 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
       onOpen={onOpen}
       accessibilityLabel={`${ticket.id} details`}
     />
+  );
+}
+
+// Des, 19 Oct: the board's achieved work sits at the top, before the live
+// objectives — closed objectives newest first, each with the time it closed and
+// its RESULT line (the same label-stripped parser the cards use). Five rows is
+// about half a phone screen; the expander shows the rest. A board with no
+// closed objective shows nothing at all.
+export const HISTORY_ROWS = 5;
+
+export function ObjectiveHistory({ colors, tickets, expanded, onToggle }: { colors: Colors; tickets: Ticket[]; expanded: boolean; onToggle(): void }) {
+  const closed = objectiveHistory(tickets);
+  if (!closed.length) return null;
+  const shown = expanded ? closed : closed.slice(0, HISTORY_ROWS);
+  return (
+    <View style={{ margin: 12, marginBottom: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 6, overflow: "hidden" }}>
+      <SectionTitle colors={colors} icon="CircleCheck" title="History" style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{closed.length}</Text>
+      </SectionTitle>
+      {shown.map((entry) => {
+        const result = labeledLine(closingNote(entry));
+        return (
+          <View key={entry.id} style={{ paddingHorizontal: 10, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+            <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "500" }}>{entry.title}</Text>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>Closed <When colors={colors} iso={entry.statusSince} /></Text>
+            {result?.label === "RESULT" ? <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{result.text}</Text> : null}
+          </View>
+        );
+      })}
+      {closed.length > HISTORY_ROWS ? (
+        <Pressable accessibilityRole="button" onPress={onToggle}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 8 }}>{expanded ? "Show less" : `Show all ${closed.length}`}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 

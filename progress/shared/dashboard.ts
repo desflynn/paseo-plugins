@@ -1033,6 +1033,13 @@ export function labeledLine(note: string | undefined): LabeledLine | null {
   return text ? { label: match[1].toUpperCase() as LabeledLine["label"], text } : null;
 }
 
+// Des, 19 Oct: the board's achieved work, newest first, by the time it closed
+// (`statusSince` is the close event's own time on a closed ticket).
+export function objectiveHistory(tickets: Ticket[]): Ticket[] {
+  return tickets.filter((ticket) => ticket.status === "closed")
+    .sort((a, b) => (Date.parse(b.statusSince) || 0) - (Date.parse(a.statusSince) || 0));
+}
+
 // The note on the change that closed the ticket; the ticket's own note when the
 // close carried none.
 export function closingNote(ticket: Ticket): string | undefined {
