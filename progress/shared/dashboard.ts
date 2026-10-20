@@ -1033,11 +1033,40 @@ export function labeledLine(note: string | undefined): LabeledLine | null {
   return text ? { label: match[1].toUpperCase() as LabeledLine["label"], text } : null;
 }
 
-// Des, 19 Oct: the board's achieved work, newest first, by the time it closed
-// (`statusSince` is the close event's own time on a closed ticket).
-export function objectiveHistory(tickets: Ticket[]): Ticket[] {
+// Des, 19 Oct (o239): the board's feed. NOW comes from board truth; the feed
+// itself is the objective and status changes as they happened, newest first;
+// the finished list is the recent completions, each with its RESULT line when it
+// carries one. A label rides a row; it is never the condition for the row.
+export type FeedChange = { key: string; at: string; ticket: Ticket; what: "Added" | "Started" | "Completed" | "Skipped" | "Reopened" };
+
+const startOf = (ticket: Ticket) => ticket.startedAt ?? ticket.statusSince;
+
+export function liveObjectives(tickets: Ticket[]): Ticket[] {
+  return tickets.filter((ticket) => ticket.status === "in_progress")
+    .sort((a, b) => (Date.parse(startOf(b)) || 0) - (Date.parse(startOf(a)) || 0));
+}
+
+export function finishedNewest(tickets: Ticket[]): Ticket[] {
   return tickets.filter((ticket) => ticket.status === "closed")
     .sort((a, b) => (Date.parse(b.statusSince) || 0) - (Date.parse(a.statusSince) || 0));
+}
+
+export function objectiveFeed(tickets: Ticket[]): FeedChange[] {
+  const entries: FeedChange[] = [];
+  for (const ticket of tickets) {
+    let previous: BoardStatus | undefined;
+    ticket.history.forEach((change, index) => {
+      const status = change.status;
+      if (!status && index > 0) return;
+      const what: FeedChange["what"] = status === "in_progress" ? "Started"
+        : status === "closed" ? (ticket.closeReason === "skipped" ? "Skipped" : "Completed")
+        : status === "open" ? (previous === "closed" ? "Reopened" : "Added")
+        : "Added";
+      entries.push({ key: `${ticket.id}:${index}:${change.at}`, at: change.at, ticket, what });
+      if (status) previous = status;
+    });
+  }
+  return entries.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
 }
 
 // The note on the change that closed the ticket; the ticket's own note when the

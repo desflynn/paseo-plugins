@@ -13,7 +13,7 @@ import { When } from "./when";
 import { NowProvider, useNowClock } from "./now";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, objectiveHistory, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, finishedNewest, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -304,7 +304,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   useEffect(() => onBeadsShowing(section === "beads"), [section, onBeadsShowing]);
   const ticketsBody = (
     <View>
-      <ObjectiveHistory colors={colors} tickets={dashboard.tickets} expanded={historyOpen} onToggle={() => setHistoryOpen(!historyOpen)} />
+      <ObjectiveFeed colors={colors} tickets={dashboard.tickets} expanded={historyOpen} onToggle={() => setHistoryOpen(!historyOpen)} />
       <TicketList colors={colors} dashboard={dashboard} live={live} workspaceId={workspaceId} onOpen={setOpenTicket} />
       <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
     </View>
@@ -726,35 +726,57 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
   );
 }
 
-// Des, 19 Oct: the board's achieved work sits at the top, before the live
-// objectives — closed objectives newest first, each with the time it closed and
-// its RESULT line (the same label-stripped parser the cards use). Five rows is
-// about half a phone screen; the expander shows the rest. A board with no
-// closed objective shows nothing at all.
-export const HISTORY_ROWS = 5;
+// Des, 19 Oct (o239): the feed at the top of the panel. Now comes from board
+// truth, never a stale note; the recent objective and status changes follow
+// with their times; the recent completions carry their RESULT line; the full
+// history sits behind one More info toggle. A label rides a row and never
+// decides whether the row appears.
+export const FEED_ROWS = 6;
+export const FINISHED_ROWS = 5;
 
-export function ObjectiveHistory({ colors, tickets, expanded, onToggle }: { colors: Colors; tickets: Ticket[]; expanded: boolean; onToggle(): void }) {
-  const closed = objectiveHistory(tickets);
-  if (!closed.length) return null;
-  const shown = expanded ? closed : closed.slice(0, HISTORY_ROWS);
+export function ObjectiveFeed({ colors, tickets, expanded, onToggle }: { colors: Colors; tickets: Ticket[]; expanded: boolean; onToggle(): void }) {
+  const feed = objectiveFeed(tickets);
+  const live = liveObjectives(tickets);
+  const finished = finishedNewest(tickets);
+  if (!feed.length && !live.length) return null;
+  const shown = expanded ? feed : feed.slice(0, FEED_ROWS);
+  // Called, not mounted, so the group headings are part of this element tree.
+  const group = (key: string, title: string, children: React.ReactNode) => (
+    <View key={key} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, paddingBottom: 6 }}>
+      <Text style={{ color: colors.foregroundMuted, fontSize: 10, lineHeight: 14, fontWeight: "600", paddingHorizontal: 10 }}>{title}</Text>
+      <View style={{ paddingHorizontal: 10, paddingTop: 2, gap: 4 }}>{children}</View>
+    </View>
+  );
   return (
     <View style={{ margin: 12, marginBottom: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 6, overflow: "hidden" }}>
-      <SectionTitle colors={colors} icon="CircleCheck" title="History" style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{closed.length}</Text>
-      </SectionTitle>
-      {shown.map((entry) => {
-        const result = labeledLine(closingNote(entry));
+      <SectionTitle colors={colors} icon="Activity" title="Feed" style={{ borderBottomWidth: 1, borderBottomColor: colors.border }} />
+      {group("now", "Now", live.length
+        ? live.slice(0, 3).map((ticket) => (
+          <View key={ticket.id}>
+            <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "500" }}>{ticket.title}</Text>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{ticket.stage ? `${ticket.stage} stage` : "Working"} <When colors={colors} iso={ticket.startedAt ?? ticket.statusSince} /></Text>
+          </View>
+        ))
+        : <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{finished.length ? "Nothing running — finished, gone idle" : "Nothing running"}</Text>)}
+      {group("changed", "Recently changed", shown.map((change) => (
+        <View key={change.key}>
+          <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{change.ticket.title}</Text>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{change.what} <When colors={colors} iso={change.at} /></Text>
+        </View>
+      )))}
+      {finished.length ? group("finished", "Finished", finished.slice(0, FINISHED_ROWS).map((ticket) => {
+        const result = labeledLine(closingNote(ticket));
         return (
-          <View key={entry.id} style={{ paddingHorizontal: 10, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-            <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "500" }}>{entry.title}</Text>
-            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>Closed <When colors={colors} iso={entry.statusSince} /></Text>
+          <View key={ticket.id}>
+            <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{ticket.title}</Text>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>Completed <When colors={colors} iso={ticket.statusSince} /></Text>
             {result?.label === "RESULT" ? <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{result.text}</Text> : null}
           </View>
         );
-      })}
-      {closed.length > HISTORY_ROWS ? (
+      })) : null}
+      {feed.length > FEED_ROWS ? (
         <Pressable accessibilityRole="button" onPress={onToggle}>
-          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 8 }}>{expanded ? "Show less" : `Show all ${closed.length}`}</Text>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 8 }}>{expanded ? "Show less" : `More info (${feed.length})`}</Text>
         </Pressable>
       ) : null}
     </View>
