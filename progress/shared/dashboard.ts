@@ -1042,6 +1042,12 @@ export type FeedChange = { key: string; at: string; ticket: Ticket; what: "Worki
 
 const startOf = (ticket: Ticket) => ticket.startedAt ?? ticket.statusSince;
 
+// The newest thing that happened to the objective: a status change, a stage or
+// a note (Des, 19 Oct). The feed's clock is this, so live work bubbles up.
+export function lastUpdate(ticket: Ticket): string {
+  return ticket.history.reduce((latest, change) => (Date.parse(change.at) || 0) > (Date.parse(latest) || 0) ? change.at : latest, startOf(ticket));
+}
+
 export function liveObjectives(tickets: Ticket[]): Ticket[] {
   return tickets.filter((ticket) => ticket.status === "in_progress")
     .sort((a, b) => (Date.parse(startOf(b)) || 0) - (Date.parse(startOf(a)) || 0));

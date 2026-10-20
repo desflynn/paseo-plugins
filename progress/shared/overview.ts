@@ -1,7 +1,7 @@
 // o36: the Progress page. One board folds to a small summary; every
 // workspace's summary and live agents then group by project. Pure, so the
 // page glue stays thin and the rules sit under test.
-import { boardStatuses, closingNote, displayId, displayPriority, finishedNewest, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, sortObjectives, ticketDepth, type Conn, type Dashboard, type Hold, type Indicator } from "./dashboard.ts";
+import { boardStatuses, closingNote, displayId, displayPriority, finishedNewest, lastUpdate, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, sortObjectives, ticketDepth, type Conn, type Dashboard, type Hold, type Indicator } from "./dashboard.ts";
 import { BOARD_MODES, MODE_LABEL, type BoardMode } from "./modes.ts";
 
 // What the Progress page needs of one board. Open and in progress counts by
@@ -90,8 +90,8 @@ export function summariseBoard(dashboard: Dashboard): BoardSummary | null {
 export function boardFeed(dashboard: Dashboard): NonNullable<BoardSummary["feed"]> {
   const { tickets } = dashboard;
   return {
-    live: liveObjectives(tickets).slice(0, FEED_LIVE).map((ticket) => ({ id: displayId(ticket.id), title: ticket.title, ...(ticket.stage ? { stage: ticket.stage } : {}), at: ticket.startedAt ?? ticket.statusSince, priority: displayPriority(ticket) })),
-    changes: objectiveFeed(tickets).slice(0, FEED_ROWS).map((entry) => ({ id: displayId(entry.ticket.id), title: entry.ticket.title, what: entry.what, at: entry.at, priority: displayPriority(entry.ticket) })),
+    live: liveObjectives(tickets).slice(0, FEED_LIVE).map((ticket) => ({ id: displayId(ticket.id), title: ticket.title, ...(ticket.stage ? { stage: ticket.stage } : {}), at: lastUpdate(ticket), priority: displayPriority(ticket) })),
+    changes: objectiveFeed(tickets).slice(0, FEED_ROWS).map((entry) => ({ id: displayId(entry.ticket.id), title: entry.ticket.title, what: entry.what, at: lastUpdate(entry.ticket), priority: displayPriority(entry.ticket) })),
     finished: finishedNewest(tickets).slice(0, FEED_FINISHED).map((ticket) => {
       const result = labeledLine(closingNote(ticket));
       return { id: displayId(ticket.id), title: ticket.title, at: ticket.statusSince, priority: displayPriority(ticket), ...(result?.label === "RESULT" ? { result: result.text } : {}) };
