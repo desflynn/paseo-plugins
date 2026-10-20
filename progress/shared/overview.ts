@@ -1,7 +1,7 @@
 // o36: the Progress page. One board folds to a small summary; every
 // workspace's summary and live agents then group by project. Pure, so the
 // page glue stays thin and the rules sit under test.
-import { boardStatuses, displayId, displayPriority, indicatorLabel, isAutoPullable, sortObjectives, ticketDepth, type Conn, type Dashboard, type Hold, type Indicator } from "./dashboard.ts";
+import { boardStatuses, closingNote, displayId, displayPriority, finishedNewest, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, sortObjectives, ticketDepth, type Conn, type Dashboard, type Hold, type Indicator } from "./dashboard.ts";
 import { BOARD_MODES, MODE_LABEL, type BoardMode } from "./modes.ts";
 
 // What the Progress page needs of one board. Open and in progress counts by
@@ -31,7 +31,19 @@ export interface BoardSummary {
   ready: ReadyItem[];
   conn?: Conn;
   hold?: Hold;
+  // The board's feed for the Progress page (o52): what is live, the recent
+  // objective/status changes, and the recent completions with their RESULT
+  // line. Capped here so the overview poll stays small.
+  feed?: { live: FeedLive[]; changes: FeedRow[]; finished: FeedDone[] };
 }
+
+export type FeedLive = { id: string; title: string; stage?: string; at: string };
+export type FeedRow = { id: string; title: string; what: string; at: string };
+export type FeedDone = { id: string; title: string; at: string; result?: string };
+
+const FEED_LIVE = 5;
+const FEED_ROWS = 30;
+const FEED_FINISHED = 8;
 
 // A workspace has no board until it has a run. The summary reads the board
 // alone, so a stale board with a working agent still reads Stale here.
@@ -70,6 +82,45 @@ export function summariseBoard(dashboard: Dashboard): BoardSummary | null {
     ...(dashboard.conn ? { conn: dashboard.conn } : {}),
     ...(dashboard.hold ? { hold: dashboard.hold } : {}),
   };
+}
+
+// The feed the Progress page renders at the top (o52), capped for the poll.
+// Kept out of summariseBoard so the board summary's shape stays as it was;
+// the overview handler attaches it per board.
+export function boardFeed(dashboard: Dashboard): NonNullable<BoardSummary["feed"]> {
+  const { tickets } = dashboard;
+  return {
+    live: liveObjectives(tickets).slice(0, FEED_LIVE).map((ticket) => ({ id: displayId(ticket.id), title: ticket.title, ...(ticket.stage ? { stage: ticket.stage } : {}), at: ticket.startedAt ?? ticket.statusSince })),
+    changes: objectiveFeed(tickets).slice(0, FEED_ROWS).map((entry) => ({ id: displayId(entry.ticket.id), title: entry.ticket.title, what: entry.what, at: entry.at })),
+    finished: finishedNewest(tickets).slice(0, FEED_FINISHED).map((ticket) => {
+      const result = labeledLine(closingNote(ticket));
+      return { id: displayId(ticket.id), title: ticket.title, at: ticket.statusSince, ...(result?.label === "RESULT" ? { result: result.text } : {}) };
+    }),
+  };
+}
+
+export function withFeed(summary: BoardSummary | null, dashboard: Dashboard): BoardSummary | null {
+  return summary ? { ...summary, feed: boardFeed(dashboard) } : null;
+}
+
+// The Progress page's feed, merged across every board on it: live work, the
+// recent status changes and the recent completions, newest first (o52).
+export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { board: string }>; changes: Array<FeedRow & { board: string }>; finished: Array<FeedDone & { board: string }> } {
+  const live: Array<FeedLive & { board: string }> = [];
+  const changes: Array<FeedRow & { board: string }> = [];
+  const finished: Array<FeedDone & { board: string }> = [];
+  for (const group of groups) {
+    for (const entry of group.workspaces) {
+      const board = entry.board?.title ?? entry.workspace.name;
+      const feed = entry.board?.feed;
+      if (!feed) continue;
+      for (const row of feed.live) live.push({ ...row, board });
+      for (const row of feed.changes) changes.push({ ...row, board });
+      for (const row of feed.finished) finished.push({ ...row, board });
+    }
+  }
+  const newest = (a: { at: string }, b: { at: string }) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0);
+  return { live: live.sort(newest), changes: changes.sort(newest), finished: finished.sort(newest) };
 }
 
 // The Progress page asks for every board on every poll (3 s). A summary costs a

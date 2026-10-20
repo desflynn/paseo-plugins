@@ -13,7 +13,7 @@ import { When } from "./when";
 import { NowProvider, useNowClock } from "./now";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, finishedNewest, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, finishedNewest, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, owedStuck, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -276,7 +276,7 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   // tickets section sits. The history card is history only — beads moved up.
   const showHistory = hasHistory;
   const live = !stale;
-  const orphanStuck = dashboard.stuck.filter((item) => !item.ticketId);
+  const orphanStuck = owedStuck(dashboard.stuck, dashboard.tickets).filter((item) => !item.ticketId);
   // Two columns when opened as a wide tab; one in the narrow Explorer pane.
   const [wide, setWide] = useState(false);
   const narrow = useNarrow();
@@ -298,13 +298,14 @@ function DashboardView({ colors, dashboard, agentRunning, compact, workspaceId, 
   const [openTicket, setOpenTicket] = useState<string | null>(null);
   // The section the top tab row shows; Tickets first, always.
   const [section, setSection] = useState<"tickets" | "beads" | "gh">("tickets");
-  // Whether the top-of-board history shows every closed objective (o50).
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Whether the top-of-board feed is open, and whether its whole history is (o52).
+  const [feedOpen, setFeedOpen] = useState(false);
+  const [feedFull, setFeedFull] = useState(false);
   // Also fires on mount, so a new run (fresh tabs) tells the panel Beads is hidden again.
   useEffect(() => onBeadsShowing(section === "beads"), [section, onBeadsShowing]);
   const ticketsBody = (
     <View>
-      <ObjectiveFeed colors={colors} tickets={dashboard.tickets} expanded={historyOpen} onToggle={() => setHistoryOpen(!historyOpen)} />
+      <ObjectiveFeed colors={colors} tickets={dashboard.tickets} open={feedOpen} onOpen={() => setFeedOpen(!feedOpen)} expanded={feedFull} onExpand={() => setFeedFull(!feedFull)} />
       <TicketList colors={colors} dashboard={dashboard} live={live} workspaceId={workspaceId} onOpen={setOpenTicket} />
       <TicketDialogs colors={colors} dashboard={dashboard} openId={openTicket} setOpenId={setOpenTicket} now={now} live={live} context={attachmentContext} />
     </View>
@@ -639,7 +640,7 @@ export const TicketList = React.memo(function TicketList({ colors, dashboard, li
   const { listed: open, folded: finished } = splitFinished(sorted);
   // The indicator is the alert; each objective carries why it is stuck or stale.
   const reasons = new Map<string, string>();
-  for (const item of dashboard.stuck) {
+  for (const item of owedStuck(dashboard.stuck, dashboard.tickets)) {
     if (!item.ticketId) continue;
     reasons.set(item.ticketId, item.kind === "blocked" ? "Blocked"
       : item.kind === "overdue" ? `No update for longer than its ${formatMinutes(item.estimateMin)} estimate`
@@ -734,7 +735,7 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
 export const FEED_ROWS = 6;
 export const FINISHED_ROWS = 5;
 
-export function ObjectiveFeed({ colors, tickets, expanded, onToggle }: { colors: Colors; tickets: Ticket[]; expanded: boolean; onToggle(): void }) {
+export function ObjectiveFeed({ colors, tickets, open, onOpen, expanded, onExpand }: { colors: Colors; tickets: Ticket[]; open: boolean; onOpen(): void; expanded: boolean; onExpand(): void }) {
   const feed = objectiveFeed(tickets);
   const live = liveObjectives(tickets);
   const finished = finishedNewest(tickets);
@@ -749,35 +750,43 @@ export function ObjectiveFeed({ colors, tickets, expanded, onToggle }: { colors:
   );
   return (
     <View style={{ margin: 12, marginBottom: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 6, overflow: "hidden" }}>
-      <SectionTitle colors={colors} icon="Activity" title="Feed" style={{ borderBottomWidth: 1, borderBottomColor: colors.border }} />
-      {group("now", "Now", live.length
-        ? live.slice(0, 3).map((ticket) => (
-          <View key={ticket.id}>
-            <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "500" }}>{ticket.title}</Text>
-            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{ticket.stage ? `${ticket.stage} stage` : "Working"} <When colors={colors} iso={ticket.startedAt ?? ticket.statusSince} /></Text>
-          </View>
-        ))
-        : <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{finished.length ? "Nothing running — finished, gone idle" : "Nothing running"}</Text>)}
-      {group("changed", "Recently changed", shown.map((change) => (
-        <View key={change.key}>
-          <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{change.ticket.title}</Text>
-          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{change.what} <When colors={colors} iso={change.at} /></Text>
-        </View>
-      )))}
-      {finished.length ? group("finished", "Finished", finished.slice(0, FINISHED_ROWS).map((ticket) => {
-        const result = labeledLine(closingNote(ticket));
-        return (
-          <View key={ticket.id}>
-            <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{ticket.title}</Text>
-            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>Completed <When colors={colors} iso={ticket.statusSince} /></Text>
-            {result?.label === "RESULT" ? <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{result.text}</Text> : null}
-          </View>
-        );
-      })) : null}
-      {feed.length > FEED_ROWS ? (
-        <Pressable accessibilityRole="button" onPress={onToggle}>
-          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 8 }}>{expanded ? "Show less" : `More info (${feed.length})`}</Text>
-        </Pressable>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onOpen}>
+        <SectionTitle colors={colors} icon="Activity" title="Feed" style={{ borderBottomWidth: open ? 1 : 0, borderBottomColor: colors.border }}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{feed.length}</Text>
+        </SectionTitle>
+      </Pressable>
+      {open ? (
+        <>
+          {group("now", "Now", live.length
+            ? live.slice(0, 3).map((ticket) => (
+              <View key={ticket.id}>
+                <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "500" }}>{ticket.title}</Text>
+                <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{ticket.stage ? `${ticket.stage} stage` : "Working"} <When colors={colors} iso={ticket.startedAt ?? ticket.statusSince} /></Text>
+              </View>
+            ))
+            : <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{finished.length ? "Nothing running — finished, gone idle" : "Nothing running"}</Text>)}
+          {group("changed", "Recently changed", shown.map((change) => (
+            <View key={change.key}>
+              <Text numberOfLines={1} style={{ color: change.what === "Completed" ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{change.ticket.title}</Text>
+              <Text style={{ color: change.what === "Completed" ? colors.statusSuccess : colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{change.what} <When colors={colors} iso={change.at} /></Text>
+            </View>
+          )))}
+          {finished.length ? group("finished", "Finished", finished.slice(0, FINISHED_ROWS).map((ticket) => {
+            const result = labeledLine(closingNote(ticket));
+            return (
+              <View key={ticket.id}>
+                <Text numberOfLines={2} style={{ color: colors.statusSuccess, fontSize: 12, lineHeight: 17 }}>{ticket.title}</Text>
+                <Text style={{ color: colors.statusSuccess, fontSize: 11, lineHeight: 16 }}>Completed <When colors={colors} iso={ticket.statusSince} /></Text>
+                {result?.label === "RESULT" ? <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{result.text}</Text> : null}
+              </View>
+            );
+          })) : null}
+          {feed.length > FEED_ROWS ? (
+            <Pressable accessibilityRole="button" onPress={onExpand}>
+              <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 8 }}>{expanded ? "Show less" : `More info (${feed.length})`}</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
     </View>
   );

@@ -1033,11 +1033,12 @@ export function labeledLine(note: string | undefined): LabeledLine | null {
   return text ? { label: match[1].toUpperCase() as LabeledLine["label"], text } : null;
 }
 
-// Des, 19 Oct (o239): the board's feed. NOW comes from board truth; the feed
-// itself is the objective and status changes as they happened, newest first;
-// the finished list is the recent completions, each with its RESULT line when it
-// carries one. A label rides a row; it is never the condition for the row.
-export type FeedChange = { key: string; at: string; ticket: Ticket; what: "Added" | "Started" | "Completed" | "Skipped" | "Reopened" };
+// Des, 19 Oct (o239/o52): the board's feed. NOW comes from board truth; the
+// feed itself is the status changes as they happened, newest first, in two
+// words only — Working when an objective starts, Completed when it lands.
+// "Started" and "Working" are the same thing to Des, and adds and updates are
+// noise. A label rides a row; it never decides whether the row appears.
+export type FeedChange = { key: string; at: string; ticket: Ticket; what: "Working" | "Completed" };
 
 const startOf = (ticket: Ticket) => ticket.startedAt ?? ticket.statusSince;
 
@@ -1054,16 +1055,9 @@ export function finishedNewest(tickets: Ticket[]): Ticket[] {
 export function objectiveFeed(tickets: Ticket[]): FeedChange[] {
   const entries: FeedChange[] = [];
   for (const ticket of tickets) {
-    let previous: BoardStatus | undefined;
     ticket.history.forEach((change, index) => {
-      const status = change.status;
-      if (!status && index > 0) return;
-      const what: FeedChange["what"] = status === "in_progress" ? "Started"
-        : status === "closed" ? (ticket.closeReason === "skipped" ? "Skipped" : "Completed")
-        : status === "open" ? (previous === "closed" ? "Reopened" : "Added")
-        : "Added";
-      entries.push({ key: `${ticket.id}:${index}:${change.at}`, at: change.at, ticket, what });
-      if (status) previous = status;
+      if (change.status !== "in_progress" && change.status !== "closed") return;
+      entries.push({ key: `${ticket.id}:${index}:${change.at}`, at: change.at, ticket, what: change.status === "in_progress" ? "Working" : "Completed" });
     });
   }
   return entries.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
@@ -1143,6 +1137,15 @@ export type Indicator =
 // counts only when its objective is P0 to P2, and only on a board that has work
 // in progress or a full auto on. A flag with no objective behind it has no
 // priority, so it does not count.
+// Des, 19 Oct: only P0 to P2 objectives can be stuck. P3, P4 and none are
+// backlog, not live work, so a blocked P4 is not a warning anywhere.
+export function owedStuck(stuck: StuckItem[], tickets: Ticket[]): StuckItem[] {
+  return stuck.filter((item) => {
+    const priority = item.ticketId === undefined ? undefined : tickets.find((ticket) => ticket.id === item.ticketId)?.priority;
+    return priority !== undefined && priority <= 2;
+  });
+}
+
 export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stale"> & { conn?: unknown }, agentRunning: boolean): Indicator[] {
   // A parent is worked through its live child, so count only the deepest live
   // objective in each chain: two live siblings are two goals, a parent and its
@@ -1152,11 +1155,7 @@ export function boardStatuses(board: Pick<Dashboard, "tickets" | "stuck" | "stal
   const covered = new Set(inProgress.flatMap((ticket) => ancestry(ticket, byId).slice(0, -1).map((level) => level.id)));
   const working = inProgress.filter((ticket) => !covered.has(ticket.id)).length;
   const live = working > 0 || Boolean(board.conn);
-  const owed = (item: StuckItem) => {
-    const priority = item.ticketId === undefined ? undefined : board.tickets.find((ticket) => ticket.id === item.ticketId)?.priority;
-    return priority !== undefined && priority <= 2;
-  };
-  const stuck = live ? board.stuck.filter(owed).length : 0;
+  const stuck = live ? owedStuck(board.stuck, board.tickets).length : 0;
   const statuses: Indicator[] = [];
   if (working) statuses.push({ kind: board.stale && !agentRunning ? "stale" : "active", count: working });
   if (stuck) statuses.push({ kind: "stuck", count: stuck });

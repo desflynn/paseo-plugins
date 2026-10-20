@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { formatAgo } from "../shared/format";
-import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
+import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getOverview } from "../shared/rpc";
 import { listAll, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
@@ -174,6 +174,44 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId 
   );
 }
 
+// Des, 19 Oct (o52): the fleet's objective log at the top of the page — the
+// work happening now and what has completed, working rows in white and
+// completed rows in green, with the rest of the history behind one More info.
+// Open by default here; the workspace panel keeps its copy closed.
+function PageFeed({ colors, groups, now }: { colors: Colors; groups: ProjectGroup[]; now: number }) {
+  const feed = pageFeed(groups);
+  const [full, setFull] = useState(false);
+  if (!feed.live.length && !feed.changes.length) return null;
+  const rows = full ? feed.changes : feed.changes.slice(0, 7);
+  const tint = (done: boolean) => (done ? colors.statusSuccess : colors.foreground);
+  return (
+    <View style={{ marginHorizontal: 16, marginTop: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }}>
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surface1, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>Feed</Text>
+      </View>
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
+        {feed.live.slice(0, 4).map((row) => (
+          <View key={`live:${row.board}:${row.id}`}>
+            <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{row.board} · Working {formatAgo(row.at, now)}</Text>
+          </View>
+        ))}
+        {rows.map((row) => (
+          <View key={`${row.board}:${row.id}:${row.at}`}>
+            <Text numberOfLines={2} style={{ color: tint(row.what === "Completed"), fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+            <Text style={{ color: row.what === "Completed" ? colors.statusSuccess : colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{row.board} · {row.what} {formatAgo(row.at, now)}</Text>
+          </View>
+        ))}
+        {feed.changes.length > 7 ? (
+          <Pressable accessibilityRole="button" onPress={() => setFull(!full)}>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{full ? "Show less" : `More info (${feed.changes.length})`}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreenProps) {
   const { colors } = theme;
   const { data: groups, error, isLoading } = useOverview(host.id);
@@ -192,6 +230,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
+      {groups ? <PageFeed colors={colors} groups={groups} now={now} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (

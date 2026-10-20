@@ -1,12 +1,11 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { Dashboard } from "../shared/dashboard.ts";
+import { boardStatuses, objectiveFeed, owedStuck, type Dashboard, type Ticket, type StuckItem } from "../shared/dashboard.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { PROGRESS_FILE_NAME } from "../shared/events.ts";
 import { type BoardMode, planModeChange } from "../shared/modes.ts";
-import { type BoardSummary, summaryOf } from "../shared/overview.ts";
-import { runCli } from "./cli.ts";
+import { type BoardSummary, summaryOf, withFeed } from "../shared/overview.ts";import { runCli } from "./cli.ts";
 import type { AttentionResult, DashboardResult } from "../shared/rpc.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { findRoot } from "./paths.ts";
@@ -58,7 +57,7 @@ export async function handleGetOverview(
   for (const { workspaceId, workspaceDirectory } of input.workspaces) {
     try {
       const { configured, dashboard } = await readProgress((await findStore(findRoot(workspaceDirectory))).directory, undefined, workspaceId);
-      boards[workspaceId] = configured ? summaryOf(dashboard) : null;
+      boards[workspaceId] = configured ? withFeed(summaryOf(dashboard), dashboard) : null;
     } catch {
       boards[workspaceId] = null;
     }
@@ -104,7 +103,7 @@ export async function handleGetAttention(
   return {
     configured,
     questions: dashboard.questions.open.length,
-    stuck: dashboard.stuck.length,
+    stuck: owedStuck(dashboard.stuck, dashboard.tickets).length,
     runOpen: Boolean(dashboard.run && !dashboard.run.finished),
     panelOpened,
   };
