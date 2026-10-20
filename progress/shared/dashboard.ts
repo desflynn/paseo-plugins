@@ -1019,6 +1019,30 @@ function ancestry(ticket: Ticket, byId: Map<string, Ticket>): Ticket[] {
 
 // How deep a ticket sits in the tree: one indent step per parent in its
 // `under` chain.
+// Des, 19 Oct: a ticket's note may open with GOAL: while the work is open, and
+// its close note with RESULT: once it lands. Plain text in the same note — no
+// field, no schema. The card shows the text; the label is stripped, because the
+// card's own state already says which line this is.
+export type LabeledLine = { label: "GOAL" | "RESULT"; text: string };
+
+export function labeledLine(note: string | undefined): LabeledLine | null {
+  const first = note?.trimStart().split("\n")[0]?.trim();
+  const match = first ? /^(GOAL|RESULT):\s*(.*)$/i.exec(first) : null;
+  if (!match) return null;
+  const text = match[2].trim();
+  return text ? { label: match[1].toUpperCase() as LabeledLine["label"], text } : null;
+}
+
+// The note on the change that closed the ticket; the ticket's own note when the
+// close carried none.
+export function closingNote(ticket: Ticket): string | undefined {
+  for (let index = ticket.history.length - 1; index >= 0; index--) {
+    const change = ticket.history[index];
+    if (change.status === "closed" && change.note) return change.note;
+  }
+  return ticket.note;
+}
+
 export function ticketDepth(ticket: Ticket, tickets: Ticket[]): number {
   return ancestry(ticket, new Map(tickets.map((entry) => [entry.id, entry]))).length - 1;
 }

@@ -13,7 +13,7 @@ import { When } from "./when";
 import { NowProvider, useNowClock } from "./now";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { boardStatuses, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
+import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
 import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
@@ -711,7 +711,7 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
           ) : null}
           {/* At most NOTE_MAX characters on the row; the card shows the whole note. */}
-          {ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{clip(ticket.note, NOTE_MAX)}</Text> : null}
+          <LabeledNote colors={colors} ticket={ticket} />
         </>
       }
       chips={<RefChips colors={colors} ticket={ticket} />}
@@ -721,6 +721,20 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
       accessibilityLabel={`${ticket.id} details`}
     />
   );
+}
+
+// The note line on a card (Des, 19 Oct): the GOAL text while the objective is
+// open, the RESULT text from the close note once it is closed, the label
+// stripped because the card's own state says which one it is. A note with
+// neither label renders exactly as it always did. Hook-free so the render pin
+// can call it straight through the client harness.
+export function LabeledNote({ colors, ticket }: { colors: Colors; ticket: Ticket }) {
+  const labeled = labeledLine(ticket.status === "closed" ? closingNote(ticket) : ticket.note);
+  const wanted = ticket.status === "closed" ? "RESULT" : "GOAL";
+  if (labeled && labeled.label === wanted) {
+    return <Text style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{labeled.text}</Text>;
+  }
+  return ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{clip(ticket.note, NOTE_MAX)}</Text> : null;
 }
 
 // The quiet line under a working objective ("No update for 23 min"): reads
