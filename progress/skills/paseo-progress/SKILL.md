@@ -47,7 +47,7 @@ Record each change as it happens, on the ticket's id from `show` (o1, o2, ...):
 | A ticket from another workspace's board should be yours | `ticket claim-from-all o3` — the same reallocation, with the target defaulting to your workspace |
 | You want one objective's facts | `ticket show o3` — its status, priority (when set), estimate and name; `ticket show o3 --json` gives the whole objective for a machine |
 
-Pass `--ticket` on every activity, deliverable and question that belongs to a ticket. The user presses a ticket to see its story: each stage and how long it took, with the activity, deliverables and questions tagged to it. Leave it off only for run-wide notes. Stage changes and notes are timed from your `ticket update` calls, so make them when the change happens.
+Pass `--ticket` on every activity, deliverable and question that belongs to a ticket. The user presses a ticket to see its story: each stage and how long it took, with the activity, deliverables and questions tagged to it. Leave it off only for run-wide notes. Stage changes and notes are timed from your `ticket update` calls, so make them when the change happens. The feed on the Progress page ranks an objective by its newest history entry, so an objective that only records its start sinks below the work that is actually live.
 
 `ticket update o3 --note "<text>"` adds a note without changing status. `activity update A2 "<text>"` rewords a note; `activity remove A2` takes it off the feed. `deliverable remove D1` and `ticket remove o3` take an item off the dashboard — use `--status closed --close-reason skipped` instead when a ticket should stay visible with its reason.
 
