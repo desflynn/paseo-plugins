@@ -3,12 +3,12 @@ import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { useQuery } from "@tanstack/react-query";
-import React, { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getOverview } from "../shared/rpc";
-import { listAll, type Page, type Paseo } from "./agents-list";
+import { listAll, loadWorkspaceOwner, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
 
@@ -178,30 +178,51 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId 
 // work happening now and what has completed, working rows in white and
 // completed rows in green, with the rest of the history behind one More info.
 // Open by default here; the workspace panel keeps its copy closed.
-function PageFeed({ colors, groups, now }: { colors: Colors; groups: ProjectGroup[]; now: number }) {
+function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"] }) {
   const feed = pageFeed(groups);
   const [full, setFull] = useState(false);
-  if (!feed.live.length && !feed.changes.length) return null;
+  const [owners, setOwners] = useState<Record<string, { id: string; name: string }>>({});
+  const paseo = usePaseo();
+  const single = useWindowDimensions().width >= 700;
+  const workspaces = feed.changes.map((row) => row.workspaceId).join(",");
+  useEffect(() => {
+    let alive = true;
+    const ids = [...new Set(workspaces.split(",").filter(Boolean))];
+    void (async () => {
+      const found: Record<string, { id: string; name: string }> = {};
+      for (const id of ids) {
+        try {
+          const owner = await loadWorkspaceOwner(paseo, id);
+          if (owner) found[id] = { id: owner.id, name: plainName(owner.title ?? "Agent") };
+        } catch { /* no owner known yet */ }
+      }
+      if (alive) setOwners(found);
+    })();
+    return () => { alive = false; };
+  }, [workspaces, paseo]);
+  if (!feed.changes.length) return null;
   const rows = full ? feed.changes : feed.changes.slice(0, 7);
-  const tint = (done: boolean) => (done ? colors.statusSuccess : colors.foreground);
   return (
     <View style={{ marginHorizontal: 16, marginTop: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }}>
       <View style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surface1, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>Feed</Text>
       </View>
-      <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
-        {feed.live.slice(0, 4).map((row) => (
-          <View key={`live:${row.board}:${row.id}`}>
-            <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
-            <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{row.board} · Working {formatAgo(row.at, now)}</Text>
-          </View>
-        ))}
-        {rows.map((row) => (
-          <View key={`${row.board}:${row.id}:${row.at}`}>
-            <Text numberOfLines={2} style={{ color: tint(row.what === "Completed"), fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
-            <Text style={{ color: row.what === "Completed" ? colors.statusSuccess : colors.foregroundMuted, fontSize: 11, lineHeight: 16 }}>{row.board} · {row.what} {formatAgo(row.at, now)}</Text>
-          </View>
-        ))}
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}>
+        {rows.map((row) => {
+          const done = row.what === "Completed";
+          const owner = owners[row.workspaceId];
+          return (
+            <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
+              <Text numberOfLines={single ? 1 : undefined} style={{ fontSize: 13, lineHeight: 18 }}>
+                <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · {row.board} · </Text>
+                <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
+                <Text style={{ color: colors.foregroundMuted }}> · P{row.priority} · </Text>
+                <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.what}</Text>
+                {owner ? <Text style={{ color: colors.foregroundMuted }}> · {owner.name}</Text> : null}
+              </Text>
+            </Pressable>
+          );
+        })}
         {feed.changes.length > 7 ? (
           <Pressable accessibilityRole="button" onPress={() => setFull(!full)}>
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{full ? "Show less" : `More info (${feed.changes.length})`}</Text>
@@ -230,7 +251,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
-      {groups ? <PageFeed colors={colors} groups={groups} now={now} /> : null}
+      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (

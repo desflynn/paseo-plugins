@@ -55,8 +55,8 @@ test("the page feed merges every board's feed, newest first", () => {
   const summary = (feed: NonNullable<import("../shared/overview.ts").BoardSummary["feed"]>) => ({ title: "B", open: 0, inProgress: 0, done: 0, statuses: [], percent: 0, doneMin: 0, totalMin: 0, inProgressMin: 0, priorities: { p0: 0, p1: 0, p2: 0, lower: 0 }, autoCount: 0, now: null, ready: [], feed });
   const group = (id: string, title: string, feed: NonNullable<import("../shared/overview.ts").BoardSummary["feed"]>) => ({ projectId: id, projectName: id, workspaces: [{ workspace: { id, projectId: id, projectName: id, name: id, directory: `/r/${id}` }, board: summary(feed), agents: [] }], totals: { boards: 1, fullAutos: 0, active: 0, stuck: 0, agents: 0 } });
   const rows = pageFeed([
-    group("a", "A", { live: [{ id: "o1", title: "Live A", at: at(9) }], changes: [{ id: "o1", title: "Live A", what: "Working", at: at(9) }], finished: [] }),
-    group("b", "B", { live: [], changes: [{ id: "o2", title: "Done B", what: "Completed", at: at(10) }], finished: [{ id: "o2", title: "Done B", at: at(10), result: "shipped" }] }),
+    group("a", "A", { live: [{ id: "o1", title: "Live A", at: at(9), priority: 1 }], changes: [{ id: "o1", title: "Live A", what: "Working", at: at(9), priority: 1 }], finished: [] }),
+    group("b", "B", { live: [], changes: [{ id: "o2", title: "Done B", what: "Completed", at: at(10), priority: 2 }], finished: [{ id: "o2", title: "Done B", at: at(10), priority: 2, result: "shipped" }] }),
   ]);
   assert.deepEqual(rows.live.map((row) => row.title), ["Live A"]);
   assert.deepEqual(rows.changes.map((row) => row.title), ["Done B", "Live A"], "newest first across boards");

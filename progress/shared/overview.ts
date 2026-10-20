@@ -37,9 +37,9 @@ export interface BoardSummary {
   feed?: { live: FeedLive[]; changes: FeedRow[]; finished: FeedDone[] };
 }
 
-export type FeedLive = { id: string; title: string; stage?: string; at: string };
-export type FeedRow = { id: string; title: string; what: string; at: string };
-export type FeedDone = { id: string; title: string; at: string; result?: string };
+export type FeedLive = { id: string; title: string; stage?: string; at: string; priority: number };
+export type FeedRow = { id: string; title: string; what: string; at: string; priority: number };
+export type FeedDone = { id: string; title: string; at: string; priority: number; result?: string };
 
 const FEED_LIVE = 5;
 const FEED_ROWS = 30;
@@ -90,11 +90,11 @@ export function summariseBoard(dashboard: Dashboard): BoardSummary | null {
 export function boardFeed(dashboard: Dashboard): NonNullable<BoardSummary["feed"]> {
   const { tickets } = dashboard;
   return {
-    live: liveObjectives(tickets).slice(0, FEED_LIVE).map((ticket) => ({ id: displayId(ticket.id), title: ticket.title, ...(ticket.stage ? { stage: ticket.stage } : {}), at: ticket.startedAt ?? ticket.statusSince })),
-    changes: objectiveFeed(tickets).slice(0, FEED_ROWS).map((entry) => ({ id: displayId(entry.ticket.id), title: entry.ticket.title, what: entry.what, at: entry.at })),
+    live: liveObjectives(tickets).slice(0, FEED_LIVE).map((ticket) => ({ id: displayId(ticket.id), title: ticket.title, ...(ticket.stage ? { stage: ticket.stage } : {}), at: ticket.startedAt ?? ticket.statusSince, priority: displayPriority(ticket) })),
+    changes: objectiveFeed(tickets).slice(0, FEED_ROWS).map((entry) => ({ id: displayId(entry.ticket.id), title: entry.ticket.title, what: entry.what, at: entry.at, priority: displayPriority(entry.ticket) })),
     finished: finishedNewest(tickets).slice(0, FEED_FINISHED).map((ticket) => {
       const result = labeledLine(closingNote(ticket));
-      return { id: displayId(ticket.id), title: ticket.title, at: ticket.statusSince, ...(result?.label === "RESULT" ? { result: result.text } : {}) };
+      return { id: displayId(ticket.id), title: ticket.title, at: ticket.statusSince, priority: displayPriority(ticket), ...(result?.label === "RESULT" ? { result: result.text } : {}) };
     }),
   };
 }
@@ -105,22 +105,32 @@ export function withFeed(summary: BoardSummary | null, dashboard: Dashboard): Bo
 
 // The Progress page's feed, merged across every board on it: live work, the
 // recent status changes and the recent completions, newest first (o52).
-export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { board: string }>; changes: Array<FeedRow & { board: string }>; finished: Array<FeedDone & { board: string }> } {
-  const live: Array<FeedLive & { board: string }> = [];
-  const changes: Array<FeedRow & { board: string }> = [];
-  const finished: Array<FeedDone & { board: string }> = [];
+export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { board: string; workspaceId: string }>; changes: Array<FeedRow & { board: string; workspaceId: string }>; finished: Array<FeedDone & { board: string; workspaceId: string }> } {
+  const live: Array<FeedLive & { board: string; workspaceId: string }> = [];
+  const changes: Array<FeedRow & { board: string; workspaceId: string }> = [];
+  const finished: Array<FeedDone & { board: string; workspaceId: string }> = [];
   for (const group of groups) {
     for (const entry of group.workspaces) {
       const board = entry.board?.title ?? entry.workspace.name;
       const feed = entry.board?.feed;
       if (!feed) continue;
-      for (const row of feed.live) live.push({ ...row, board });
-      for (const row of feed.changes) changes.push({ ...row, board });
-      for (const row of feed.finished) finished.push({ ...row, board });
+      const workspaceId = entry.workspace.id;
+      for (const row of feed.live) live.push({ ...row, board, workspaceId });
+      for (const row of feed.changes) changes.push({ ...row, board, workspaceId });
+      for (const row of feed.finished) finished.push({ ...row, board, workspaceId });
     }
   }
   const newest = (a: { at: string }, b: { at: string }) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0);
-  return { live: live.sort(newest), changes: changes.sort(newest), finished: finished.sort(newest) };
+  // One row per objective: its newest event wins, so a start and its completion
+  // never show twice (Des, 19 Oct).
+  const seen = new Set<string>();
+  const once = changes.sort(newest).filter((row) => {
+    const key = `${row.workspaceId}:${row.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { live: live.sort(newest), changes: once, finished: finished.sort(newest) };
 }
 
 // The Progress page asks for every board on every poll (3 s). A summary costs a
