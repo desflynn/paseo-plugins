@@ -207,7 +207,10 @@ function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups:
     <View style={{ marginHorizontal: 16, marginTop: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: "hidden" }}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}
         style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surface1, borderBottomWidth: open ? 1 : 0, borderBottomColor: colors.border }}>
-        <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>Feed</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Chevron colors={colors} open={open} />
+          <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>Feed</Text>
+        </View>
       </Pressable>
       {open ? <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}>
         {rows.map((row) => {
