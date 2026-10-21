@@ -1,5 +1,5 @@
 import type { Dashboard, Ticket } from "./dashboard.ts";
-import { headlineText, shortTitle, ticketName } from "./dashboard.ts";
+import { owedStuck, headlineText, shortTitle, ticketName } from "./dashboard.ts";
 import { formatAgo, formatClock, formatEstimate, formatMinutes, formatWorkDone, minutesSince } from "./format.ts";
 
 const STATUS: Record<string, string> = { open: "Open", in_progress: "In progress", blocked: "Blocked" };
@@ -40,9 +40,10 @@ export function dashboardText(dashboard: Dashboard, nowMs: number): string {
   if (dashboard.issues.length) {
     lines.push("", `Skipped lines: ${dashboard.issues.map((issue) => `line ${issue.line} (${issue.reason})`).join(", ")}`);
   }
-  if (dashboard.stuck.length) {
+  const stuckItems = owedStuck(dashboard.stuck, dashboard.tickets);
+  if (stuckItems.length) {
     lines.push("", "Stuck");
-    for (const item of dashboard.stuck) {
+    for (const item of stuckItems) {
       const detail = item.kind === "overdue" ? `no update for longer than its ${formatMinutes(item.estimateMin)} estimate`
         : item.kind === "blocked" ? `blocked${item.note ? `: ${item.note}` : ""}`
         : `${item.id}: ${item.reason}`;
