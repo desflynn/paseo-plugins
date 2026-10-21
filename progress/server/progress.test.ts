@@ -13,7 +13,7 @@ import { runCli } from "./cli.ts";
 import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPanelOpened, handleSetBoardMode, handleSetHistoryFolder } from "./dashboard.ts";
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
-import { boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
+import { openChildren, boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
 import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
@@ -1958,4 +1958,12 @@ test("a saved file that already mixes workspaces heals on its workspace's next w
   const text = await readFile(file, "utf8");
   assert.doesNotMatch(text, /Not mine/, "the other workspace's event is gone");
   assert.match(text, /After the pollution/);
+});
+
+test("closing a parent refuses while a child is still open", () => {
+  const base = { title: "T", estimateMin: 10, statusSince: "", history: [] };
+  const parent = { ...base, id: "o1", status: "open", under: undefined } as unknown as Ticket;
+  const child = { ...base, id: "o1.1", status: "in_progress", under: "o1" } as unknown as Ticket;
+  const stranger = { ...base, id: "o2", status: "open" } as unknown as Ticket;
+  assert.deepEqual(openChildren({ tickets: [parent, child, stranger] } as never, "o1").map((ticket) => ticket.id), ["o1.1"], "the open child under the parent is what blocks the close");
 });

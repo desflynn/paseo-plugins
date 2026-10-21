@@ -42,6 +42,8 @@ Record each change as it happens, on the ticket's id from `show` (o1, o2, ...):
 | A milestone the user would want in the story | `activity add "<one line>" --ticket o3` |
 | Between bigger events | `ticker set "<what you are doing right now>"`, then `ticker clear` when it no longer applies |
 | The ticket is finished | `ticket done o3 --note "<the proof>"` (closes with reason done). The close note is where the proof goes: the test count, the SHA, or the check that passed — no proof, no done. Then start the next one |
+
+Closing a parent settles every open child in the same move — done with the parent's proof, or skipped with a reason — so the subtree never ends up orphaned. `ticket done <parent>` refuses while a child is still open and names it; close the children first.
 | The plan drops it but it should stay visible | `ticket update o3 --status closed --close-reason skipped --note "<why>"` |
 | The ticket belongs on another workspace | `ticket move o3 --to <workspace-id>` — it leaves this workspace's board and renders only on the target's (and `show --all`). Children follow the parent. Nothing is rewritten; a correction event is appended |
 | A ticket from another workspace's board should be yours | `ticket claim-from-all o3` — the same reallocation, with the target defaulting to your workspace |

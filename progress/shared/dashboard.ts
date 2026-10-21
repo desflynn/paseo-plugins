@@ -1145,6 +1145,10 @@ export type Indicator =
 // priority, so it does not count.
 // Des, 19 Oct: only P0 to P2 objectives can be stuck. P3, P4 and none are
 // backlog, not live work, so a blocked P4 is not a warning anywhere.
+export function openChildren(dashboard: Pick<Dashboard, "tickets">, id: string): Ticket[] {
+  return dashboard.tickets.filter((ticket) => ticket.under === id && ticket.status !== "closed");
+}
+
 export function owedStuck(stuck: StuckItem[], tickets: Ticket[]): StuckItem[] {
   return stuck.filter((item) => {
     const priority = item.ticketId === undefined ? undefined : tickets.find((ticket) => ticket.id === item.ticketId)?.priority;

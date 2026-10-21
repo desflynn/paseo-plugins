@@ -4,7 +4,7 @@ import { realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { boardIsClear, boardStatuses, filterTickets, indicatorLabel, isSettled, READY_TO_PULL, type TicketFilter, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
+import { openChildren, boardIsClear, boardStatuses, filterTickets, indicatorLabel, isSettled, READY_TO_PULL, type TicketFilter, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
 import { CLOSE_REASONS, CONN_MODES, DELIVERABLE_KINDS, HOLD_KINDS, type BoardStatus, type CloseReason, type ConnMode, type FileLink, type HoldKind, type ProgressEvent } from "../shared/events.ts";
 import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDraft } from "./progress-file.ts";
 import { findRoot, outside } from "./paths.ts";
@@ -366,6 +366,13 @@ const commands: Record<string, Command> = {
     run({ positionals, values, state }) {
       const ticket = existingTicket(state, positionals[0]);
       const note = stringOption(values.note);
+      // A parent never closes over an open child (Des, 21 Oct): settle the
+      // subtree first, or the children are orphaned with no one to pick them up.
+      const open = openChildren(state.dashboard, ticket.id);
+      if (open.length) {
+        const ids = open.map((child) => child.id).join(", ");
+        throw new UsageError(`Refusing to close ${ticket.id}: ${open.length === 1 ? "one open child is" : `${open.length} open children are`} still under it (${ids}). Settle the subtree first — ${USAGE_NAME} ticket done ${open[0].id} --note "<the proof>" — then close ${ticket.id}. Nothing was written.`);
+      }
       return {
         event: { type: "ticket.update", id: ticket.id, status: "closed" as const, closeReason: "done" as const, note },
         message: `Done ${ticket.id}: ${ticket.title}${note ? `, note ${note}` : ""}`,
