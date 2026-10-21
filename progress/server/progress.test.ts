@@ -1301,7 +1301,7 @@ test("a lock left behind by a crashed command is taken over", async (t) => {
 
 test("show prints the dashboard as text for the agent", async (t) => {
   const w = await screenshotRun(t);
-  await w.run("ticket", "update", "o3", "--stage", "Fixes");
+  await w.run("ticket", "update", "o3", "--stage", "Fixes", "--priority", "1");
   await w.run("question", "ask", "Row spacing", "Even out the spacing?", "--option", "A=Yes", "--option", "B=No", "--recommend", "B");
   await w.run("deliverable", "add", "Screenshots", ".scratch/shots/", "--ticket", "o3");
   await w.run("activity", "add", "Ticket 03 moved to Fixes.");
