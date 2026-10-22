@@ -1059,92 +1059,16 @@ export function finishedNewest(tickets: Ticket[]): Ticket[] {
 }
 
 export function objectiveFeed(tickets: Ticket[]): FeedChange[] {
+  // One row per objective, from its status now, not from its history: an
+  // objective that was started and later left open is not Working (Des, 21 Oct).
   const entries: FeedChange[] = [];
   for (const ticket of tickets) {
-    ticket.history.forEach((change, index) => {
-      if (change.status !== "in_progress" && change.status !== "closed") return;
-      entries.push({ key: `${ticket.id}:${index}:${change.at}`, at: change.at, ticket, what: change.status === "in_progress" ? "Working" : "Completed" });
-    });
+    if (ticket.status !== "in_progress" && ticket.status !== "closed") continue;
+    entries.push({ key: ticket.id, at: lastUpdate(ticket), ticket, what: ticket.status === "in_progress" ? "Working" : "Completed" });
   }
   return entries.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
 }
 
-// The note on the change that closed the ticket; the ticket's own note when the
-// close carried none.
-export function closingNote(ticket: Ticket): string | undefined {
-  for (let index = ticket.history.length - 1; index >= 0; index--) {
-    const change = ticket.history[index];
-    if (change.status === "closed" && change.note) return change.note;
-  }
-  return ticket.note;
-}
-
-export function ticketDepth(ticket: Ticket, tickets: Ticket[]): number {
-  return ancestry(ticket, new Map(tickets.map((entry) => [entry.id, entry]))).length - 1;
-}
-
-// The finished tickets (done or skipped) the panel folds into one row at the
-// top, in plan order, so the work still ahead sits near the top. A ticket
-// finished out of order folds too. A single one isn't worth a fold row. Once
-// every ticket is finished nothing is ahead, and the whole list is the record
-// of the run, so nothing folds.
-// O3000 (o30): family grouping for the Beads view — a child renders inline
-// under its epic, recursively (a child with its own children nests deeper).
-// OWNER SPEC: all open beads band by priority — within a band the epics
-// (families with children) come first, each followed by its children; the
-// children ride their epic's band whatever their own pill says; then the
-// band's parentless beads. A child attaches only when its epic is in the
-// same slice (the bucket rule lives with the caller); an orphan — epic
-// absent from the read — stays top-level, so no row ever drops or doubles.
-export type NestedBead<T> = { issue: T; children: Array<NestedBead<T>> };
-export function nestBeads<T extends { id: string; parent?: string; priority?: number }>(issues: T[]): Array<NestedBead<T>> {
-  const entries = new Map<string, NestedBead<T>>();
-  for (const issue of issues) entries.set(issue.id, { issue, children: [] });
-  const tops: Array<NestedBead<T>> = [];
-  for (const issue of issues) {
-    const parent = issue.parent && issue.parent !== issue.id ? entries.get(issue.parent) : undefined;
-    if (parent) parent.children.push(entries.get(issue.id)!);
-    else tops.push(entries.get(issue.id)!);
-  }
-  const band = (entry: NestedBead<T>) => entry.issue.priority ?? 9;
-  const order = (list: Array<NestedBead<T>>): Array<NestedBead<T>> => {
-    // Stable sort: ties keep the caller's order (compareBeads). Epics first
-    // inside a band, so a sprint leads its own children and the strays.
-    list.sort((a, b) => (band(a) !== band(b) ? band(a) - band(b) : a.children.length && !b.children.length ? -1 : !a.children.length && b.children.length ? 1 : 0));
-    list.forEach((entry) => order(entry.children));
-    return list;
-  };
-  return order(tops);
-}
-
-export function finishedToFold(tickets: Ticket[]): Ticket[] {
-  const finished = tickets.filter(isFinished);
-  return finished.length >= 2 && finished.length < tickets.length ? finished : [];
-}
-
-// What the objectives list shows in place and what folds behind the count
-// row. A finished ticket the fold doesn't take (a lone one, or every ticket on
-// a finished board) stays listed in plan order, never dropped.
-export function splitFinished(tickets: Ticket[]): { listed: Ticket[]; folded: Ticket[] } {
-  const folded = finishedToFold(tickets);
-  const taken = new Set(folded);
-  return { listed: tickets.filter((ticket) => !taken.has(ticket)), folded };
-}
-
-// The board-name line's indicator: what the whole board is doing, as up to two
-// counted statuses. Idle only when nothing is moving or stuck. Stale means
-// in-progress work with no update (a running agent keeps it active); a board
-// with nothing in progress cannot be stale. The reasons ride the objective rows.
-export type Indicator =
-  | { kind: "idle" }
-  | { kind: "active" | "stale" | "stuck"; count: number };
-
-// Des, 16 Oct: "Stucks are only 0/1/2s and active or fullauto." A stuck item
-// counts only when its objective is P0 to P2, and only on a board that has work
-// in progress or a full auto on. A flag with no objective behind it has no
-// priority, so it does not count.
-// Des, 19 Oct: only P0 to P2 objectives can be stuck. P3, P4 and none are
-// backlog, not live work, so a blocked P4 is not a warning anywhere.
 export function openChildren(dashboard: Pick<Dashboard, "tickets">, id: string): Ticket[] {
   return dashboard.tickets.filter((ticket) => ticket.under === id && ticket.status !== "closed");
 }
