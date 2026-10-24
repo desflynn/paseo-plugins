@@ -12,7 +12,7 @@ import { resolveWorkspaceId } from "./workspace.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { installLauncher } from "./launcher.ts";
 import { closeBackingBeads } from "./beads.ts";
-import { findStore, saveRunCopy } from "./store.ts";
+import { findStore, outsideDirectory, saveRunCopy } from "./store.ts";
 import { dashboardText, ticketLines } from "../shared/show.ts";
 import { imageMimeType } from "../shared/attachments.ts";
 import { homedir } from "node:os";
@@ -670,6 +670,7 @@ const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Pro
 const TICKET_SHOW_USAGE = "ticket show <id> [--json]";
 const TICKET_SHOW_SUMMARY = "Print one objective: its status, priority (when set), estimate and name. --json gives the whole objective for a machine.";
 const INSTALL_SUMMARY = "Write the paseo-progress launcher (default ~/.local/bin/paseo-progress). It runs this command from whichever copy of the plugin Paseo is running.";
+const STATE_SUMMARY = "Print the folder where this worktree's board lives. It is the same key the store uses: the resolved worktree root (realpath, nearest .git) plus its first eight hex. A script that moves a repo prints it before the move for the old name and after for the new one, then renames the folder.";
 const DEFAULT_LAUNCHER = "~/.local/bin/paseo-progress";
 
 function help(): string {
@@ -686,6 +687,8 @@ function help(): string {
     `      ${TICKET_SHOW_SUMMARY}`,
     `  install-launcher [path]`,
     `      ${INSTALL_SUMMARY}`,
+    `  state path [dir]`,
+    `      ${STATE_SUMMARY}`,
   ].join("\n");
 }
 
@@ -835,6 +838,20 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
     out(help());
     return first ? 0 : 1;
   }
+  if (first === "state") {
+    const [, sub, target] = argv;
+    if (!sub || sub === "--help" || sub === "-h") {
+      out(`Usage: ${USAGE_NAME} state path [dir]\n\n${STATE_SUMMARY}`);
+      return sub ? 0 : 1;
+    }
+    if (sub !== "path") {
+      out(`Unknown state command: ${sub}\nUsage: ${USAGE_NAME} state path [dir]`);
+      return 1;
+    }
+    out(outsideDirectory(findRoot(target ?? options.cwd)));
+    return 0;
+  }
+
   if (first === "show" || first === "install-launcher") {
     if (argv.slice(1).includes("--help") || argv.slice(1).includes("-h")) {
       out(first === "show" ? `Usage: ${USAGE_NAME} show\n\n${SHOW_SUMMARY}` : `Usage: ${USAGE_NAME} install-launcher [path]\n\n${INSTALL_SUMMARY}`);

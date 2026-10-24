@@ -1337,6 +1337,19 @@ test("show prints the dashboard as text for the agent", async (t) => {
   ]) assert.ok(text.includes(expected), `missing: ${expected}\n\n${text}`);
 });
 
+test("state path prints the folder the board lives in, so a move script can carry it", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Release");
+  const { code, text } = await w.run("state", "path");
+  assert.equal(code, 0);
+  const printed = text.trim();
+  assert.equal(printed, outsideDirectory(w.directory), "the same key the store uses, from the same code path");
+  assert.match(printed.split("/").pop()!, /-[0-9a-f]{8}$/, "basename plus eight hex");
+  assert.ok((await readdir(printed)).includes("progress.jsonl"), "the folder really holds the board");
+  const fromArgument = await w.run("state", "path", w.directory);
+  assert.equal(fromArgument.text.trim(), printed, "a directory argument reads as the same board as the cwd");
+});
+
 async function runShow(w: Awaited<ReturnType<typeof worktree>>, minute: number) {
   const output: string[] = [];
   const code = await runCli(["show"], { cwd: w.directory, now: () => minutes(minute), out: (line) => output.push(line) });

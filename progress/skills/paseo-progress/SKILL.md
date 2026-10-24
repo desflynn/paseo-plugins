@@ -13,6 +13,8 @@ The user answers questions by reference ("Q7 A") and reads everything else at a 
 
 One setup command sits outside any run: `install-launcher [path]` writes the `paseo-progress` launcher (default `~/.local/bin/paseo-progress`) that runs whichever copy of the plugin Paseo is running.
 
+The board file lives outside the repo, keyed on the repo's resolved path: `~/.local/state/paseo-progress/<basename>-<sha1 first eight hex>/progress.jsonl`. Moving a repo therefore looks like a new, empty board. `state path [dir]` prints that folder using the same key the store uses, so a script that moves a repo prints it before the move for the old name, moves the repo, prints it again, and renames the folder. Otherwise the old history stays on disk, orphaned.
+
 ## 1. Set up the run
 
 To change the board's name later, use `paseo-progress rename "<title>" [--subtitle <text>]` (`--subtitle ""` clears the subtitle); it works on a finished run too and leaves ids and history alone.
