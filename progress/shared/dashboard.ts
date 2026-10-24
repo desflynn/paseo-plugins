@@ -759,7 +759,7 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
     run,
     updatedAt,
     stale: !finished && updatedAt !== null && time.reached(Date.parse(updatedAt) + STALE_AFTER_MIN * 60_000),
-    headline: headline(list, itemLabel, open.length, stuck.length),
+    headline: headline(list, itemLabel, open.length, owedStuck(stuck, list).length),
     stuck,
     questions: { open, answered },
     activity: [...activity.values()].reverse(),
@@ -1061,10 +1061,8 @@ export function finishedNewest(tickets: Ticket[]): Ticket[] {
 export function objectiveFeed(tickets: Ticket[]): FeedChange[] {
   const entries: FeedChange[] = [];
   for (const ticket of tickets) {
-    ticket.history.forEach((change, index) => {
-      if (change.status !== "in_progress" && change.status !== "closed") return;
-      entries.push({ key: `${ticket.id}:${index}:${change.at}`, at: change.at, ticket, what: change.status === "in_progress" ? "Working" : "Completed" });
-    });
+    if (ticket.status !== "in_progress" && ticket.status !== "closed") continue;
+    entries.push({ key: ticket.id, at: lastUpdate(ticket), ticket, what: ticket.status === "in_progress" ? "Working" : "Completed" });
   }
   return entries.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
 }

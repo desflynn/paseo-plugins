@@ -17,6 +17,12 @@ test("the feed is status changes only, in two words, newest first", () => {
   assert.deepEqual(feed.map((entry) => [entry.ticket.id, entry.what]), [["o2", "Working"], ["o1", "Completed"]], "adds and updates are noise");
 });
 
+test("the feed reads the objective's status now, not its history", () => {
+  const takenOff = ticket({ id: "o3", status: "open", statusSince: at(7), history: [{ at: at(1) }, { at: at(5), status: "in_progress" }, { at: at(7), status: "open" }] });
+  const feed = objectiveFeed([started("o2", 5), done("o1", 3), takenOff]);
+  assert.deepEqual(feed.map((entry) => [entry.ticket.id, entry.what]), [["o2", "Working"], ["o1", "Completed"]], "an objective taken off the board leaves the feed");
+});
+
 const directory = new URL("../", import.meta.url).pathname;
 const rn = {
   View: (props: Record<string, unknown>) => null,

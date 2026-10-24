@@ -331,6 +331,19 @@ test("a ticket waiting for another is not stuck, even if marked blocked, until t
   assert.equal((await w.dashboard()).dashboard.tickets.find((ticket) => ticket.id === "o2")?.waitsFor, undefined, "an empty value clears it");
 });
 
+test("the headline counts only the stuck that are owed: P0-P2", async (t) => {
+  const w = await worktree(t);
+  await w.run("start", "Release");
+  await w.run("ticket", "add", "Urgent", "--estimate", "10", "--priority", "1");
+  await w.run("ticket", "add", "Parked", "--estimate", "10", "--priority", "4");
+  await w.run("ticket", "update", "o1", "--status", "blocked", "--note", "Staging is down");
+  await w.run("ticket", "update", "o2", "--status", "blocked", "--note", "Waiting on Des");
+
+  const { dashboard } = await w.dashboard();
+  assert.equal(dashboard.stuck.length, 2, "both are stalled");
+  assert.equal(dashboard.headline.find((part) => part.text.endsWith("stuck"))?.text, "1 stuck", "a parked P4 is backlog, not stuck work");
+});
+
 test("opening the panel is remembered in the worktree", async (t) => {
   const w = await worktree(t);
   await w.run("start", "Export");
@@ -850,6 +863,8 @@ test("a working ticket shows its stage and when that stage started", async (t) =
 
 test("a working ticket becomes stuck once it goes longer than its estimate without an update", async (t) => {
   const w = await screenshotRun(t);
+  // Only owed work (P0-P2) counts as stuck.
+  await w.run("ticket", "update", "o3", "--priority", "1");
   assert.deepEqual((await w.dashboard(120)).dashboard.stuck, [], "exactly at the estimate is not stuck");
   const { dashboard } = await w.dashboard(617);
   assert.deepEqual(dashboard.stuck, [{
@@ -1314,7 +1329,7 @@ test("show prints the dashboard as text for the agent", async (t) => {
     "58% of estimated work done, 4 h 30 min of 7 h 45 min",
     "POSSIBLY STALE: no update for 10 h 17 min.",
     "Ticket 03 (no update for longer than its 2 h estimate)",
-    "o3  In progress, Fixes stage  2 h  Ticket 03",
+    "o3  In progress, Fixes stage  P1  2 h  Ticket 03",
     "Q1 (Row spacing): Even out the spacing? You recommended B",
     "      B) No",
     "D1  Screenshots: .scratch/shots/, Ticket 03",
