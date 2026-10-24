@@ -15,7 +15,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { boardStatuses, closingNote, connDisplay, connLabel, displayPriority, finishedNewest, holdHover, holdLabel, indicatorLabel, isAutoPullable, labeledLine, liveObjectives, objectiveFeed, owedStuck, splitFinished, tickerIcon, type Conn, type Hold, isFinished, type Indicator, shortTitle, ticketName, sortObjectives, promotedBeads, rowTone, ticketDepth, type Activity, type Dashboard, type FileIssue, type ProgressSegment, type StuckItem, type Ticket } from "../shared/dashboard";
 import type { BoardStatus } from "../shared/events";
-import { formatMinutes, formatWorkDone, quietSince } from "../shared/format";
+import { formatMinutes, formatWorkDone, quietSince, shortAgo } from "../shared/format";
 import { markPanelOpened, getBeads, reportPerf, type BeadsResult } from "../shared/rpc";
 import { countRender, mark, watchPanel } from "./perf";
 import { useDashboard } from "./dashboard-query";
@@ -695,22 +695,21 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
       tone={rowTone(ticket.status)}
       dim={!muted && !working}
       strike={muted}
-      priority={displayPriority(ticket)}
+      priority={undefined}
       autoPull={autoPull}
+      facts={
+        <>
+          {displayPriority(ticket) === undefined ? null : (
+            <Text style={{ backgroundColor: colors.surface2, color: colors.foregroundMuted, fontSize: 10, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{`P${displayPriority(ticket)}`}</Text>
+          )}
+          {working && ticket.startedAt ? <Stamp colors={colors} icon="Play" iso={ticket.startedAt} label="Started" /> : null}
+          {working && ticket.stage && ticket.stageSince ? <Stamp colors={colors} icon="RefreshCw" iso={ticket.stageSince} label={`${ticket.stage} stage started`} /> : null}
+        </>
+      }
       detail={
         <>
           {reason ? <Text style={{ color: colors.statusDanger, fontSize: 12, lineHeight: 17, fontWeight: "600" }}>{reason}</Text> : null}
           {quiet}
-          {working && ticket.stage && ticket.stageSince ? (
-            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-              {ticket.stage} stage started <When colors={colors} iso={ticket.stageSince} />
-            </Text>
-          ) : null}
-          {working && ticket.startedAt ? (
-            <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-              {narrow ? "Started " : "Working since "}<When colors={colors} iso={ticket.startedAt} />
-            </Text>
-          ) : null}
           {ticket.waitingFor ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
           ) : null}
@@ -819,6 +818,20 @@ export function LabeledNote({ colors, ticket, expanded }: { colors: Colors; tick
   const text = noteText(ticket);
   if (text === undefined) return null;
   return <Text numberOfLines={expanded ? undefined : NOTE_LINES} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{text}</Text>;
+}
+
+// One compact age in the right column: an icon that says which clock it is,
+// and the number beside it (Des, 25 Oct). A leaf, so only it repaints on the
+// tick. The full sentence rides the accessibility label.
+function Stamp({ colors, icon, iso, label }: { colors: Colors; icon: "Play" | "RefreshCw"; iso: string; label: string }) {
+  const now = useNowClock();
+  const age = shortAgo(iso, now);
+  return (
+    <View accessible accessibilityLabel={`${label} ${age === "now" ? "just now" : `${age} ago`}`} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+      <Icon name={icon} size={11} color={colors.foregroundMuted} />
+      <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, fontVariant: ["tabular-nums"] }}>{age}</Text>
+    </View>
+  );
 }
 
 // The card's note with its tap: the clamp above, and the line that lifts it.

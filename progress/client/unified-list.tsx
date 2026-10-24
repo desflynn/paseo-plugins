@@ -54,7 +54,7 @@ export function UnifiedStatusIcon({ colors, status, nested = false }: { colors: 
 // the tight id + title, the priority pill, the row's detail lines, its chips
 // — then, only on the objectives, the deliverables slot and the estimate.
 // Beads and GH rows carry no time element; nothing is invented for them.
-export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = tone === "potential", strike = false, priority, tag, autoPull = false, italic = false, detail, chips, estimateMin, deliverables, onOpen, accessibilityLabel, narrow = false, depth = 0 }: {
+export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = tone === "potential", strike = false, priority, tag, autoPull = false, italic = false, detail, chips, facts, estimateMin, deliverables, onOpen, accessibilityLabel, narrow = false, depth = 0 }: {
   colors: Colors;
   // The status mark in the slot every view shares; the label carries the
   // status word for reading.
@@ -77,6 +77,9 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
   italic?: boolean;
   detail?: React.ReactNode;
   chips?: React.ReactNode;
+  // The right column's lines below the time element: the priority and the
+  // relative stamps (Des, 25 Oct), so they stop eating the name's width.
+  facts?: React.ReactNode;
   // The time element: objectives only.
   estimateMin?: number;
   deliverables?: number;
@@ -108,13 +111,19 @@ export function UnifiedRow({ colors, icon, iconLabel, id, title, tone, dim = ton
       </View>
       {/* Fixed slots so the Package icon and the estimates line up down the
           objectives list. Rows without a time element stop before them. */}
-      {estimateMin === undefined ? null : (
-        <>
-          <View accessibilityLabel={deliverables ? (deliverables === 1 ? "Has a deliverable" : `Has ${deliverables} deliverables`) : undefined} style={{ width: 12, height: 18, justifyContent: "center" }}>
-            {deliverables ? <Icon name="Package" size={12} color={colors.foregroundMuted} /> : null}
-          </View>
-          <Text style={{ minWidth: 40, flexShrink: 0, textAlign: "right", color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{formatEstimate(estimateMin)}</Text>
-        </>
+      {estimateMin === undefined && !facts ? null : (
+        <View style={{ alignItems: "flex-end", gap: 2 }}>
+          {estimateMin === undefined ? null : (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View accessibilityLabel={deliverables ? (deliverables === 1 ? "Has a deliverable" : `Has ${deliverables} deliverables`) : undefined} style={{ width: 12, height: 18, justifyContent: "center" }}>
+                {deliverables ? <Icon name="Package" size={12} color={colors.foregroundMuted} /> : null}
+              </View>
+              <Icon name="Clock" size={11} color={colors.foregroundMuted} />
+              <Text style={{ minWidth: 40, flexShrink: 0, textAlign: "right", color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{formatEstimate(estimateMin)}</Text>
+            </View>
+          )}
+          {facts}
+        </View>
       )}
       {onOpen && !narrow ? <View style={{ paddingTop: 2 }}><Icon name="ChevronRight" size={14} color={colors.foregroundMuted} /></View> : null}
     </View>

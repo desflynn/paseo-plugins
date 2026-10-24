@@ -6,8 +6,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { clientHarness } from "../../test-support/client-harness.mjs";
+import { shortAgo } from "../shared/format.ts";
 
 const directory = new URL("../", import.meta.url).pathname;
+
+test("the right column's stamps are compact ages", () => {
+  const now = Date.parse("2026-10-25T12:00:00.000Z");
+  assert.equal(shortAgo("2026-10-25T11:59:45.000Z", now), "now");
+  assert.equal(shortAgo("2026-10-25T11:05:00.000Z", now), "55m");
+  assert.equal(shortAgo("2026-10-25T09:00:00.000Z", now), "3h");
+  assert.equal(shortAgo("2026-10-24T01:17:00.000Z", now), "34h", "whole hours, never a rounded-up hour");
+  assert.equal(shortAgo("2026-10-20T12:00:00.000Z", now), "5d");
+});
 
 // react-native stubs: identity components so tree nodes can be told apart by
 // their `type`, and onPress hooks stay visible for the read-only assertions.

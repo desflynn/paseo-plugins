@@ -52,6 +52,17 @@ export function minutesSince(iso: string, nowMs: number): number {
   return Math.max(0, (nowMs - Date.parse(iso)) / 60_000);
 }
 
+// The compact age the right column carries (Des, 25 Oct): minutes under an
+// hour, whole hours under two days, whole days after that. Short enough to sit
+// beside an icon without eating the name's width.
+export function shortAgo(iso: string, nowMs: number): string {
+  const minutes = minutesSince(iso, nowMs);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${Math.floor(minutes)}m`;
+  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / (24 * 60))}d`;
+}
+
 // The working objective's quiet line: how long since the board last moved.
 // Takes the clock it reads, so it stays honest wherever it renders.
 export function quietSince(updatedAt: string | null, nowMs: number): string | undefined {
