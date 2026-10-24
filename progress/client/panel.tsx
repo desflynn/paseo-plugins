@@ -714,8 +714,8 @@ function TicketRow({ colors, ticket, live, onOpen, deliverables, reason, quiet, 
           {ticket.waitingFor ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>Waits for {shortTitle(ticket.waitingFor.title)}</Text>
           ) : null}
-          {/* At most NOTE_MAX characters on the row; the card shows the whole note. */}
-          <LabeledNote colors={colors} ticket={ticket} />
+          {/* At most NOTE_MAX characters on the row; the card clamps the note to a few lines until tapped. */}
+          <NoteBody colors={colors} ticket={ticket} />
         </>
       }
       chips={<RefChips colors={colors} ticket={ticket} />}
@@ -794,16 +794,47 @@ export function ObjectiveFeed({ colors, tickets, open, onOpen, expanded, onExpan
 
 // The note line on a card (Des, 19 Oct): the GOAL text while the objective is
 // open, the RESULT text from the close note once it is closed, the label
-// stripped because the card's own state says which one it is. A note with
-// neither label renders exactly as it always did. Hook-free so the render pin
-// can call it straight through the client harness.
-export function LabeledNote({ colors, ticket }: { colors: Colors; ticket: Ticket }) {
+// stripped because the card's own state says which one it is. A note is
+// background information, so it takes the detail colour rather than the
+// title's white (Des, 25 Oct), and a long one clamps to a few lines until the
+// reader taps for the rest. Keep the pure parts hook-free so the render pin can
+// call them straight through the client harness.
+export const NOTE_LINES = 3;
+// Below this the whole note already fits the clamp, so a toggle would lie.
+const NOTE_TOGGLE_MIN = 160;
+
+export function noteText(ticket: Ticket): string | undefined {
   const labeled = labeledLine(ticket.status === "closed" ? closingNote(ticket) : ticket.note);
   const wanted = ticket.status === "closed" ? "RESULT" : "GOAL";
-  if (labeled && labeled.label === wanted) {
-    return <Text style={{ color: colors.foreground, fontSize: 12, lineHeight: 17 }}>{labeled.text}</Text>;
-  }
-  return ticket.note ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{clip(ticket.note, NOTE_MAX)}</Text> : null;
+  if (labeled && labeled.label === wanted) return labeled.text;
+  return ticket.note ? clip(ticket.note, NOTE_MAX) : undefined;
+}
+
+export function noteWantsToggle(ticket: Ticket): boolean {
+  const text = noteText(ticket);
+  return text !== undefined && text.length > NOTE_TOGGLE_MIN;
+}
+
+export function LabeledNote({ colors, ticket, expanded }: { colors: Colors; ticket: Ticket; expanded?: boolean }) {
+  const text = noteText(ticket);
+  if (text === undefined) return null;
+  return <Text numberOfLines={expanded ? undefined : NOTE_LINES} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{text}</Text>;
+}
+
+// The card's note with its tap: the clamp above, and the line that lifts it.
+function NoteBody({ colors, ticket }: { colors: Colors; ticket: Ticket }) {
+  const [expanded, setExpanded] = useState(false);
+  if (noteText(ticket) === undefined) return null;
+  return (
+    <>
+      <LabeledNote colors={colors} ticket={ticket} expanded={expanded} />
+      {noteWantsToggle(ticket) ? (
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded((open) => !open)}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11, lineHeight: 16, fontWeight: "600" }}>{expanded ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
 }
 
 // The quiet line under a working objective ("No update for 23 min"): reads

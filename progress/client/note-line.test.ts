@@ -41,7 +41,25 @@ const rn = {
   Platform: { OS: "web", select: (options: Record<string, unknown>) => options.web },
   Animated: { View: (props: Record<string, unknown>) => null, Value: class { value: number; constructor(value: number) { this.value = value; } interpolate() { return this.value; } }, loop: () => ({ start() {}, stop() {} }), sequence: () => ({}), timing: () => ({}) },
 } as Record<string, unknown>;
-const load = () => clientHarness(directory, { "react-native": rn, "@getpaseo/plugin/client/react-native": { Icon: (props: Record<string, unknown>) => null } }).load("client/panel.tsx") as { LabeledNote: (props: { colors: unknown; ticket: Ticket }) => unknown };
+const load = () => clientHarness(directory, { "react-native": rn, "@getpaseo/plugin/client/react-native": { Icon: (props: Record<string, unknown>) => null } }).load("client/panel.tsx") as { LabeledNote: (props: { colors: Record<string, string>; ticket: Ticket; expanded?: boolean }) => unknown; noteWantsToggle: (ticket: Ticket) => boolean };
+
+test("a note is background information, not a headline", () => {
+  const { LabeledNote } = load();
+  const colors = { foreground: "#ffffff", foregroundMuted: "#8a8a8a" };
+  const node = LabeledNote({ colors, ticket: ticket({ note: "GOAL: ship it" }) }) as { props: { style: { color: string } } };
+  assert.equal(node.props.style.color, colors.foregroundMuted, "the goal reads like the rest of the detail, not the title");
+});
+
+test("a long note clamps to a few lines until the reader asks for the rest", () => {
+  const { LabeledNote, noteWantsToggle } = load();
+  const long = ticket({ note: `GOAL: ${"word ".repeat(80)}` });
+  const clamped = LabeledNote({ colors: {}, ticket: long }) as { props: { numberOfLines?: number } };
+  assert.equal(clamped.props.numberOfLines, 3, "three lines on the card");
+  const lifted = LabeledNote({ colors: {}, ticket: long, expanded: true }) as { props: { numberOfLines?: number } };
+  assert.equal(lifted.props.numberOfLines, undefined, "show more lifts the clamp");
+  assert.equal(noteWantsToggle(ticket({ note: "GOAL: short" })), false, "nothing to expand on a short note");
+  assert.equal(noteWantsToggle(long), true);
+});
 
 // The strings in an element tree, without running the host components.
 function text(node: unknown): string {
