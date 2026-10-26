@@ -8,7 +8,7 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-na
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getAllHostsOverview, getOverview } from "../shared/rpc";
-import { shortLabel } from "../shared/machine";
+import { machineTint, shortLabel } from "../shared/machine";
 import { listAll, loadWorkspaceOwner, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
@@ -220,7 +220,9 @@ function PageFeed({ colors, groups, now, navigation, machine }: { colors: Colors
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <Text numberOfLines={single ? 1 : undefined} style={{ fontSize: 13, lineHeight: 18 }}>
-                <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · {machine ? `${machine} · ` : ""}{row.board} · </Text>
+                <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · </Text>
+                {machine ? <Text style={{ color: machineTint(machine) }}>🖥 {shortLabel(machine)} · </Text> : null}
+                <Text style={{ color: colors.foregroundMuted }}>{row.board} · </Text>
                 <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
                 <Text style={{ color: colors.foregroundMuted }}> · P{row.priority} · </Text>
                 <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.what}</Text>

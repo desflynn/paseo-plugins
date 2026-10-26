@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boardStatuses, parseProgress, reduceProgress } from "../shared/dashboard.ts";
+import { machineTint, shortLabel } from "../shared/machine.ts";
 import { BOARD_MODES, MODE_LABEL } from "../shared/modes.ts";
 import {
   archiveConfirm, archivedFor, barSegments, cardAgents, plainName, buildSections, cardCount, chatsSpan, gridLayout, MODE_BUTTONS, MODE_TINT, modeConfirm, packRepos, repoSpan, spanWidth, headerCounts, optionHint, priorityChips, repoSummary, resultLine, splitGroup, statusDots, readyRows,
@@ -591,4 +592,15 @@ test("two boards with the same title are still two boards", () => {
   );
   assert.equal(groups[0].totals.boards, 2, "a shared title is not a shared board");
   assert.equal(groups[0].workspaces.length, 2);
+});
+
+// Des, 26 Oct: the machine reads as Paseo's sidebar does, an icon plus a short
+// code in the machine's own colour, not a long host name in plain grey.
+test("a machine gets a short code and one stable colour", () => {
+  assert.equal(shortLabel("MS"), "MS");
+  assert.equal(shortLabel("korolev"), "KOR");
+  assert.equal(shortLabel(""), "?");
+  assert.equal(machineTint("MS"), machineTint("ms"), "case does not change the colour");
+  assert.match(machineTint("MS"), /^#[0-9a-f]{6}$/);
+  assert.notEqual(machineTint("MS"), machineTint("KLV"), "two machines do not share a colour");
 });
