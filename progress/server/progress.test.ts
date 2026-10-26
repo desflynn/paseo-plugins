@@ -1935,6 +1935,23 @@ test("a board key carries the machine, and the pre-machine key is carried across
   assert.match(await readFile(join(key, "progress.jsonl"), "utf8"), /Old board/, "the board came with it");
 });
 
+// KOR's box hit this: a machine-keyed folder already existed holding only a
+// panel marker, so a carry-across that skipped an existing folder would orphan
+// the board. The board file moves in; nothing is replaced.
+test("a carry-across lands in a machine folder that already holds only a marker", async (t) => {
+  const repo = await newRepo(t);
+  const home = join(repo.directory, "home");
+  const key = outsideDirectory(repo.directory, home);
+  const legacy = legacyDirectory(repo.directory, home);
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, "progress.jsonl"), `${JSON.stringify({ v: 1, ts: minutes(0).toISOString(), type: "run.start", title: "Recovered board" })}\n`);
+  await mkdir(key, { recursive: true });
+  await writeFile(join(key, "progress-panel-opened"), "");
+  assert.equal((await findStore(repo.directory, home)).directory, key);
+  assert.match(await readFile(join(key, "progress.jsonl"), "utf8"), /Recovered board/, "the board landed under the machine key");
+  assert.ok(await stat(join(key, "progress-panel-opened")).catch(() => null), "the marker is left alone");
+});
+
 test("stopping saving is remembered, and does not fall back to the default", async (t) => {
   const repo = await newRepo(t);
   await repo.setOrigin(null);

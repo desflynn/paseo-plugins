@@ -120,11 +120,19 @@ export async function findStore(root: string, home = homedir(), options: { readO
 }
 
 // Carries a board from the pre-machine key across to the machine key, once.
-// Only when the new folder is absent, so a live board is never touched.
+// Only when the new folder has no board of its own, so a live board is never
+// touched. A machine-keyed folder can already exist holding nothing but a
+// panel marker, written before the board was carried across; the board file
+// moves into it rather than the folder being replaced.
 async function adoptLegacyKey(legacy: string, directory: string): Promise<void> {
   if (legacy === directory) return;
-  if (await exists(directory)) return;
-  if (!(await exists(legacy))) return;
+  const board = join(legacy, PROGRESS_FILE_NAME);
+  if (!(await exists(board))) return;
+  if (await exists(directory)) {
+    if (await exists(join(directory, PROGRESS_FILE_NAME))) return;
+    await rename(board, join(directory, PROGRESS_FILE_NAME)).catch(() => {});
+    return;
+  }
   await rename(legacy, directory).catch(() => {});
 }
 
