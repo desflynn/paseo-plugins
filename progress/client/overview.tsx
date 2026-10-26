@@ -3,7 +3,7 @@ import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { useQuery } from "@tanstack/react-query";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
@@ -184,8 +184,19 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(true);
   const [owners, setOwners] = useState<Record<string, { id: string; name: string }>>({});
-  // A narrow panel ellipsises the objective, so hovering a row shows it in full.
+  // A narrow panel ellipsises the objective, so hovering a row shows it in full
+  // after half a second: a pointer crossing rows must not flash a box at it.
   const [hovered, setHovered] = useState<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showOnHover = (key: string) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHovered(key), 500);
+  };
+  const hideOnHover = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+    setHovered(null);
+  };
   const paseo = usePaseo();
   const single = useWindowDimensions().width >= 700;
   const workspaces = feed.changes.map((row) => row.workspaceId).join(",");
@@ -220,7 +231,7 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           const done = row.what === "Completed";
           const owner = owners[row.workspaceId];
           return (
-            <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => setHovered(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={() => setHovered(null)} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
+            <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "center", columnGap: 4, minWidth: 0, position: "relative" }}>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
                 {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0 }}>
@@ -230,7 +241,7 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{plainName(row.board)} ·</Text>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
                 <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
-                {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2 }}>
+                {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0 }}>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{row.title}</Text>
                 </View> : null}
               </View>
