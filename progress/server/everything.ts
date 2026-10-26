@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { summariseBoard, type BoardSummary } from "../shared/overview.ts";
+import type { BoardSummary } from "../shared/overview.ts";
 import { collectHosts, type HostReader, type HostTarget } from "./collect.ts";
 
 const run = promisify(execFile);
@@ -14,24 +14,10 @@ export function cacheDirectory(): string {
   return join(homedir(), ".dci", "progress-cache");
 }
 
-// Where a host's boards come from. One Paseo host can hold more than one board:
-// korolev has a KOR board and a DF board, in two worktrees inside one container.
-// Targets come from ~/.dci/progress-hosts.json by Paseo label, as a string or a
-// list of strings:
-//   "des@100.98.165.77"                  -> ssh
-//   "docker:korolev:/path/to/worktree"   -> docker exec -w <worktree>
-// The -w flag is not optional for docker: without it the command runs in
-// /workspace and returns a VALID document with an EMPTY board (KOR Guy, 25 Oct),
-// which is indistinguishable from a dead host.
 export type HostCommand = { bin: string; args: string[] };
 
-function remote(dir?: string): string {
-  const path = 'export PATH="$HOME/.local/bin:$PATH"';
-  const show = "paseo-progress show --all --json";
-  const body = dir ? `cd ${dir} && ${path} && ${show}` : `${path} && ${show}`;
-  return `bash -lc '${body}'`;
-}
-
+// Which machine answers for a label. A label maps to one address in
+// ~/.dci/progress-hosts.json, either "des@host" or "docker:<container>".
 export function hostTargets(label: string): string[] {
   try {
     const map = JSON.parse(readFileSync(join(homedir(), ".dci", "progress-hosts.json"), "utf8")) as Record<string, string | string[]>;
@@ -44,52 +30,38 @@ export function hostTargets(label: string): string[] {
   return [label];
 }
 
-// A target is one of:
-//   docker:<container>:<worktree>   docker exec -w <worktree> <container>
-//   <address>:<dir>                 ssh <address>, then cd <dir>
-//   <address>                       ssh <address>
-// The folder is not decoration. paseo-progress reads the board of the checkout it
-// runs in. Run it in a home folder and it returns an empty board that looks valid.
+// One command per machine. `paseo-boards` sits on the bin path there and returns
+// every in-repo board in one JSON document:
+//   {"machine":"<host>","at":"<iso>","boards":[{"workspaceId","title","directory","summary"}]}
+// It does what this plugin does on its own host: ask that host's Paseo for its
+// workspaces, then fold each workspace's board. No repo path, no crawl, and no
+// per-repo subprocess, so a machine costs one round trip.
+const BOARDS_COMMAND = "bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; paseo-boards'";
+
 export function hostCommand(target: string): HostCommand {
   if (target.startsWith("docker:")) {
-    const [container, worktree] = target.slice("docker:".length).split(":");
-    const args = ["exec"];
-    if (worktree) args.push("-w", worktree);
-    args.push(container!, remote());
-    return { bin: "docker", args };
+    return { bin: "docker", args: ["exec", target.slice("docker:".length), BOARDS_COMMAND] };
   }
-  const at = target.indexOf("@");
-  const colon = at >= 0 ? target.indexOf(":", at) : target.indexOf(":");
-  const address = colon > 0 ? target.slice(0, colon) : target;
-  const dir = colon > 0 ? target.slice(colon + 1) : undefined;
-  return {
-    bin: "ssh",
-    args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", address.includes("@") ? address : `des@${address}`, remote(dir)],
-  };
+  const address = target.includes("@") ? target : `des@${target}`;
+  return { bin: "ssh", args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", address, BOARDS_COMMAND] };
 }
 
-// Every target of a host is read; a target that fails contributes nothing and
-// never fails its siblings. Empty board documents are dropped: a host that
-// answers with no objectives is a mis-run, not a result worth showing.
+// A host that answers with no boards is a failure, not a result: it falls to the
+// cache so the strip never claims a live machine has nothing on it.
 export const readHostBoards: HostReader = async (host) => {
+  const { bin, args } = hostCommand(hostTargets(host.label)[0]!);
+  const { stdout } = await run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 });
+  const payload = JSON.parse(stdout) as { boards?: Array<{ workspaceId?: string; summary?: BoardSummary }> };
   const boards: Record<string, BoardSummary | null> = {};
-  const targets = hostTargets(host.label);
-  const settled = await Promise.allSettled(
-    targets.map(async (target) => {
-      const { bin, args } = hostCommand(target);
-      const { stdout } = await run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 });
-      return summariseBoard((JSON.parse(stdout) as { dashboard?: unknown }).dashboard as never);
-    }),
-  );
-  settled.forEach((result, index) => {
-    if (result.status === "fulfilled" && result.value) boards[`host:${host.serverId}:${index}`] = result.value;
-  });
+  for (const board of payload.boards ?? []) {
+    if (board.workspaceId && board.summary) boards[board.workspaceId] = board.summary;
+  }
   if (!Object.keys(boards).length) throw new Error(`no boards read for ${host.label}`);
   return boards;
 };
 
 // The Everything call: every configured host, live where possible, cached where
-// not. Never throws for one dead host; `collectHosts` owns that.
+// not. One dead machine never fails the page.
 export async function handleGetAllHostsOverview(input: { hosts: HostTarget[] }) {
   const hosts = await collectHosts(input.hosts, readHostBoards, cacheDirectory(), new Date().toISOString());
   return { hosts };
