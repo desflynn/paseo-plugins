@@ -184,6 +184,8 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(true);
   const [owners, setOwners] = useState<Record<string, { id: string; name: string }>>({});
+  // A narrow panel ellipsises the objective, so hovering a row shows it in full.
+  const [hovered, setHovered] = useState<string | null>(null);
   const paseo = usePaseo();
   const single = useWindowDimensions().width >= 700;
   const workspaces = feed.changes.map((row) => row.workspaceId).join(",");
@@ -218,8 +220,8 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           const done = row.what === "Completed";
           const owner = owners[row.workspaceId];
           return (
-            <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
-              <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "center", columnGap: 4, minWidth: 0 }}>
+            <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => setHovered(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={() => setHovered(null)} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
+              <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "center", columnGap: 4, minWidth: 0, position: "relative" }}>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
                 {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0 }}>
                   <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
@@ -228,6 +230,9 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{plainName(row.board)} ·</Text>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
                 <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+                {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2 }}>
+                  <Text style={{ color: done ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{row.title}</Text>
+                </View> : null}
               </View>
             </Pressable>
           );
