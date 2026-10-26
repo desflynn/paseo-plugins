@@ -228,8 +228,6 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{plainName(row.board)} ·</Text>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
                 <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
-                <Text numberOfLines={1} style={{ flexShrink: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}> · {row.what}</Text>
-                {owner ? <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}> · {owner.name}</Text> : null}
               </View>
             </Pressable>
           );
