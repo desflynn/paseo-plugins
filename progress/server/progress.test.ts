@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -14,7 +14,7 @@ import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPa
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
 import { openChildren, boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
-import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher.ts";
+import { boardsLauncherState, boardsLauncherStatus, defaultLauncherPath, installBoardsLauncher, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
@@ -1401,6 +1401,24 @@ test("the launcher is installed only on request, updated when stale, and never r
   assert.equal(await installLauncher(path), true);
   assert.deepEqual(await launcherStatus(path, "/usr/bin"), { path, state: "current", onPath: false });
   assert.equal(await installLauncher(path), false, "a current launcher is left as is");
+
+  // The boards fold ships as its own shim beside paseo-progress, under the same rules.
+  const boards = join(dirname(path), "paseo-boards");
+  assert.deepEqual(await boardsLauncherStatus(boards), { path: boards, state: "missing", onPath: false });
+  assert.equal(await installBoardsLauncher(boards), true);
+  const shim = await readFile(boards, "utf8");
+  assert.match(shim, /^#!\/usr\/bin\/env node/, "the shim runs under node like paseo-progress");
+  assert.match(shim, /server", "boards\.ts"|server\/boards\.ts|boards\.ts/, "the shim runs the plugin's own boards entry");
+  assert.match(shim, /Written by the progress Paseo plugin/, "the shim carries the marker the installer recognises");
+  assert.equal(await installBoardsLauncher(boards), false, "a current boards shim is left as is");
+  // The first shim shipped before the marker line; it is ours, so it is updated, not refused.
+  const early = join(dirname(path), "paseo-boards-early");
+  await writeFile(early, "#!/usr/bin/env node\n// Runs server/boards.ts from the copy of the plugin Paseo is running now.\n");
+  assert.equal(await boardsLauncherState(early), "outdated");
+  assert.equal(await installBoardsLauncher(early), true, "a pre-marker boards shim is updated");
+  const stranger = join(dirname(path), "paseo-boards-foreign");
+  await writeFile(stranger, "#!/bin/sh\necho mine\n");
+  await assert.rejects(installBoardsLauncher(stranger), /was not written by this plugin/, "never replaces another file");
   await writeFile(path, `#!/usr/bin/env node\n// Written by the progress Paseo plugin. old\n`);
   assert.equal((await launcherStatus(path)).state, "outdated");
   assert.equal(await installLauncher(path), true);

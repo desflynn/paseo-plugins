@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Written by the progress Paseo plugin.
 // Written for the progress plugin's global dashboard (Des's ask, relayed by
 // PSR Guy). Runs server/boards.ts from the copy of the plugin Paseo is
 // running now, so the fold can never lag behind the panel.

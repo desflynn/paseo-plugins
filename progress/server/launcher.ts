@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const PLUGIN_ID = "progress";
 
@@ -50,6 +51,8 @@ process.exit(run.status === null ? 1 : run.status);
 }
 
 const MARKER = `Written by the ${PLUGIN_ID} Paseo plugin`;
+// The boards shim's own line, present before the marker was added to it.
+const BOARDS_SIGNATURE = "Runs server/boards.ts from the copy of the plugin";
 
 export function defaultLauncherPath(home = homedir()): string {
   return join(home, ".local", "bin", "paseo-progress");
@@ -89,9 +92,55 @@ export async function handleLauncherStatus() {
   return launcherStatus();
 }
 
-// Runs only when the user presses Install in the panel.
+// Runs only when the user presses Install in the panel: both shims go on PATH.
 export async function handleInstallLauncher() {
   const path = defaultLauncherPath();
-  await installLauncher(path);
+  await installLaunchers(path);
   return launcherStatus(path);
+}
+
+// The boards fold ships as its own shim beside paseo-progress, so the global doc
+// runs from the same plugin copy the panel does. Same install rules, same marker.
+export function defaultBoardsPath(home = homedir()): string {
+  return join(home, ".local", "bin", "paseo-boards");
+}
+
+// The source is a shipped file, not a string built here: it carries its own
+// version checks and Paseo lookup, and it must stay identical to what it says.
+async function boardsScript(): Promise<string> {
+  return readFile(join(dirname(fileURLToPath(import.meta.url)), "boards-launcher"), "utf8");
+}
+export async function boardsLauncherState(path: string): Promise<LauncherState> {
+  const current = await readFile(path, "utf8").catch(() => null);
+  if (current === null) return "missing";
+  if (current === (await boardsScript())) return "current";
+  // The first boards shim shipped before the marker existed; it is ours, so
+  // update it rather than refuse it. Anything else in that slot is foreign.
+  return current.includes(MARKER) || current.includes(BOARDS_SIGNATURE) ? "outdated" : "foreign";
+}
+
+export async function installBoardsLauncher(path: string): Promise<boolean> {
+  const state = await boardsLauncherState(path);
+  if (state === "current") return false;
+  if (state === "foreign") throw new Error(`${path} already exists and was not written by this plugin. Move it, or pass another path.`);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, await boardsScript());
+  await chmod(path, 0o755);
+  return true;
+}
+
+export async function boardsLauncherStatus(path = defaultBoardsPath(), pathEnv = process.env.PATH ?? "") {
+  return {
+    path,
+    state: await boardsLauncherState(path),
+    onPath: pathEnv.split(delimiter).some((entry) => entry.replace(/\/+$/, "") === dirname(path)),
+  };
+}
+
+// One Install press puts both shims on PATH, in the same folder. Returns
+// whether it wrote either of them, so the caller can say "already current".
+export async function installLaunchers(path: string): Promise<boolean> {
+  const progress = await installLauncher(path);
+  const boards = await installBoardsLauncher(join(dirname(path), "paseo-boards"));
+  return progress || boards;
 }

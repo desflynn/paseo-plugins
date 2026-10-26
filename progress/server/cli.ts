@@ -1,7 +1,7 @@
 // The command agents run to record progress. Each command appends one event
 // to the worktree's progress file and prints what it recorded.
 import { realpathSync, statSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { openChildren, boardIsClear, boardStatuses, filterTickets, indicatorLabel, isSettled, READY_TO_PULL, type TicketFilter, displayId, ticketName, type Dashboard, type NextIds, type Ticket } from "../shared/dashboard.ts";
@@ -10,7 +10,7 @@ import { appendProgress, InvalidEvent, readLatestRun, readProgress, type EventDr
 import { findRoot, outside } from "./paths.ts";
 import { resolveWorkspaceId } from "./workspace.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
-import { installLauncher } from "./launcher.ts";
+import { installLaunchers } from "./launcher.ts";
 import { closeBackingBeads } from "./beads.ts";
 import { findStore, outsideDirectory, saveRunCopy } from "./store.ts";
 import { dashboardText, ticketLines } from "../shared/show.ts";
@@ -913,7 +913,8 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
       return 0;
     }
     const target = resolve(options.cwd, (argv[1] ?? DEFAULT_LAUNCHER).replace(/^~(?=$|\/)/, homedir()));
-    out(await installLauncher(target) ? `Installed the launcher at ${target}` : `The launcher at ${target} is already current`);
+    const boards = join(dirname(target), "paseo-boards");
+    out(await installLaunchers(target) ? `Installed the launchers at ${target} and ${boards}` : `The launchers at ${target} and ${boards} are already current`);
     return 0;
   }
   if (first === "ticket" && second === "show") {
