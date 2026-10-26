@@ -54,15 +54,14 @@ export interface BoardPayload {
   boards?: Array<{ cwd?: string; directory?: string; title?: string; summary?: BoardSummary }>;
 }
 
-// A state folder holds one board per workspace: this box has 17 folders and 92
-// boards, so the folder alone is not an identity. The title is the only field the
-// helper sends that separates the boards in one folder, so the key is both.
+// One store folder is one board. A host may list the same store once per
+// workspace that shares it, so the folder is the identity and duplicates fold
+// together; this box has 119 workspaces over 37 cwds and 17 real boards.
 export function foldBoards(payload: BoardPayload): Record<string, BoardSummary | null> {
   const boards: Record<string, BoardSummary | null> = {};
   for (const board of payload.boards ?? []) {
-    const folder = board.directory ?? board.cwd;
-    if (!folder || !board.summary) continue;
-    boards[`${folder}::${board.title ?? ""}`] = board.summary;
+    const key = board.directory ?? board.cwd;
+    if (key && board.summary && !(key in boards)) boards[key] = board.summary;
   }
   return boards;
 }

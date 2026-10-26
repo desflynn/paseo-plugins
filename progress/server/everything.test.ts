@@ -20,14 +20,15 @@ test("ssh targets keep the quoted shell line", () => {
   assert.equal(args[args.length - 1]!.startsWith("bash -lc '"), true);
 });
 
-// 17 state folders hold 92 boards on this box: one folder holds one board per
-// workspace, so keying by folder alone silently loses 75 boards.
-test("two boards in one state folder both survive the fold", () => {
+// 119 workspaces share 37 cwds on this box, so a host lists one store once per
+// workspace. One store folder is one board: duplicates must fold, not multiply.
+test("duplicate listings of one store folder fold to one board", () => {
   const folded = foldBoards({
     boards: [
       { cwd: "/repo/a", directory: "/state/a", title: "Run one", summary: { open: 1 } },
       { cwd: "/repo/a", directory: "/state/a", title: "Run two", summary: { open: 2 } },
     ],
   } as never);
-  assert.equal(Object.keys(folded).length, 2);
+  assert.equal(Object.keys(folded).length, 1);
+  assert.deepEqual(folded["/state/a"], { open: 1 });
 });
