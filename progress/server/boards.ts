@@ -34,6 +34,20 @@ export interface BoardsDoc {
   machine: string;
   at: string;
   boards: BoardEntry[];
+  /** Why the host shows no boards, set only when the workspace list itself came up empty. */
+  note?: string;
+}
+
+/** The workspace list plus, when it is empty, the one reason why. */
+export interface WorkspaceListing {
+  workspaces: WorkspaceEntry[];
+  reason?: string;
+}
+
+/** The two places a host's workspaces can come from, both stubbable in tests. */
+export interface WorkspaceSources {
+  rpc: () => WorkspaceEntry[] | undefined;
+  registry: () => WorkspaceEntry[] | undefined | Promise<WorkspaceEntry[] | undefined>;
 }
 
 function toEntry(candidate: unknown): WorkspaceEntry | null {
@@ -81,14 +95,43 @@ export function listWorkspacesRpc(cli = "paseo"): WorkspaceEntry[] | undefined {
   }
 }
 
+/**
+ * The host's workspaces, the daemon's RPC first (authoritative on any host,
+ * whatever the cwd) with the registry file as the fallback. When both come up
+ * short, the reason says why, so an empty host is never mistaken for a dead one.
+ */
+export async function resolveWorkspaces(
+  home: string = homedir(),
+  sources: Partial<WorkspaceSources> = {},
+): Promise<WorkspaceListing> {
+  const rpc = sources.rpc ?? (() => listWorkspacesRpc());
+  const registry = sources.registry ?? (() => listWorkspacesFromRegistry(home));
+  const rpcEntries = rpc();
+  if (rpcEntries && rpcEntries.length > 0) return { workspaces: rpcEntries };
+  const registryEntries = await registry();
+  if (registryEntries && registryEntries.length > 0) return { workspaces: registryEntries };
+  return {
+    workspaces: [],
+    reason: rpcEntries ? "both empty" : "rpc failed, registry unreadable",
+  };
+}
+
 /** The one doc: every workspace that has a board, folded through the panel's own path. */
 export async function boardsDocument(
   home: string = homedir(),
-  list: () => WorkspaceEntry[] | undefined | Promise<WorkspaceEntry[] | undefined> = () => listWorkspacesFromRegistry(home).then((entries) => entries ?? listWorkspacesRpc()),
+  list: () =>
+    | WorkspaceEntry[]
+    | WorkspaceListing
+    | undefined
+    | Promise<WorkspaceEntry[] | WorkspaceListing | undefined> = () => resolveWorkspaces(home),
   now: () => Date = () => new Date(),
 ): Promise<BoardsDoc> {
   const doc: BoardsDoc = { machine: hostname(), at: now().toISOString(), boards: [] };
-  const workspaces = (await list()) ?? [];
+  const listed = await list();
+  const workspaces = Array.isArray(listed) ? listed : listed?.workspaces ?? [];
+  if (!Array.isArray(listed) && listed?.reason && workspaces.length === 0) {
+    doc.note = `no workspaces: ${listed.reason}`;
+  }
   const entries = await Promise.all(
     workspaces.map(async (workspace): Promise<BoardEntry | null> => {
       // findStore is the one place that knows the store key (o65 keeps it that

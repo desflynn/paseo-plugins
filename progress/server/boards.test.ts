@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { boardsDocument, type WorkspaceEntry } from "./boards.ts";
+import { boardsDocument, resolveWorkspaces, type WorkspaceEntry } from "./boards.ts";
 import { outsideDirectory } from "./store.ts";
 
 const RUN_START = (title: string) =>
@@ -61,4 +61,78 @@ test("boardsDocument works with no boards and an unreachable workspace list", as
   const doc = await boardsDocument(home, () => []);
   assert.equal(doc.boards.length, 0);
   assert.equal(doc.machine.length > 0, true);
+  assert.equal(doc.note, undefined, "a plain empty list says nothing new, so no note");
+});
+
+test("resolveWorkspaces trusts the RPC first and never reads the registry when it answers", async () => {
+  const rpcWorkspaces: WorkspaceEntry[] = [
+    { workspaceId: "wks_rpc", title: "RPC workspace", cwd: "/tmp/rpc" },
+  ];
+  let registryReads = 0;
+  const listing = await resolveWorkspaces("/home/x", {
+    rpc: () => rpcWorkspaces,
+    registry: () => {
+      registryReads += 1;
+      return undefined;
+    },
+  });
+  assert.equal(registryReads, 0, "the registry is a fallback, not a first read");
+  assert.deepEqual(listing.workspaces, rpcWorkspaces);
+  assert.equal(listing.reason, undefined);
+});
+
+test("resolveWorkspaces falls back to the registry when the RPC fails", async () => {
+  const registryWorkspaces: WorkspaceEntry[] = [
+    { workspaceId: "wks_reg", title: "Registry workspace", cwd: "/tmp/reg" },
+  ];
+  const listing = await resolveWorkspaces("/home/x", {
+    rpc: () => undefined,
+    registry: () => registryWorkspaces,
+  });
+  assert.deepEqual(listing.workspaces, registryWorkspaces);
+  assert.equal(listing.reason, undefined);
+});
+
+test("resolveWorkspaces explains an empty host", async () => {
+  const dead = await resolveWorkspaces("/home/x", {
+    rpc: () => undefined,
+    registry: () => undefined,
+  });
+  assert.deepEqual(dead.workspaces, []);
+  assert.equal(dead.reason, "rpc failed, registry unreadable");
+
+  const answeredEmpty = await resolveWorkspaces("/home/x", {
+    rpc: () => [],
+    registry: () => undefined,
+  });
+  assert.equal(answeredEmpty.reason, "both empty");
+});
+
+test("boardsDocument carries a note when both sources fail, with zero boards", async () => {
+  const home = await mkdtemp(join(tmpdir(), "boards-note-"));
+  const doc = await boardsDocument(
+    home,
+    () => resolveWorkspaces(home, { rpc: () => undefined, registry: () => undefined }),
+  );
+  assert.equal(doc.boards.length, 0);
+  assert.equal(doc.note, "no workspaces: rpc failed, registry unreadable");
+  const text = JSON.stringify(doc);
+  assert.equal(JSON.parse(text).note, doc.note, "the note survives the one-doc round-trip");
+});
+
+test("boardsDocument lists boards from the RPC even when the registry is unreadable", async () => {
+  const home = await mkdtemp(join(tmpdir(), "boards-rpc-first-"));
+  const root = await worktreeWithBoard(home, "rpc-first", "RPC first run");
+  const doc = await boardsDocument(
+    home,
+    () =>
+      resolveWorkspaces(home, {
+        rpc: () => [{ workspaceId: "wks_rpc", title: "RPC workspace", cwd: root }],
+        registry: () => undefined,
+      }),
+  );
+  assert.equal(doc.boards.length, 1, "the RPC's workspace made it into the doc");
+  assert.equal(doc.boards[0].title, "RPC workspace");
+  assert.equal(doc.boards[0].summary.title, "RPC first run");
+  assert.equal(doc.note, undefined, "boards on the host means no note");
 });
