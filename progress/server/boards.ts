@@ -156,7 +156,18 @@ export async function boardsDocument(
       };
     }),
   );
-  doc.boards = entries.filter((entry): entry is BoardEntry => entry !== null);
+  // Many workspaces share one cwd, so one store can appear once per workspace
+  // (92 boards over 17 stores on this host). Keep ONE entry per resolved store
+  // directory — first in list order wins; the duplicates share the same cwd,
+  // title and summary. Post-dedupe, `directory` is the stable per-board
+  // identity the consumer keys on.
+  const resolved = entries.filter((entry): entry is BoardEntry => entry !== null);
+  const seen = new Set<string>();
+  doc.boards = resolved.filter((entry) => {
+    if (seen.has(entry.directory)) return false;
+    seen.add(entry.directory);
+    return true;
+  });
   return doc;
 }
 

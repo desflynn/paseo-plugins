@@ -56,6 +56,24 @@ test("boardsDocument folds every workspace with a board into one doc", async () 
   assert.ok(JSON.parse(text).boards.length === 2, "the doc round-trips as JSON");
 });
 
+test("boardsDocument emits one board when workspaces share a cwd", async () => {
+  const home = await mkdtemp(join(tmpdir(), "boards-shared-"));
+  const shared = await worktreeWithBoard(home, "shared", "Shared run");
+
+  const list = (): WorkspaceEntry[] => [
+    { workspaceId: "wks_one", title: "First workspace", cwd: shared },
+    { workspaceId: "wks_two", title: "Second workspace", cwd: shared },
+  ];
+
+  const doc = await boardsDocument(home, list);
+
+  assert.equal(doc.boards.length, 1, "two workspaces over one store are one board");
+  assert.equal(doc.boards[0].cwd, shared);
+  assert.equal(doc.boards[0].directory, outsideDirectory(shared, home));
+  assert.equal(doc.boards[0].title, "First workspace", "first in list order wins");
+  assert.equal(doc.boards[0].summary.title, "Shared run");
+});
+
 test("boardsDocument works with no boards and an unreachable workspace list", async () => {
   const home = await mkdtemp(join(tmpdir(), "boards-empty-"));
   const doc = await boardsDocument(home, () => []);
