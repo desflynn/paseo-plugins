@@ -225,13 +225,11 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                   <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
                   <Text numberOfLines={1} style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
                 </View> : null}
-                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
-                  <Text style={{ color: colors.foregroundMuted }}>{row.board} · </Text>
-                <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
-                <Text style={{ color: colors.foregroundMuted }}> · P{row.priority} · </Text>
-                <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.what}</Text>
-                {owner ? <Text style={{ color: colors.foregroundMuted }}> · {owner.name}</Text> : null}
-                </Text>
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{plainName(row.board)} ·</Text>
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
+                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}> · {row.what}</Text>
+                {owner ? <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}> · {owner.name}</Text> : null}
               </View>
             </Pressable>
           );
