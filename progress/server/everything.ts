@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { BoardSummary } from "../shared/overview.ts";
 import { collectHosts, type HostReader, type HostTarget } from "./collect.ts";
+import { shortLabel } from "../shared/machine.ts";
 
 const run = promisify(execFile);
 
@@ -18,12 +19,20 @@ export type HostCommand = { bin: string; args: string[] };
 
 // Which machine answers for a label. A label maps to one address in
 // ~/.dci/progress-hosts.json, either "des@host" or "docker:<container>".
+// The panel sends the short label it renders (KLV), while the map is keyed by
+// machine name (korolev), so a name and its short form both have to resolve.
+export function resolveTarget(map: Record<string, string | string[]>, label: string): string[] {
+  const byShort = Object.keys(map).find((key) => shortLabel(key) === label.trim().toUpperCase());
+  const entry = map[label] ?? map[label.toLowerCase()] ?? (byShort ? map[byShort] : undefined);
+  if (Array.isArray(entry)) return entry.filter((value) => typeof value === "string" && value);
+  if (typeof entry === "string" && entry) return [entry];
+  return [label];
+}
+
 export function hostTargets(label: string): string[] {
   try {
     const map = JSON.parse(readFileSync(join(homedir(), ".dci", "progress-hosts.json"), "utf8")) as Record<string, string | string[]>;
-    const entry = map[label];
-    if (Array.isArray(entry)) return entry.filter((value) => typeof value === "string" && value);
-    if (typeof entry === "string" && entry) return [entry];
+    return resolveTarget(map, label);
   } catch {
     // no map, or unreadable: fall through to the label
   }
