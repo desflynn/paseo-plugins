@@ -238,9 +238,9 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                   <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
                   <Text numberOfLines={1} style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
                 </View> : null}
-                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{plainName(row.board)} ·</Text>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
-                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+                <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
+                <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}> · {plainName(row.board)}</Text>
                 {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: "#0d0f13" }}>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{row.title}</Text>
                 </View> : null}
