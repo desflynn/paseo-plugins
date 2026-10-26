@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+// Written for the progress plugin's global dashboard (Des's ask, relayed by
+// PSR Guy). Runs server/boards.ts from the copy of the plugin Paseo is
+// running now, so the fold can never lag behind the panel.
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < 22 || (major === 22 && minor < 18)) {
+  console.error("paseo-boards needs Node.js 22.18 or later; this is " + process.version + ".");
+  process.exit(1);
+}
+// Not require: a package.json with "type": "module" above this folder makes Node load it as ESM.
+const { spawnSync } = process.getBuiltinModule("node:child_process");
+const { existsSync } = process.getBuiltinModule("node:fs");
+const { join } = process.getBuiltinModule("node:path");
+
+function pluginDirectory() {
+  if (process.env.PASEO_PROGRESS_PLUGIN_DIR) return process.env.PASEO_PROGRESS_PLUGIN_DIR;
+  const clis = [process.env.PASEO_BIN, "paseo", "/Applications/Paseo.app/Contents/Resources/bin/paseo"].filter(Boolean);
+  for (const cli of clis) {
+    const result = spawnSync(cli, ["plugin", "ls", "progress", "--json"], { encoding: "utf8" });
+    if (result.error || result.status !== 0) continue;
+    try {
+      const plugin = JSON.parse(result.stdout).find((entry) => entry.id === "progress");
+      return plugin && plugin.path;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+// Always the plugin's source: the same code a reload hands the panel, so
+// the doc can never drift from it on an old compiled copy.
+const directory = pluginDirectory();
+const entry = directory && [join(directory, "server", "boards.ts")].find((path) => existsSync(path));
+if (!entry) {
+  console.error("The progress plugin is not installed in Paseo, or Paseo is not reachable. Check with: paseo plugin ls");
+  process.exit(1);
+}
+const run = spawnSync(process.execPath, [entry, ...process.argv.slice(1)], { stdio: "inherit" });
+process.exit(run.status === null ? 1 : run.status);
