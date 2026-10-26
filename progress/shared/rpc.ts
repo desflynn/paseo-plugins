@@ -52,6 +52,26 @@ export const getOverview = defineRpc({
   output: z.custom<{ boards: Record<string, BoardSummary | null> }>(),
 });
 
+// Everything view (o1): every configured host's boards in one call. The client
+// supplies the hosts it knows from Paseo; the server reads each one and falls
+// back to its cache when a host cannot be reached, so an offline box still
+// renders with its last good boards.
+const hostSnapshotShape = z.object({
+  serverId: z.string().min(1),
+  label: z.string().min(1),
+  status: z.string(),
+  boards: z.custom<Record<string, BoardSummary | null>>(),
+  at: z.string(),
+  stale: z.boolean(),
+});
+export const getAllHostsOverview = defineRpc({
+  name: "progress.overview.all",
+  input: z.object({
+    hosts: z.array(z.object({ serverId: z.string().min(1), label: z.string().min(1), status: z.string() })),
+  }),
+  output: z.object({ hosts: z.array(hostSnapshotShape) }),
+});
+
 // Records that the Progress panel was opened, so the "Progress" pill goes away for good.
 export const markPanelOpened = defineRpc({
   name: "progress.panel.opened",

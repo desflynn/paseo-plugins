@@ -1,16 +1,18 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { handleGetBeads, handleGetBeadDetail, handleSetBeadStatus, handleUpgradeBead } from "./server/beads";
 import { handleGetAttention, handleGetDashboard, handleGetOverview, handleListFolders, handleMarkPanelOpened, handleSetBoardMode, handleSetHistoryFolder } from "./server/dashboard";
+import { handleGetAllHostsOverview } from "./server/everything";
 import { handleInstallLauncher, handleLauncherStatus } from "./server/launcher";
 import { handleOpenDeliverable, handlePreviewDeliverable } from "./server/open";
 import { handleReportPerf } from "./server/perf";
 import { handleInstallSkill, handleSkillStatus } from "./server/skill";
-import { getAttention, getOverview, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setBoardMode, setHistoryFolder, upgradeBead, reportPerf } from "./shared/rpc";
+import { getAttention, getOverview, getAllHostsOverview, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setBoardMode, setHistoryFolder, upgradeBead, reportPerf } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(getDashboard, handleGetDashboard);
   server.handle(getAttention, handleGetAttention);
   server.handle(getOverview, handleGetOverview);
+  server.handle(getAllHostsOverview, handleGetAllHostsOverview);
   server.handle(getBeads, handleGetBeads);
   server.handle(getBeadDetail, handleGetBeadDetail);
   server.handle(setBeadStatus, handleSetBeadStatus);
