@@ -22,6 +22,13 @@ Bead: `paseo-plugins-6uz`. Objective: `o1` on the run "Progress across machines"
   CLIENT LANDED: an Everything strip on the Progress page (`useHosts()` + the new RPC),
   one row per machine with its short label, board count and a `cached` marker, shown
   above the boards and hidden when fewer than two hosts are configured.
+  HOST TARGETS: one Paseo host can hold several boards. `~/.dci/progress-hosts.json`
+  maps a label to a string or a list; `docker:<container>:<worktree>` runs
+  `docker exec -w <worktree>`, and the `-w` is mandatory - without it the command
+  runs in /workspace and returns a VALID document with an EMPTY board, which reads
+  exactly like a dead host (KOR Guy, 25 Oct). korolev maps to its KOR and DF
+  worktrees. ideaPad maps to des@100.98.165.77 but ssh is refused for want of an
+  authorized key, so it reads as no data until a key is installed.
   Next: the same machine tag on board cards and feed rows. Everything entry selected by default, machine tag (short label
   plus a computer glyph) on the board cards and the feed rows, single-host picks unchanged.
 

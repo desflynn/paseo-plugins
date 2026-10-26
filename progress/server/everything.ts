@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { summariseBoard } from "../shared/overview.ts";
+import { summariseBoard, type BoardSummary } from "../shared/overview.ts";
 import { collectHosts, type HostReader, type HostTarget } from "./collect.ts";
 
 const run = promisify(execFile);
@@ -14,35 +14,60 @@ export function cacheDirectory(): string {
   return join(homedir(), ".dci", "progress-cache");
 }
 
-// Reads one host's board over ssh. The fleet addresses hosts as `des@<label>`
-// and `paseo-progress` is on PATH there, so the target needs no new config.
-// The union board from `show --all` is stored under `host:<serverId>`: the
-// Everything view sums these, it does not need per-workspace keys.
-// Reads one host's board over ssh. The target comes from ~/.dci/progress-hosts.json
-// when that file maps a Paseo label to an ssh target (korolev and ideapad have no
-// ssh alias here), otherwise the label is used as-is. The command runs through a
-// login shell with the local bin on PATH, because `paseo-progress` lives in
-// ~/.local/bin and a non-interactive ssh session does not see it.
-function sshTarget(label: string): string {
+// Where a host's boards come from. One Paseo host can hold more than one board:
+// korolev has a KOR board and a DF board, in two worktrees inside one container.
+// Targets come from ~/.dci/progress-hosts.json by Paseo label, as a string or a
+// list of strings:
+//   "des@100.98.165.77"                  -> ssh
+//   "docker:korolev:/path/to/worktree"   -> docker exec -w <worktree>
+// The -w flag is not optional for docker: without it the command runs in
+// /workspace and returns a VALID document with an EMPTY board (KOR Guy, 25 Oct),
+// which is indistinguishable from a dead host.
+export type HostCommand = { bin: string; args: string[] };
+
+const REMOTE = "bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; paseo-progress show --all --json'";
+
+export function hostTargets(label: string): string[] {
   try {
-    const map = JSON.parse(readFileSync(join(homedir(), ".dci", "progress-hosts.json"), "utf8")) as Record<string, string>;
-    if (typeof map[label] === "string" && map[label]) return map[label];
+    const map = JSON.parse(readFileSync(join(homedir(), ".dci", "progress-hosts.json"), "utf8")) as Record<string, string | string[]>;
+    const entry = map[label];
+    if (Array.isArray(entry)) return entry.filter((value) => typeof value === "string" && value);
+    if (typeof entry === "string" && entry) return [entry];
   } catch {
     // no map, or unreadable: fall through to the label
   }
-  return `des@${label}`;
+  return [label];
 }
 
-const REMOTE_COMMAND = "bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; paseo-progress show --all --json'";
+export function hostCommand(target: string): HostCommand {
+  if (target.startsWith("docker:")) {
+    const [container, worktree] = target.slice("docker:".length).split(":");
+    const args = ["exec"];
+    if (worktree) args.push("-w", worktree);
+    args.push(container!, REMOTE);
+    return { bin: "docker", args };
+  }
+  return { bin: "ssh", args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", target.includes("@") ? target : `des@${target}`, REMOTE] };
+}
 
+// Every target of a host is read; a target that fails contributes nothing and
+// never fails its siblings. Empty board documents are dropped: a host that
+// answers with no objectives is a mis-run, not a result worth showing.
 export const readHostBoards: HostReader = async (host) => {
-  const { stdout } = await run("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", sshTarget(host.label), REMOTE_COMMAND], {
-    timeout: 20_000,
-    maxBuffer: 8 << 20,
+  const boards: Record<string, BoardSummary | null> = {};
+  const targets = hostTargets(host.label);
+  const settled = await Promise.allSettled(
+    targets.map(async (target) => {
+      const { bin, args } = hostCommand(target);
+      const { stdout } = await run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 });
+      return summariseBoard((JSON.parse(stdout) as { dashboard?: unknown }).dashboard as never);
+    }),
+  );
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled" && result.value) boards[`host:${host.serverId}:${index}`] = result.value;
   });
-  const payload = JSON.parse(stdout) as { dashboard?: unknown };
-  const summary = summariseBoard(payload.dashboard as never);
-  return summary ? { [`host:${host.serverId}`]: summary } : {};
+  if (!Object.keys(boards).length) throw new Error(`no boards read for ${host.label}`);
+  return boards;
 };
 
 // The Everything call: every configured host, live where possible, cached where
