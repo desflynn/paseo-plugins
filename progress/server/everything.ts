@@ -32,7 +32,7 @@ export function hostTargets(label: string): string[] {
 
 // One command per machine. `paseo-boards` sits on the bin path there and returns
 // every in-repo board in one JSON document:
-//   {"machine":"<host>","at":"<iso>","boards":[{"workspaceId","title","directory","summary"}]}
+//   {"machine":"<host>","at":"<iso>","boards":[{"cwd","title","directory","summary"}]}
 // It does what this plugin does on its own host: ask that host's Paseo for its
 // workspaces, then fold each workspace's board. No repo path, no crawl, and no
 // per-repo subprocess, so a machine costs one round trip.
@@ -51,10 +51,10 @@ export function hostCommand(target: string): HostCommand {
 export const readHostBoards: HostReader = async (host) => {
   const { bin, args } = hostCommand(hostTargets(host.label)[0]!);
   const { stdout } = await run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 });
-  const payload = JSON.parse(stdout) as { boards?: Array<{ workspaceId?: string; summary?: BoardSummary }> };
+  const payload = JSON.parse(stdout) as { boards?: Array<{ cwd?: string; summary?: BoardSummary }> };
   const boards: Record<string, BoardSummary | null> = {};
   for (const board of payload.boards ?? []) {
-    if (board.workspaceId && board.summary) boards[board.workspaceId] = board.summary;
+    if (board.cwd && board.summary) boards[board.cwd] = board.summary;
   }
   if (!Object.keys(boards).length) throw new Error(`no boards read for ${host.label}`);
   return boards;

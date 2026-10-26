@@ -24,7 +24,7 @@ export interface WorkspaceEntry {
 }
 
 export interface BoardEntry {
-  workspaceId: string;
+  cwd: string;
   title: string;
   directory: string;
   summary: BoardSummary;
@@ -105,7 +105,7 @@ export async function boardsDocument(
       const summary = summariseBoard(read.dashboard);
       if (!summary) return null;
       return {
-        workspaceId: workspace.workspaceId,
+        cwd: workspace.cwd,
         title: workspace.title ??
           (workspace.project && workspace.name ? `${workspace.project}/${workspace.name}` : workspace.cwd),
         directory: store.directory,

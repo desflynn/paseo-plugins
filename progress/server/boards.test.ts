@@ -42,13 +42,13 @@ test("boardsDocument folds every workspace with a board into one doc", async () 
   assert.equal(doc.boards.length, 2, "a workspace with no board is skipped");
 
   const [first, second] = doc.boards;
-  assert.equal(first.workspaceId, "wks_alpha");
+  assert.equal(first.cwd, alpha);
   assert.equal(first.title, "Alpha workspace");
   assert.equal(first.directory, outsideDirectory(alpha, home), "the store directory is named");
   assert.ok(first.summary, "the summary fold ran");
   assert.equal(first.summary.title, "Alpha run");
 
-  assert.equal(second.workspaceId, "wks_beta");
+  assert.equal(second.cwd, beta);
   assert.equal(second.summary.title, "Beta run");
 
   // The whole doc must serialise: it is one stdout document for the panel.
