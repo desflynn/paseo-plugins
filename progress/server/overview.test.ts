@@ -567,3 +567,28 @@ test("a stuck item counts only for a P0-P2 objective, and only on a board that i
   assert.deepEqual(boardStatuses(board({ tickets: [ticket("o1", "in_progress", 0)], stuck: [manual] }), false), [{ kind: "active", count: 1 }]);
   assert.deepEqual(boardStatuses(board({ tickets: [ticket("o1", "in_progress", 0), ticket("o3", "open", 2)], stuck: [{ ...manual, ticketId: "o3" }] }), false), [{ kind: "active", count: 1 }, { kind: "stuck", count: 1 }], "a flag on a P2 objective counts");
 });
+
+// PSR's report (26 Oct): the header said 24 boards where the collector found 18
+// store folders, because fetchOverview answers per workspace and several
+// workspaces share one worktree. A board is its store folder, never its title.
+test("two workspaces on one store folder count as one board, and name each other", () => {
+  const folder = "/state/proj-2f9c1a44";
+  const groups = groupOverview(
+    [ws("w1", "p", "Proj", "Alpha"), ws("w2", "p", "Proj", "Beta")],
+    { w1: summary({ store: folder }), w2: summary({ store: folder }) },
+    [],
+  );
+  assert.equal(groups[0].totals.boards, 1, "one store folder is one board");
+  assert.equal(groups[0].workspaces.length, 1, "the card shows once");
+  assert.deepEqual(groups[0].workspaces[0].sharedBy, ["Beta"], "the other workspace is named on the card");
+});
+
+test("two boards with the same title are still two boards", () => {
+  const groups = groupOverview(
+    [ws("w1", "p", "Proj", "Alpha"), ws("w2", "p", "Proj", "Beta")],
+    { w1: summary({ store: "/state/a-1" }), w2: summary({ store: "/state/b-2" }) },
+    [],
+  );
+  assert.equal(groups[0].totals.boards, 2, "a shared title is not a shared board");
+  assert.equal(groups[0].workspaces.length, 2);
+});

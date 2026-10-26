@@ -56,8 +56,10 @@ export async function handleGetOverview(
   const boards: Record<string, BoardSummary | null> = {};
   for (const { workspaceId, workspaceDirectory } of input.workspaces) {
     try {
-      const { configured, dashboard } = await readProgress((await findStore(findRoot(workspaceDirectory))).directory, undefined, workspaceId);
-      boards[workspaceId] = configured ? withFeed(summaryOf(dashboard), dashboard) : null;
+      const store = (await findStore(findRoot(workspaceDirectory))).directory;
+      const { configured, dashboard } = await readProgress(store, undefined, workspaceId);
+      const summary = configured ? withFeed(summaryOf(dashboard), dashboard) : null;
+      boards[workspaceId] = summary ? { ...summary, store } : null;
     } catch {
       boards[workspaceId] = null;
     }

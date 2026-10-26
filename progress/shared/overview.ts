@@ -25,6 +25,9 @@ export interface BoardSummary {
   priorities: PriorityCounts;
   // Open or in progress P0 to P2: what full auto would pull.
   autoCount: number;
+  // The store folder this board lives in. One folder is one board, so
+  // workspaces that share a worktree share this and are counted once.
+  store?: string;
   // The objective being worked, or null when none is.
   now: NowItem | null;
   // Open objectives, the order the board lists them.
@@ -166,6 +169,8 @@ export interface WorkspaceEntry {
   workspace: WorkspaceRef;
   board: BoardSummary | null;
   agents: AgentRef[];
+  // Other workspaces whose worktree resolves to this same store folder.
+  sharedBy?: string[];
 }
 
 export interface ProjectGroup {
@@ -203,6 +208,10 @@ function byBoardOrder(a: WorkspaceEntry, b: WorkspaceEntry): number {
 export function groupOverview(workspaces: WorkspaceRef[], boards: Record<string, BoardSummary | null>, agents: AgentRef[]): ProjectGroup[] {
   const live = agents.filter((agent) => agent.status !== "closed");
   const groups = new Map<string, ProjectGroup>();
+  // A board is identified by its store folder, never by its title: two runs can
+  // share a title. Several workspaces on one worktree resolve to one folder, so
+  // the folder is counted once and the other workspaces are named on its card.
+  const held = new Map<string, WorkspaceEntry>();
   for (const workspace of workspaces) {
     const board = boards[workspace.id] ?? null;
     const mine = live.filter((agent) => agent.workspaceId === workspace.id).sort((a, b) => AGENT_ORDER[a.status] - AGENT_ORDER[b.status]);
@@ -212,7 +221,15 @@ export function groupOverview(workspaces: WorkspaceRef[], boards: Record<string,
       group = { projectId: workspace.projectId, projectName: workspace.projectName, ...(workspace.projectPath ? { projectPath: workspace.projectPath } : {}), workspaces: [], totals: { boards: 0, fullAutos: 0, active: 0, stuck: 0, agents: 0 } };
       groups.set(workspace.projectId, group);
     }
-    group.workspaces.push({ workspace, board, agents: mine });
+    const same = board?.store ? held.get(board.store) : undefined;
+    if (same) {
+      (same.sharedBy ??= []).push(workspace.name);
+      group.totals.agents += mine.length;
+      continue;
+    }
+    const entry: WorkspaceEntry = { workspace, board, agents: mine };
+    if (board?.store) held.set(board.store, entry);
+    group.workspaces.push(entry);
     group.totals.boards += board ? 1 : 0;
     group.totals.fullAutos += board?.conn ? 1 : 0;
     group.totals.active += indicatorCount(board, ["active", "stale"]);
