@@ -7,8 +7,28 @@ export function shortLabel(label: string): string {
   return letters.slice(0, 3).toUpperCase();
 }
 
-// A host's colour is a per-host setting in Paseo (host profile appearance.color,
-// one of "none" or ten identity colours), and the plugin API does not expose it
-// yet: PluginHostSummary carries serverId, label and status only. So the panel
-// renders the host the way Paseo renders a host with no colour set, in the
-// theme's muted foreground, and takes the real colour when that field lands.
+// A host's colour is a per-host setting in Paseo: `appearance.color`, one of
+// "none" or ten identity colours. "none" renders the theme's muted foreground.
+// These are Paseo's own identity FOREGROUND tables (packages/app/src/styles/
+// identity-colors.ts, IDENTITY_FOREGROUND_DARK/LIGHT), copied rather than
+// invented: the plugin API does not carry a host's colour yet.
+export type IdentityColor = "violet" | "sky" | "emerald" | "orange" | "pink" | "indigo" | "teal" | "red" | "amber" | "blue";
+
+const IDENTITY_DARK: Record<IdentityColor, string> = {
+  violet: "#a392d5", sky: "#6aa6ce", emerald: "#6cae96", orange: "#cc8f64", pink: "#d87da3",
+  indigo: "#9299d5", teal: "#6cacab", red: "#d88381", amber: "#b29d64", blue: "#7ba1d5",
+};
+
+const IDENTITY_LIGHT: Record<IdentityColor, string> = {
+  violet: "#6d49b5", sky: "#3d6985", emerald: "#3e6e5d", orange: "#845838", pink: "#974168",
+  indigo: "#5251c2", teal: "#3e6d6c", red: "#9c4243", amber: "#716239", blue: "#39649e",
+};
+
+// The tint for a host's colour name, or undefined when the host has no colour
+// ("none", missing, or a name Paseo does not know) and the caller should use
+// the theme's muted foreground.
+export function identityTint(color: string | undefined | null, scheme: "dark" | "light" = "dark"): string | undefined {
+  if (!color || color === "none") return undefined;
+  const table = scheme === "light" ? IDENTITY_LIGHT : IDENTITY_DARK;
+  return table[color as IdentityColor];
+}

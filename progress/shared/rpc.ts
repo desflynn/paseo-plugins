@@ -49,7 +49,7 @@ export const getOverview = defineRpc({
   input: z.object({
     workspaces: z.array(z.object({ workspaceId: z.string().min(1), workspaceDirectory: z.string().min(1) })),
   }),
-  output: z.custom<{ boards: Record<string, BoardSummary | null> }>(),
+  output: z.custom<{ boards: Record<string, BoardSummary | null>; hostColors?: Record<string, string> }>(),
 });
 
 // Everything view (o1): every configured host's boards in one call. The client

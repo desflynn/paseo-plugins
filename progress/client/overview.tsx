@@ -8,7 +8,7 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-na
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getAllHostsOverview, getOverview } from "../shared/rpc";
-import { shortLabel } from "../shared/machine";
+import { identityTint, shortLabel } from "../shared/machine";
 import { listAll, loadWorkspaceOwner, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
@@ -27,7 +27,7 @@ type AgentPayload = { id: string; workspaceId?: string | null; status: AgentRef[
 
 type FetchOverview = (input: { workspaces: { workspaceId: string; workspaceDirectory: string }[] }) => Promise<RpcOutput<typeof getOverview>>;
 
-async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise<ProjectGroup[]> {
+async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise<{ groups: ProjectGroup[]; hostColors: Record<string, string> }> {
   const [rawWorkspaces, rawAgents] = await Promise.all([
     listAll((options) => paseo.workspaces.list(options) as Promise<Page>),
     listAll((options) => paseo.agents.list({ ...options, filter: { includeArchived: false } }) as Promise<Page>),
@@ -43,8 +43,8 @@ async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise
   }));
   const agents: AgentRef[] = (rawAgents as { agent: AgentPayload }[]).flatMap(({ agent }) =>
     agent.workspaceId ? [{ id: agent.id, workspaceId: agent.workspaceId, status: agent.status, title: agent.title ?? null, parentAgentId: agent.parentAgentId ?? null }] : []);
-  const { boards } = await fetchOverview({ workspaces: workspaces.map((workspace) => ({ workspaceId: workspace.id, workspaceDirectory: workspace.directory })) });
-  return groupOverview(workspaces, boards, agents);
+  const { boards, hostColors } = await fetchOverview({ workspaces: workspaces.map((workspace) => ({ workspaceId: workspace.id, workspaceDirectory: workspace.directory })) });
+  return { groups: groupOverview(workspaces, boards, agents), hostColors: hostColors ?? {} };
 }
 
 // o38.4: every archived agent, read only when the list is opened. Paseo cannot restore one, but an archived agent still opens to chat.
@@ -179,7 +179,7 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId,
 // work happening now and what has completed, working rows in white and
 // completed rows in green, with the rest of the history behind one More info.
 // Open by default here; the workspace panel keeps its copy closed.
-function PageFeed({ colors, groups, now, navigation, machine }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"]; machine?: string }) {
+function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"]; machine?: string; tint?: string }) {
   const feed = pageFeed(groups);
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(true);
@@ -219,13 +219,13 @@ function PageFeed({ colors, groups, now, navigation, machine }: { colors: Colors
           const owner = owners[row.workspaceId];
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 4 }}>
-                <Text style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
-                {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                  <Icon name="Server" size={12} color={colors.foregroundMuted} />
-                  <Text style={{ color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
+              <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "center", columnGap: 4, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
+                {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                  <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
+                  <Text numberOfLines={1} style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
                 </View> : null}
-                <Text numberOfLines={single ? 1 : undefined} style={{ flexShrink: 1, fontSize: 13, lineHeight: 18 }}>
+                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
                   <Text style={{ color: colors.foregroundMuted }}>{row.board} · </Text>
                 <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
                 <Text style={{ color: colors.foregroundMuted }}> · P{row.priority} · </Text>
@@ -288,7 +288,10 @@ function EverythingStrip({ colors, groups, hostId }: { colors: Colors; groups?: 
 
 export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreenProps) {
   const { colors } = theme;
-  const { data: groups, error, isLoading } = useOverview(host.id);
+  const { data, error, isLoading } = useOverview(host.id);
+  const groups = data?.groups;
+  // The host's own colour, the same one Paseo paints its sidebar badge with.
+  const tint = identityTint(data?.hostColors?.[host.id]);
   // The machine this panel is attached to, so every card and feed row says where
   // the objective lives (Des, 25 Oct).
   const machineTag = shortLabel((host as { label?: string }).label ?? host.id);
@@ -308,7 +311,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
-      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} machine={machineTag} /> : null}
+      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} machine={machineTag} tint={tint} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (

@@ -1,5 +1,7 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { boardStatuses, objectiveFeed, owedStuck, type Dashboard, type Ticket, type StuckItem } from "../shared/dashboard.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
@@ -52,7 +54,7 @@ export async function handleGetDashboard(
 export async function handleGetOverview(
   input: { workspaces: { workspaceId: string; workspaceDirectory: string }[] },
   _context: PluginHandlerContext,
-): Promise<{ boards: Record<string, BoardSummary | null> }> {
+): Promise<{ boards: Record<string, BoardSummary | null>; hostColors: Record<string, string> }> {
   const boards: Record<string, BoardSummary | null> = {};
   for (const { workspaceId, workspaceDirectory } of input.workspaces) {
     try {
@@ -64,7 +66,25 @@ export async function handleGetOverview(
       boards[workspaceId] = null;
     }
   }
-  return { boards };
+  return { boards, hostColors: await hostColors() };
+}
+
+// Each host's own colour, read from Paseo's host store because the plugin API
+// does not carry it yet: appearance.color is "none" or an identity colour name.
+// A missing or unreadable store simply means every host renders with no colour.
+async function hostColors(home = process.env.PASEO_HOME ?? join(homedir(), ".paseo")): Promise<Record<string, string>> {
+  try {
+    const hosts = JSON.parse(await readFile(join(home, "hosts.json"), "utf8")) as Array<{ serverId?: string; id?: string; appearance?: { color?: string } }>;
+    const colors: Record<string, string> = {};
+    for (const host of Array.isArray(hosts) ? hosts : []) {
+      const id = host.serverId ?? host.id;
+      const color = host.appearance?.color;
+      if (id && color) colors[id] = color;
+    }
+    return colors;
+  } catch {
+    return {};
+  }
 }
 
 // o38: the Progress page sets a board's state. A hold is written to the board

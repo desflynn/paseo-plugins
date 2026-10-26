@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boardStatuses, parseProgress, reduceProgress } from "../shared/dashboard.ts";
-import { shortLabel } from "../shared/machine.ts";
+import { identityTint, shortLabel } from "../shared/machine.ts";
 import { BOARD_MODES, MODE_LABEL } from "../shared/modes.ts";
 import {
   archiveConfirm, archivedFor, barSegments, cardAgents, plainName, buildSections, cardCount, chatsSpan, gridLayout, MODE_BUTTONS, MODE_TINT, modeConfirm, packRepos, repoSpan, spanWidth, headerCounts, optionHint, priorityChips, repoSummary, resultLine, splitGroup, statusDots, readyRows,
@@ -603,4 +603,14 @@ test("a machine reads by its stored label, shortened only where it is long", () 
   assert.equal(shortLabel("KLV"), "KLV");
   assert.equal(shortLabel("korolev"), "KOR");
   assert.equal(shortLabel(""), "?");
+});
+
+// Paseo Guy, from source (26 Oct): a host's colour is its own setting, "none" or
+// one of ten identity colours, and the badge paints glyph and label in it.
+test("a host colour maps to Paseo's identity foreground, and none maps to nothing", () => {
+  assert.equal(identityTint("orange"), "#cc8f64", "orange in the dark scheme");
+  assert.equal(identityTint("pink", "light"), "#974168", "the light scheme differs");
+  assert.equal(identityTint("none"), undefined, "no colour: the caller uses the muted foreground");
+  assert.equal(identityTint(undefined), undefined);
+  assert.equal(identityTint("chartreuse"), undefined, "a name Paseo does not know is no colour");
 });
