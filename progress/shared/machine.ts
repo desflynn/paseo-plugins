@@ -7,17 +7,8 @@ export function shortLabel(label: string): string {
   return letters.slice(0, 3).toUpperCase();
 }
 
-// One colour per machine, the way Paseo's sidebar tints a host. Ours, not
-// Paseo's: a label always gets the same colour on every row and every page,
-// and two machines never share one while there are palette slots left.
-const TINTS = ["#7aa2f7", "#e0af68", "#9ece6a", "#bb9af7", "#7dcfff", "#f7768e"] as const;
-
-export function machineTint(label: string): string {
-  // FNV-1a: small labels like MS and KLV land far apart in a six-slot palette.
-  let hash = 2166136261;
-  for (const letter of label.toLowerCase()) {
-    hash ^= letter.charCodeAt(0);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  return TINTS[hash % TINTS.length];
-}
+// A host's colour is a per-host setting in Paseo (host profile appearance.color,
+// one of "none" or ten identity colours), and the plugin API does not expose it
+// yet: PluginHostSummary carries serverId, label and status only. So the panel
+// renders the host the way Paseo renders a host with no colour set, in the
+// theme's muted foreground, and takes the real colour when that field lands.

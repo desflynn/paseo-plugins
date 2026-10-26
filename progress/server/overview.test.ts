@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boardStatuses, parseProgress, reduceProgress } from "../shared/dashboard.ts";
-import { machineTint, shortLabel } from "../shared/machine.ts";
+import { shortLabel } from "../shared/machine.ts";
 import { BOARD_MODES, MODE_LABEL } from "../shared/modes.ts";
 import {
   archiveConfirm, archivedFor, barSegments, cardAgents, plainName, buildSections, cardCount, chatsSpan, gridLayout, MODE_BUTTONS, MODE_TINT, modeConfirm, packRepos, repoSpan, spanWidth, headerCounts, optionHint, priorityChips, repoSummary, resultLine, splitGroup, statusDots, readyRows,
@@ -594,13 +594,13 @@ test("two boards with the same title are still two boards", () => {
   assert.equal(groups[0].workspaces.length, 2);
 });
 
-// Des, 26 Oct: the machine reads as Paseo's sidebar does, an icon plus a short
-// code in the machine's own colour, not a long host name in plain grey.
-test("a machine gets a short code and one stable colour", () => {
+// Paseo Guy, from source (26 Oct): a host chip is the Server glyph at size 12
+// with the glyph and the label in ONE colour, and the label is the host's
+// stored label verbatim. The colour is a per-host Paseo setting that the
+// plugin API does not expose yet, so the panel renders the no-colour look.
+test("a machine reads by its stored label, shortened only where it is long", () => {
   assert.equal(shortLabel("MS"), "MS");
+  assert.equal(shortLabel("KLV"), "KLV");
   assert.equal(shortLabel("korolev"), "KOR");
   assert.equal(shortLabel(""), "?");
-  assert.equal(machineTint("MS"), machineTint("ms"), "case does not change the colour");
-  assert.match(machineTint("MS"), /^#[0-9a-f]{6}$/);
-  assert.notEqual(machineTint("MS"), machineTint("KLV"), "two machines do not share a colour");
 });
