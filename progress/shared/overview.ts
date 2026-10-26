@@ -114,7 +114,10 @@ export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { boa
   const finished: Array<FeedDone & { board: string; workspaceId: string }> = [];
   for (const group of groups) {
     for (const entry of group.workspaces) {
-      const board = entry.board?.title ?? entry.workspace.name;
+      // The feed row names the seat, not the board: a board title can be an
+      // objective's title ("Renderer: healing, gateway rows") and reads as work
+      // rather than as whose work it is (Des, 26 Oct).
+      const board = entry.workspace.name;
       const feed = entry.board?.feed;
       if (!feed) continue;
       const workspaceId = entry.workspace.id;
