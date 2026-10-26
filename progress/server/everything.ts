@@ -25,7 +25,12 @@ export function cacheDirectory(): string {
 // which is indistinguishable from a dead host.
 export type HostCommand = { bin: string; args: string[] };
 
-const REMOTE = "bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; paseo-progress show --all --json'";
+function remote(dir?: string): string {
+  const path = 'export PATH="$HOME/.local/bin:$PATH"';
+  const show = "paseo-progress show --all --json";
+  const body = dir ? `cd ${dir} && ${path} && ${show}` : `${path} && ${show}`;
+  return `bash -lc '${body}'`;
+}
 
 export function hostTargets(label: string): string[] {
   try {
@@ -39,15 +44,28 @@ export function hostTargets(label: string): string[] {
   return [label];
 }
 
+// A target is one of:
+//   docker:<container>:<worktree>   docker exec -w <worktree> <container>
+//   <address>:<dir>                 ssh <address>, then cd <dir>
+//   <address>                       ssh <address>
+// The folder is not decoration. paseo-progress reads the board of the checkout it
+// runs in. Run it in a home folder and it returns an empty board that looks valid.
 export function hostCommand(target: string): HostCommand {
   if (target.startsWith("docker:")) {
     const [container, worktree] = target.slice("docker:".length).split(":");
     const args = ["exec"];
     if (worktree) args.push("-w", worktree);
-    args.push(container!, REMOTE);
+    args.push(container!, remote());
     return { bin: "docker", args };
   }
-  return { bin: "ssh", args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", target.includes("@") ? target : `des@${target}`, REMOTE] };
+  const at = target.indexOf("@");
+  const colon = at >= 0 ? target.indexOf(":", at) : target.indexOf(":");
+  const address = colon > 0 ? target.slice(0, colon) : target;
+  const dir = colon > 0 ? target.slice(colon + 1) : undefined;
+  return {
+    bin: "ssh",
+    args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", address.includes("@") ? address : `des@${address}`, remote(dir)],
+  };
 }
 
 // Every target of a host is read; a target that fails contributes nothing and

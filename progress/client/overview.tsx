@@ -254,17 +254,24 @@ function useEverything() {
   });
 }
 
-function EverythingStrip({ colors }: { colors: Colors }) {
+function EverythingStrip({ colors, groups, hostId }: { colors: Colors; groups?: ProjectGroup[]; hostId: string }) {
   const { data } = useEverything();
-  if (!data || data.hosts.length < 2) return null;
+  if (!data) return null;
+  // The machine this panel runs on is read locally, from the boards already on
+  // the page. Asking it over ssh reads a home folder, finds no repo and returns
+  // an empty board, which is how every row once said "no boards".
+  const localBoards = (groups ?? []).reduce((count, group) => count + cardCount(group), 0);
+  const rows = data.hosts.map((host) => (host.serverId === hostId ? { ...host, boards: {}, stale: false, local: true } : { ...host, local: false }));
+  if (rows.length < 2) return null;
   return (
     <View style={{ marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 10, gap: 3 }}>
-      <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19, fontWeight: "600" }}>Everything · {data.hosts.length} machines</Text>
-      {data.hosts.map((h) => {
-        const boards = Object.keys(h.boards).length;
+      <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19, fontWeight: "600" }}>Everything · {rows.length} machines</Text>
+      {rows.map((row) => {
+        const boards = row.local ? localBoards : Object.keys(row.boards).length;
+        const note = row.local ? "here" : row.stale ? "cached" : "live";
         return (
-          <Text key={h.serverId} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-            {shortLabel(h.label)} · {boards ? `${boards} board${boards === 1 ? "" : "s"}` : "no boards"}{h.stale ? " · cached" : ""}
+          <Text key={row.serverId} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
+            {shortLabel(row.label)} · {boards ? `${boards} board${boards === 1 ? "" : "s"}` : "no boards"} · {note}
           </Text>
         );
       })}
@@ -290,7 +297,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
         <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>Progress</Text>
         {line ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{line.before}<Text style={{ color: colors.statusDanger }}>{line.stuck}</Text>{line.after}</Text> : null}
       </View>
-      <EverythingStrip colors={colors} />
+      <EverythingStrip colors={colors} groups={groups} hostId={host.id} />
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
