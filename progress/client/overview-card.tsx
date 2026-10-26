@@ -172,7 +172,7 @@ function ModeSelector({ colors, entry, ownerName, ownerId }: { colors: Colors; e
   );
 }
 
-export function BoardCard({ colors, entry, repoName, now, navigation, hostId }: { colors: Colors; entry: WorkspaceEntry; repoName: string; now: number; navigation: Navigation; hostId: string }) {
+export function BoardCard({ colors, entry, repoName, now, navigation, hostId, machine }: { colors: Colors; entry: WorkspaceEntry; repoName: string; now: number; navigation: Navigation; hostId: string; machine?: string }) {
   const { workspace, agents } = entry;
   const paseo = usePaseo();
   const board = entry.board!;
@@ -202,7 +202,7 @@ export function BoardCard({ colors, entry, repoName, now, navigation, hostId }: 
               <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>{plainName(workspace.name)}</Text>
               {held ? <Text style={{ color: colors.foregroundMuted, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 5, fontSize: 11, lineHeight: 16 }}>{held}</Text> : null}
             </View>
-            <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{[repoName, board.title].filter(Boolean).join(" · ")}</Text>
+            <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>{[machine, repoName, board.title].filter(Boolean).join(" · ")}</Text>
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
             {dots.map((dot) => (

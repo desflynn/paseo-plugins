@@ -111,9 +111,9 @@ function ArchivedButton({ colors, group, now, navigation, hostId }: { colors: Co
   );
 }
 
-function RepoBlock({ colors, group, folded, onToggle, span, columns, cardWidth, shared, now, navigation, hostId }: {
+function RepoBlock({ colors, group, folded, onToggle, span, columns, cardWidth, shared, now, navigation, hostId, machine }: {
   colors: Colors; group: ProjectGroup; folded: boolean; onToggle(): void; span: number; columns: number; cardWidth: number; shared: boolean;
-  now: number; navigation: PluginScreenProps["navigation"]; hostId: string;
+  now: number; navigation: PluginScreenProps["navigation"]; hostId: string; machine?: string;
 }) {
   const { boards, chats } = splitGroup(group);
   // A repo that does not fill its row ends in a rule, shared with another repo or not.
@@ -124,7 +124,7 @@ function RepoBlock({ colors, group, folded, onToggle, span, columns, cardWidth, 
   const cols = ruled ? span : columns;
   const cw = ruled ? Math.floor((inner - (span - 1) * GAP) / span) : cardWidth;
   const cards: { node: React.ReactNode; width: number }[] = boards.map((entry) => ({
-    node: <BoardCard key={entry.workspace.id} colors={colors} entry={entry} repoName={group.projectName} now={now} navigation={navigation} hostId={hostId} />,
+    node: <BoardCard key={entry.workspace.id} colors={colors} entry={entry} repoName={group.projectName} now={now} navigation={navigation} hostId={hostId} machine={machine} />,
     width: cw,
   }));
   if (chats.length) cards.push({ node: <ChatsCard key="chats" colors={colors} entries={chats} navigation={navigation} hostId={hostId} />, width: chatsSpan(cols, boards.length) === "full" ? inner - 1 : cw });
@@ -154,8 +154,8 @@ function RepoBlock({ colors, group, folded, onToggle, span, columns, cardWidth, 
 // One section's repos. The section measures itself, then repos fill its rows in
 // order: 1-1-1, 1-2 or 2-1 cards across (never 1-3). A folded repo is only a
 // header, so it takes a whole row.
-function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId }: {
-  colors: Colors; groups: ProjectGroup[]; isFolded(group: ProjectGroup): boolean; flip(key: string): void; now: number; navigation: PluginScreenProps["navigation"]; hostId: string;
+function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId, machine }: {
+  colors: Colors; groups: ProjectGroup[]; isFolded(group: ProjectGroup): boolean; flip(key: string): void; now: number; navigation: PluginScreenProps["navigation"]; hostId: string; machine?: string;
 }) {
   const [width, setWidth] = useState(0);
   const { columns, cardWidth } = gridLayout(width, GAP);
@@ -179,7 +179,7 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId 
 // work happening now and what has completed, working rows in white and
 // completed rows in green, with the rest of the history behind one More info.
 // Open by default here; the workspace panel keeps its copy closed.
-function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"] }) {
+function PageFeed({ colors, groups, now, navigation, machine }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"]; machine?: string }) {
   const feed = pageFeed(groups);
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(true);
@@ -220,7 +220,7 @@ function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups:
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <Text numberOfLines={single ? 1 : undefined} style={{ fontSize: 13, lineHeight: 18 }}>
-                <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · {row.board} · </Text>
+                <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · {machine ? `${machine} · ` : ""}{row.board} · </Text>
                 <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
                 <Text style={{ color: colors.foregroundMuted }}> · P{row.priority} · </Text>
                 <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.what}</Text>
@@ -275,6 +275,9 @@ function EverythingStrip({ colors }: { colors: Colors }) {
 export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreenProps) {
   const { colors } = theme;
   const { data: groups, error, isLoading } = useOverview(host.id);
+  // The machine this panel is attached to, so every card and feed row says where
+  // the objective lives (Des, 25 Oct).
+  const machineTag = shortLabel((host as { label?: string }).label ?? host.id);
   const now = Date.now();
   // Sections and repos the viewer has flipped; the rest keep their default.
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
@@ -291,7 +294,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
-      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} /> : null}
+      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} machine={machineTag} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (
@@ -305,7 +308,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
             </Pressable>
             {folded ? null : (
               <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20 }}>
-                <SectionRepos colors={colors} groups={section.groups} isFolded={(group) => Boolean(flipped[`repo:${group.projectId}`])} flip={flip} now={now} navigation={navigation} hostId={host.id} />
+                <SectionRepos colors={colors} groups={section.groups} isFolded={(group) => Boolean(flipped[`repo:${group.projectId}`])} flip={flip} now={now} navigation={navigation} hostId={host.id} machine={machineTag} />
               </View>
             )}
           </View>
