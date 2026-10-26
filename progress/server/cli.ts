@@ -12,7 +12,7 @@ import { resolveWorkspaceId } from "./workspace.ts";
 import { UNION_SCOPE } from "../shared/dashboard.ts";
 import { installLaunchers } from "./launcher.ts";
 import { closeBackingBeads } from "./beads.ts";
-import { findStore, outsideDirectory, saveRunCopy } from "./store.ts";
+import { findStore, outsideDirectory, restoreState, saveRunCopy } from "./store.ts";
 import { dashboardText, ticketLines } from "../shared/show.ts";
 import { imageMimeType } from "../shared/attachments.ts";
 import { homedir } from "node:os";
@@ -670,7 +670,7 @@ const SHOW_SUMMARY = "Print the dashboard as text: what the user sees in the Pro
 const TICKET_SHOW_USAGE = "ticket show <id> [--json]";
 const TICKET_SHOW_SUMMARY = "Print one objective: its status, priority (when set), estimate and name. --json gives the whole objective for a machine.";
 const INSTALL_SUMMARY = "Write the paseo-progress launcher (default ~/.local/bin/paseo-progress). It runs this command from whichever copy of the plugin Paseo is running.";
-const STATE_SUMMARY = "Print the folder where this worktree's board lives. It is the same key the store uses: the resolved worktree root (realpath, nearest .git) plus its first eight hex. A script that moves a repo prints it before the move for the old name and after for the new one, then renames the folder.";
+const STATE_SUMMARY = "Print the folder where this worktree's board lives, or rebuild that folder from the repo. The folder is a cache: its key is the resolved worktree root (realpath, nearest .git) plus the machine plus its first eight hex, and its contents can always be replayed from the run files the repo saves. `state path` prints the folder, so a script that moves a repo prints it before the move and after. `state restore` replays this machine's saved runs in filename order, keeps a dated copy of the file it replaces, and writes the rebuilt board; it needs a git worktree and never reads another machine's folder.";
 const DEFAULT_LAUNCHER = "~/.local/bin/paseo-progress";
 
 function help(): string {
@@ -841,11 +841,17 @@ export async function runCli(rawArgv: string[], options: CliOptions): Promise<nu
   if (first === "state") {
     const [, sub, target] = argv;
     if (!sub || sub === "--help" || sub === "-h") {
-      out(`Usage: ${USAGE_NAME} state path [dir]\n\n${STATE_SUMMARY}`);
+      out(`Usage: ${USAGE_NAME} state path [dir]\n       ${USAGE_NAME} state restore [--dry-run]\n\n${STATE_SUMMARY}`);
       return sub ? 0 : 1;
     }
+    if (sub === "restore") {
+      const dryRun = argv.includes("--dry-run");
+      const result = await restoreState(findRoot(options.cwd), { dryRun });
+      out(`${dryRun ? "Would restore" : "Restored"} ${result.events} events from ${result.files} saved runs for ${result.machine} into ${result.directory}${result.backup ? `; the file it replaced is kept at ${result.backup}` : ""}`);
+      return 0;
+    }
     if (sub !== "path") {
-      out(`Unknown state command: ${sub}\nUsage: ${USAGE_NAME} state path [dir]`);
+      out(`Unknown state command: ${sub}\nUsage: ${USAGE_NAME} state path [dir] | state restore [--dry-run]`);
       return 1;
     }
     out(outsideDirectory(findRoot(target ?? options.cwd)));

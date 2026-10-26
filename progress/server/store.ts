@@ -272,6 +272,43 @@ async function firstEventWs(file: string): Promise<string | null | undefined> {
   }
 }
 
+// The state folder is a cache; the repo's saved runs are the truth. Rebuild the
+// board file from THIS machine's run files, oldest name first, keeping a dated
+// copy of whatever it replaces. Another machine's folder is never read: one
+// box must never replay another's board over its own.
+export type RestoreResult = { directory: string; machine: string; folder: string; files: number; events: number; backup: string | null };
+
+export async function restoreState(root: string, options: { dryRun?: boolean } = {}): Promise<RestoreResult> {
+  if (!(await inGitRepo(root))) throw new Error("Restore needs a git worktree: the saved runs live in the repo.");
+  const folder = await historyFolder(root);
+  if (!folder) throw new Error("Run saving is off for this repo, so there is nothing to restore from.");
+  const machine = machineName();
+  const store = await findStore(root);
+  const saved = join(root, folder, machine);
+  const legacy = join(root, folder);
+  const jsonl = async (directory: string) => (await readdir(directory, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl")).map((entry) => entry.name).sort();
+  // Root-level files predate the machine folders, so they are this machine's.
+  const paths = [...(await jsonl(legacy)).map((name) => join(legacy, name)), ...(await jsonl(saved)).map((name) => join(saved, name))];
+  if (!paths.length) throw new Error(`No saved runs for ${machine} under ${folder}. Nothing was written.`);
+  const lines: string[] = [];
+  for (const path of paths) {
+    const text = await readFile(path, "utf8").catch(() => "");
+    lines.push(...text.split("\n").filter((line) => line.trim()));
+  }
+  const result: RestoreResult = { directory: store.directory, machine, folder, files: paths.length, events: lines.length, backup: null };
+  if (options.dryRun) return result;
+  await mkdir(store.directory, { recursive: true });
+  const existing = await readFile(join(store.directory, PROGRESS_FILE_NAME), "utf8").catch(() => null);
+  if (existing !== null) {
+    const stamp = new Date().toISOString().replace(/\.\d+Z$/, "").replace(/[-:]/g, "").replace("T", "-");
+    result.backup = join(store.directory, `${PROGRESS_FILE_NAME}.bak-${stamp}`);
+    await writeFile(result.backup, existing);
+  }
+  await writeFile(join(store.directory, PROGRESS_FILE_NAME), `${lines.join("\n")}\n`);
+  return result;
+}
+
 // The folders directly inside one folder of the worktree ("" is the top), for
 // the folder picker. .git is left out; so are links, which could leave the repo.
 export async function listFolders(root: string, folder: string): Promise<{ folder: string; folders: string[] }> {

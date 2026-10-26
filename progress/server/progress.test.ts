@@ -18,7 +18,7 @@ import { boardsLauncherState, boardsLauncherStatus, defaultLauncherPath, install
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
-import { findStore, legacyDirectory, machineName, outsideDirectory, runFileName } from "./store.ts";
+import { findStore, legacyDirectory, machineName, outsideDirectory, restoreState, runFileName } from "./store.ts";
 import { ticketStory } from "../shared/ticket-story.ts";
 import { parseWriteUp, writeUpExcerpt } from "../shared/write-up.ts";
 
@@ -1950,6 +1950,45 @@ test("a carry-across lands in a machine folder that already holds only a marker"
   assert.equal((await findStore(repo.directory, home)).directory, key);
   assert.match(await readFile(join(key, "progress.jsonl"), "utf8"), /Recovered board/, "the board landed under the machine key");
   assert.ok(await stat(join(key, "progress-panel-opened")).catch(() => null), "the marker is left alone");
+});
+
+// Des's third requirement (o65): the state folder is a cache, the repo's saved
+// runs are the truth, so a wipe is rebuildable by one command. It replays only
+// this machine's files, keeps a dated copy of what it replaces, and refuses
+// anywhere the repo cannot back it.
+test("state restore rebuilds the board from this machine's saved runs", async (t) => {
+  const repo = await newRepo(t);
+  await repo.run(repo.directory, "start", "First run");
+  await repo.run(repo.directory, "activity", "add", "Did a thing");
+  const store = await findStore(repo.directory);
+  await rm(store.directory, { recursive: true, force: true });
+
+  const dry = await restoreState(repo.directory, { dryRun: true });
+  assert.equal(dry.machine, machineName());
+  assert.equal(dry.events, 2, "two events replayed from the saved run");
+  assert.equal(dry.backup, null);
+  assert.equal(await stat(join(store.directory, "progress.jsonl")).catch(() => null), null, "a dry run writes nothing");
+
+  const done = await restoreState(repo.directory);
+  assert.equal(done.machine, machineName());
+  assert.match(await readFile(join(store.directory, "progress.jsonl"), "utf8"), /First run[\s\S]*Did a thing/, "the board is back");
+
+  const again = await restoreState(repo.directory);
+  assert.ok(again.backup, "a restore over an existing board keeps a dated copy");
+  assert.match(await readFile(again.backup!, "utf8"), /First run/, "the copy is the file it replaced");
+});
+
+test("state restore refuses where the repo cannot back it, and never reads another machine's files", async (t) => {
+  const bare = await realpath(await mkdtemp(join(tmpdir(), "progress-nogit-")));
+  t.after(() => rm(bare, { recursive: true, force: true }));
+  await assert.rejects(restoreState(bare), /git worktree/, "no repo, no restore");
+
+  const repo = await newRepo(t);
+  const store = await findStore(repo.directory);
+  await mkdir(join(repo.directory, "history", "another-box"), { recursive: true });
+  await writeFile(join(repo.directory, "history", "another-box", "20260101-000000-theirs.jsonl"), `${JSON.stringify({ v: 1, ts: minutes(0).toISOString(), type: "run.start", title: "Another box" })}\n`);
+  await assert.rejects(restoreState(repo.directory), new RegExp(`No saved runs for ${machineName()}`), "another machine's runs are not replayed");
+  assert.equal(await stat(join(store.directory, "progress.jsonl")).catch(() => null), null, "and nothing is written");
 });
 
 test("stopping saving is remembered, and does not fall back to the default", async (t) => {
