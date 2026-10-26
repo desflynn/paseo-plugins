@@ -2,7 +2,7 @@
 // dashboard the panel would get.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -18,7 +18,7 @@ import { boardsLauncherState, boardsLauncherStatus, defaultLauncherPath, install
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
-import { findStore, outsideDirectory, runFileName } from "./store.ts";
+import { findStore, legacyDirectory, machineName, outsideDirectory, runFileName } from "./store.ts";
 import { ticketStory } from "../shared/ticket-story.ts";
 import { parseWriteUp, writeUpExcerpt } from "../shared/write-up.ts";
 
@@ -1684,20 +1684,20 @@ test("saving run history writes one file per run in the chosen folder, in every 
   await repo.run(repo.linked, "start", "Linked run");
   const first = runFileName(minutes(0).toISOString(), "First run");
   assert.equal(first, "20260927-195900-first-run.jsonl");
-  const saved = await readFile(join(repo.directory, "history", first), "utf8");
+  const saved = await readFile(join(repo.directory, "history", machineName(), first), "utf8");
   assert.deepEqual(saved.trim().split("\n").map((line) => JSON.parse(line).type), ["run.start", "activity.add"]);
-  assert.deepEqual(await repo.visible(), [`history/${first}`], "only the run file; no lock or marker");
-  assert.deepEqual(await repo.visible(repo.linked), [`history/${runFileName(minutes(0).toISOString(), "Linked run")}`], "the setting covers every worktree");
+  assert.deepEqual(await repo.visible(), [`history/${machineName()}/${first}`], "only the run file; no lock or marker");
+  assert.deepEqual(await repo.visible(repo.linked), [`history/${machineName()}/${runFileName(minutes(0).toISOString(), "Linked run")}`], "the setting covers every worktree");
 
   await repo.run(repo.directory, "start", "Second run", "--replace");
-  assert.deepEqual((await readdir(join(repo.directory, "history"))).sort(), [first, runFileName(minutes(0).toISOString(), "Second run")].sort(), "a new run gets its own file");
-  assert.deepEqual(JSON.parse((await readFile(join(repo.directory, "history", runFileName(minutes(0).toISOString(), "Second run")), "utf8")).trim()).title, "Second run");
+  assert.deepEqual((await readdir(join(repo.directory, "history", machineName()))).sort(), [first, runFileName(minutes(0).toISOString(), "Second run")].sort(), "a new run gets its own file");
+  assert.deepEqual(JSON.parse((await readFile(join(repo.directory, "history", machineName(), runFileName(minutes(0).toISOString(), "Second run")), "utf8")).trim()).title, "Second run");
 
   assert.deepEqual(await set(null), { savedTo: null });
   assert.deepEqual(await set(null), { savedTo: null }, "stopping twice is fine");
   await repo.run(repo.directory, "activity", "add", "Not saved");
-  assert.doesNotMatch(await readFile(join(repo.directory, "history", runFileName(minutes(0).toISOString(), "Second run")), "utf8"), /Not saved/);
-  assert.ok(await readFile(join(repo.directory, "history", first), "utf8"), "files already saved stay");
+  assert.doesNotMatch(await readFile(join(repo.directory, "history", machineName(), runFileName(minutes(0).toISOString(), "Second run")), "utf8"), /Not saved/);
+  assert.ok(await readFile(join(repo.directory, "history", machineName(), first), "utf8"), "files already saved stay");
 });
 
 test("run history only goes to folders inside the repo", async (t) => {
@@ -1897,7 +1897,7 @@ test("run history saves to history/ by default whatever the origin is", async (t
     await repo.setOrigin(origin);
     await repo.run(repo.directory, "start", "First run");
     const file = runFileName(minutes(0).toISOString(), "First run");
-    assert.deepEqual(await repo.visible(), [`history/${file}`], `saved by default, origin ${origin}`);
+    assert.deepEqual(await repo.visible(), [`history/${machineName()}/${file}`], `saved by default, origin ${origin}`);
     const result = await handleGetDashboard({ workspaceId: "ws-1", workspaceDirectory: repo.directory }, context);
     assert.ok("dashboard" in result);
     assert.equal(result.savedTo, "history", "the panel shows where it saves");
@@ -1910,7 +1910,29 @@ test("a folder the user picked still wins over the default", async (t) => {
   assert.deepEqual(await set("notes"), { savedTo: "notes" });
   await repo.run(repo.directory, "start", "Local run");
   await repo.run(repo.directory, "activity", "add", "Now saved");
-  assert.deepEqual(await repo.visible(), [`notes/${runFileName(minutes(0).toISOString(), "Local run")}`], "a chosen folder wins over the default");
+  assert.deepEqual(await repo.visible(), [`notes/${machineName()}/${runFileName(minutes(0).toISOString(), "Local run")}`], "a chosen folder wins over the default");
+});
+
+// o65 (Des, 25 Oct): one repo used from several boxes must never let one
+// machine shadow another's board, so the machine is in the key. The key a
+// worktree had before that must be carried across once, never abandoned.
+test("a board key carries the machine, and the pre-machine key is carried across once", async (t) => {
+  const repo = await newRepo(t);
+  const home = join(repo.directory, "home");
+  const key = outsideDirectory(repo.directory, home);
+  assert.match(key, new RegExp(`-${machineName()}-[0-9a-f]{8}$`), "the machine is in the key");
+  assert.equal(machineName(), machineName(), "the machine name is stable within a run");
+  const legacy = legacyDirectory(repo.directory, home);
+  assert.notEqual(key, legacy, "the key is not the pre-machine key");
+  assert.equal(key.replace(`-${machineName()}`, ""), legacy, "the two keys differ only by the machine");
+
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, "progress.jsonl"), `${JSON.stringify({ v: 1, ts: minutes(0).toISOString(), type: "run.start", title: "Old board" })}\n`);
+  assert.equal((await findStore(repo.directory, home, { readOnly: true })).directory, key, "a reader reports the key");
+  assert.ok(await stat(legacy).catch(() => null), "a reader leaves the old folder alone");
+  assert.equal((await findStore(repo.directory, home)).directory, key);
+  assert.equal(await stat(legacy).catch(() => null), null, "the old folder is carried across, not left behind");
+  assert.match(await readFile(join(key, "progress.jsonl"), "utf8"), /Old board/, "the board came with it");
 });
 
 test("stopping saving is remembered, and does not fall back to the default", async (t) => {
@@ -1925,14 +1947,14 @@ test("stopping saving is remembered, and does not fall back to the default", asy
   assert.equal(result.savedTo, null);
   assert.deepEqual(await set("history"), { savedTo: "history" }, "choosing a folder turns it back on");
   await repo.run(repo.directory, "activity", "add", "Saved again");
-  assert.deepEqual(await repo.visible(), [`history/${runFileName(minutes(0).toISOString(), "Quiet run")}`]);
+  assert.deepEqual(await repo.visible(), [`history/${machineName()}/${runFileName(minutes(0).toISOString(), "Quiet run")}`]);
 });
 
 // Saved runs per workspace (HHC3 report, 15 Oct): the repo has one shared
 // progress file, but each workspace's run is its own board. A saved file holds
 // one workspace's run, complete from its run.start, and nothing of another's.
 async function savedRuns(repo: { directory: string }) {
-  const directory = join(repo.directory, "history");
+  const directory = join(repo.directory, "history", machineName());
   const names = (await readdir(directory)).sort();
   return Promise.all(names.map(async (name) => ({
     name,
@@ -1986,7 +2008,7 @@ test("a saved file that already mixes workspaces heals on its workspace's next w
   await as("wks_b", "start", "Beta board");
   await as("wks_b", "ticket", "add", "B one", "--estimate", "30");
   const name = runFileName(minutes(0).toISOString(), "Alpha board");
-  const file = join(repo.directory, "history", name);
+  const file = join(repo.directory, "history", machineName(), name);
   const polluted = JSON.stringify({ v: 1, ts: minutes(0).toISOString(), type: "ticket.add", id: "o9", title: "Not mine", estimateMin: 5, ws: "wks_b" });
   await writeFile(file, `${(await readFile(file, "utf8")).trimEnd()}\n${polluted}\n`);
   await as("wks_a", "activity", "add", "After the pollution");

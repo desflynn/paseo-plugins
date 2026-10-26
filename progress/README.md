@@ -55,7 +55,7 @@ Each worktree's progress lives outside the repo, in its own folder under `~/.loc
 
 ### Saving run history to the repo
 
-Runs save themselves: each run is written into `history/` in the repo by default, one file per run like `history/20261001-064512-export-feature.jsonl`, updated as the run goes — commit them like any other file. One file per run means two branches never write the same file, so merges don't conflict. The lock and the panel marker never go there. Saving happens whatever the repo's origin is, public or not: a run that is not in git is a run a wipe can take, so the repo is the safe copy.
+Runs save themselves: each run is written into `history/<machine>/` in the repo by default, one file per run like `history/desmonds-mac-studio/20261001-064512-export-feature.jsonl`, updated as the run goes — commit them like any other file. One file per run means two branches never write the same file, so merges don't conflict, and one folder per machine means two boxes never write the same file either. The lock and the panel marker never go there. Saving happens whatever the repo's origin is, public or not: a run that is not in git is a run a wipe can take, so the repo is the safe copy.
 
 Pressing **Save to repo…** at the bottom of the panel and picking a folder (or naming a new one) saves there instead of `history/`. The choice covers every worktree of the repo and is kept in the repo's local git config (`paseo-progress.saveRuns`), which nothing commits. **Change…** picks another folder for future runs; **Stop saving** writes an empty `paseo-progress.saveRuns`, and an empty value means stopped — saving stays off until a folder is chosen again. Files already saved are never moved or deleted.
 

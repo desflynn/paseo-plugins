@@ -22,7 +22,7 @@ The file lives outside the repo, one folder per worktree under `~/.local/state/p
 
 It is **one file per checkout, not one per workspace**: several Paseo workspaces can share a checkout, all appending to the same file, each event carrying optional `ws` (workspace id) and `by` (agent id) stamps. The fold slices per workspace at read time (`scopeEvents` in `shared/dashboard.ts`): this workspace's board is its slice; `show --all` and the GIT card fold every workspace's run together. Workspace keying sits inside the file, not beside it. A lock file (`progress.jsonl.lock`) serialises writes, so two commands never append at once or mint the same id.
 
-The `saveRuns` setting only mirrors. It lives in the repo's local git config (`paseo-progress.saveRuns`). After each change, `saveRunCopy` in `server/store.ts` rewrites that run's slice — that workspace's events from its `run.start` on — as one file under `history/` in the repo, named at the start by timestamp and title slug and never renamed. Saving is on by default for every origin, public or not; an empty setting means stopped for good. The repo copies are mirrors: delete the working folder and the board is gone; only `history/` survives in git.
+The `saveRuns` setting only mirrors. It lives in the repo's local git config (`paseo-progress.saveRuns`). After each change, `saveRunCopy` in `server/store.ts` rewrites that run's slice — that workspace's events from its `run.start` on — as one file under `<folder>/<machine>/` in the repo, named at the start by timestamp and title slug and never renamed. Saving is on by default for every origin, public or not; an empty setting means stopped for good. The repo copies are mirrors: delete the working folder and the board is gone; only the saved runs survive in git.
 
 ## 3. Ids and events
 
@@ -86,6 +86,6 @@ The event types in `shared/events.ts`:
 - Statuses: `open`, `in_progress`, `blocked`, `closed`; a close carries `done` or `skipped` (skipped leaves the progress totals). Legacy words (`not_started`, `working`) translate on the fold.
 - Priority: integers 0–4, most urgent 0; unset sorts as 5 on screen; the auto-pull band is 0–2; owner-held is 3, 4 and none.
 - The board file: `~/.local/state/paseo-progress/<basename>-<sha1-8>/progress.jsonl`, one per worktree; plus `progress.jsonl.lock` and the `progress-panel-opened` marker beside it.
-- Saved runs: `history/<start-timestamp>-<title-slug>.jsonl` in the repo, controlled by `paseo-progress.saveRuns` in local git config; default on for every origin.
+- Saved runs: `history/<machine>/<start-timestamp>-<title-slug>.jsonl` in the repo, controlled by `paseo-progress.saveRuns` in local git config; default on for every origin.
 - Key places: `server/cli.ts` (every command), `server/store.ts` (where files live, the saving rule), `server/paths.ts` (`findRoot`), `server/workspace.ts` (agent → workspace resolution), `shared/events.ts` (the schema), `shared/dashboard.ts` (the fold, ordering, stuck and indicator rules), `shared/modes.ts` (the five board modes), `skills/paseo-progress/SKILL.md` (the agent-facing procedure).
 - Ids: objectives `o1`, children `o1.1` — never reused; questions `Q1` unique across runs; deliverables `D1`, activity `A1`, stuck `S1` per run.

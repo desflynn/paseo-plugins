@@ -4,9 +4,9 @@
 // Only runs the user asks to save are written into the repo, one file per run.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readFileSync, realpathSync } from "node:fs";
+import { appendFile, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { homedir, hostname } from "node:os";
 import { basename, join, normalize, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseProgress, scopeEvents } from "../shared/dashboard.ts";
@@ -41,9 +41,49 @@ async function exists(path: string): Promise<boolean> {
   return Boolean(await stat(path).catch(() => null));
 }
 
-// One folder per worktree on this computer, named so a person can tell which
-// worktree it belongs to.
+// One repo used from several boxes keeps every machine's board (o65, Des
+// 25 Oct). A key with only the path in it would let two boxes that mount the
+// repo at the same path share one board, so the machine is in the key too.
+// Order: an explicit name, then the OS machine id, then the host name. A
+// container's host name changes when it is recreated, so a containerised
+// daemon sets PASEO_PROGRESS_MACHINE and keeps one board across recreates.
+let cachedMachine: string | null = null;
+
+function machineSlug(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\.(local|lan|localdomain|home)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
+}
+
+// /etc/machine-id is the stable id on Linux. Shortened, because 32 hex
+// characters in a folder name helps nobody and 8 still separates machines.
+function machineIdFile(): string | null {
+  try {
+    return machineSlug(readFileSync("/etc/machine-id", "utf8")).slice(0, 8) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function machineName(): string {
+  if (cachedMachine !== null) return cachedMachine;
+  const set = machineSlug(process.env.PASEO_PROGRESS_MACHINE ?? "");
+  cachedMachine = set || machineIdFile() || machineSlug(hostname()) || "unknown";
+  return cachedMachine;
+}
+
+// One folder per worktree per machine on this computer, named so a person can
+// tell which worktree and which box it belongs to.
 export function outsideDirectory(root: string, home = homedir()): string {
+  let real = root;
+  try {
+    real = realpathSync(root);
+  } catch {}
+  const hash = createHash("sha1").update(real).digest("hex").slice(0, 8);
+  return join(home, ".local", "state", "paseo-progress", `${basename(real)}-${machineName()}-${hash}`);
+}
+
+// The key this worktree had before the machine went into it. Its board is
+// renamed across once, so an upgrade never looks like an empty board.
+export function legacyDirectory(root: string, home = homedir()): string {
   let real = root;
   try {
     real = realpathSync(root);
@@ -65,16 +105,27 @@ async function legacyTracked(root: string, mtimeMs: number): Promise<boolean> {
 
 // The worktree's working files. A run 0.1.x left in .scratch moves outside the
 // first time anything asks, unless git tracks it: then it stays and is used in
-// place, so nothing changes for a repo that commits it.
-export async function findStore(root: string, home = homedir()): Promise<Store> {
+// place, so nothing changes for a repo that commits it. `readOnly` keeps a
+// reader a reader: it neither migrates the legacy file nor renames the key.
+export async function findStore(root: string, home = homedir(), options: { readOnly?: boolean } = {}): Promise<Store> {
   const directory = outsideDirectory(root, home);
+  if (!options.readOnly) await adoptLegacyKey(legacyDirectory(root, home), directory);
   const store = { directory, shown: directory.startsWith(home) ? `~${directory.slice(home.length)}` : directory };
   const legacy = join(root, LEGACY_FOLDER);
   const info = await stat(join(legacy, PROGRESS_FILE_NAME)).catch(() => null);
   if (!info) return store;
   if (await legacyTracked(root, info.mtimeMs)) return { directory: legacy, shown: LEGACY_FOLDER };
-  await moveLegacy(legacy, directory);
+  if (!options.readOnly) await moveLegacy(legacy, directory);
   return store;
+}
+
+// Carries a board from the pre-machine key across to the machine key, once.
+// Only when the new folder is absent, so a live board is never touched.
+async function adoptLegacyKey(legacy: string, directory: string): Promise<void> {
+  if (legacy === directory) return;
+  if (await exists(directory)) return;
+  if (!(await exists(legacy))) return;
+  await rename(legacy, directory).catch(() => {});
 }
 
 // Appends the old file's lines to the new one rather than replacing it, so a
@@ -189,7 +240,7 @@ export async function saveRunCopy(root: string, text: string, scope?: string): P
   const start = mine.find(({ event }) => event.type === "run.start");
   if (start?.event.type !== "run.start" || !start.event.ts || !start.event.title) return;
   const body = mine.map(({ line }) => fileLines[line - 1]).filter((line) => line?.trim());
-  const directory = join(root, folder);
+  const directory = join(root, folder, machineName());
   await mkdir(directory, { recursive: true });
   // Two workspaces can start a run in the same second under one title. A name
   // already held by another workspace's run gets this workspace added, so the
