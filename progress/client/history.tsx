@@ -9,8 +9,8 @@ import { listFolders, setHistoryFolder } from "../shared/rpc";
 
 type Colors = PluginWorkspacePanelProps["theme"]["colors"];
 
-// Run history saves into the repo by default, unless its origin is public or
-// the owner turned it off. This quiet row is the only place that changes it.
+// Run history saves into the repo by default, unless the owner turned it off.
+// This quiet row is the only place that changes it.
 export function HistoryRow({ colors, workspaceId, directory, savedTo }: {
   colors: Colors;
   workspaceId: string;
@@ -40,7 +40,7 @@ export function HistoryRow({ colors, workspaceId, directory, savedTo }: {
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6, flex: 1, minWidth: 180 }}>
         <View style={{ paddingTop: 2 }}><Icon name="History" size={13} color={colors.foregroundMuted} /></View>
         <Text style={{ flex: 1, color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }}>
-          {savedTo ? <>Each run is saved to <Text style={{ color: colors.foreground }}>{savedTo}</Text> in this repo.</> : "Run history stays on this computer: saving is off, or this repo's origin is public."}
+          {savedTo ? <>Each run is saved to <Text style={{ color: colors.foreground }}>{savedTo}</Text> in this repo.</> : "Run history stays on this computer: the owner turned saving off."}
         </Text>
       </View>
       <View style={{ flexDirection: "row", gap: 4 }}>

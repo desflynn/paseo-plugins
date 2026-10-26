@@ -18,7 +18,7 @@ import { defaultLauncherPath, installLauncher, launcherStatus } from "./launcher
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
-import { findStore, originIsPublic, outsideDirectory, runFileName } from "./store.ts";
+import { findStore, outsideDirectory, runFileName } from "./store.ts";
 import { ticketStory } from "../shared/ticket-story.ts";
 import { parseWriteUp, writeUpExcerpt } from "../shared/write-up.ts";
 
@@ -1543,7 +1543,8 @@ async function newRepo(t: TestContext) {
   const linked = `${directory}-linked`;
   t.after(() => Promise.all([directory, linked].map((path) => rm(path, { recursive: true, force: true }))));
   await git(directory, "init", "-q");
-  // A public origin keeps run saving off, as before o22; the o22 tests set their own.
+  // Saving is on by default for every origin; a test about the store's home
+  // turns it off itself with handleSetHistoryFolder(folder: null).
   await git(directory, "remote", "add", "origin", "https://github.com/example/widgets.git");
   const output: string[] = [];
   return {
@@ -1579,6 +1580,8 @@ async function oldScratch(tree: string, extra: Record<string, string> = {}) {
 
 test("progress lives outside the repo: no setup, nothing for git to see", async (t) => {
   const repo = await newRepo(t);
+  // Run saving is on by default; this test is about the store's home, not saving.
+  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: null }, context);
   assert.equal((await repo.run(repo.directory, "start", "Run")).code, 0);
   assert.deepEqual(await repo.visible(), []);
   assert.equal(await readdir(repo.directory).then((names) => names.includes(".scratch")), false);
@@ -1629,6 +1632,7 @@ test("a repo's own .scratch/.gitignore is never removed, and its files stop show
 
 test("a run 0.1.x left in .scratch that git tracks stays and is used in place", async (t) => {
   const repo = await newRepo(t);
+  await handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder: null }, context);
   await oldScratch(repo.directory);
   await writeFile(join(repo.directory, ".scratch", ".gitignore"), "drafts/\n");
   await git(repo.directory, "add", "-A");
@@ -1652,7 +1656,7 @@ test("lines written to the old place during a move are picked up, not lost", asy
   assert.deepEqual(result.dashboard.activity.map((entry) => entry.text), ["Late line"]);
 });
 
-test("saving run history is opt-in: one file per run in the chosen folder, in every worktree", async (t) => {
+test("saving run history writes one file per run in the chosen folder, in every worktree", async (t) => {
   const repo = await newRepo(t);
   await repo.addWorktree();
   const set = (folder: string | null, tree = repo.directory) => handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: tree, folder }, context);
@@ -1865,26 +1869,12 @@ test("the hold sign and hover say which hold it is, and a held board keeps the a
   assert.equal(isAutoPullable(urgent), true);
 });
 
-// o22 (Des, 15 Oct): "DEFAULT to repo unless public origin". Run history saves
-// into the repo by default; a public origin keeps it local; a folder or an
-// explicit off the user chose always wins.
-test("an origin counts as public when it is on a public forge or cannot be told apart from one", () => {
-  for (const url of [
-    "https://github.com/desflynn/paseo-plugins.git",
-    "git@github.com:desflynn/paseo-plugins.git",
-    "ssh://git@github.com/desflynn/paseo-plugins.git",
-    "https://user:token@GitHub.com/desflynn/x",
-    "https://gitlab.com/x/y.git",
-    "git@bitbucket.org:x/y.git",
-    "https://www.github.com/x/y",
-  ]) assert.equal(originIsPublic(url), true, url);
-  for (const url of [null, "", "  ", "/srv/git/widgets.git", "file:///srv/git/widgets.git", "git@git.rvr.ie:team/widgets.git", "https://git.internal.example/team/widgets"]) {
-    assert.equal(originIsPublic(url), false, String(url));
-  }
-});
-
-test("run history saves to history/ by default when the repo has no public origin", async (t) => {
-  for (const origin of [null, "git@git.rvr.ie:team/widgets.git"]) {
+// Des, 25 Oct: run history ALWAYS saves into the repo. The old origin gate (a
+// public or unproven origin kept the board local) is gone, because it stopped
+// persistence instead of protecting anything. The only overrides left are the
+// owner's: a folder they picked, or an explicit off.
+test("run history saves to history/ by default whatever the origin is", async (t) => {
+  for (const origin of [null, "git@git.rvr.ie:team/widgets.git", "https://github.com/desflynn/paseo-plugins.git", "git@gitlab.com:x/y.git"]) {
     const repo = await newRepo(t);
     await repo.setOrigin(origin);
     await repo.run(repo.directory, "start", "First run");
@@ -1896,14 +1886,13 @@ test("run history saves to history/ by default when the repo has no public origi
   }
 });
 
-test("a public origin keeps run history local, and a folder the user picked still wins", async (t) => {
+test("a folder the user picked still wins over the default", async (t) => {
   const repo = await newRepo(t);
-  await repo.run(repo.directory, "start", "Local run");
-  assert.deepEqual(await repo.visible(), [], "github origin: nothing written into the repo");
   const set = (folder: string | null) => handleSetHistoryFolder({ workspaceId: "ws-1", workspaceDirectory: repo.directory, folder }, context);
   assert.deepEqual(await set("notes"), { savedTo: "notes" });
+  await repo.run(repo.directory, "start", "Local run");
   await repo.run(repo.directory, "activity", "add", "Now saved");
-  assert.deepEqual(await repo.visible(), [`notes/${runFileName(minutes(0).toISOString(), "Local run")}`], "a chosen folder overrides the public origin");
+  assert.deepEqual(await repo.visible(), [`notes/${runFileName(minutes(0).toISOString(), "Local run")}`], "a chosen folder wins over the default");
 });
 
 test("stopping saving is remembered, and does not fall back to the default", async (t) => {
