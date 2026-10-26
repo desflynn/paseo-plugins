@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BoardSummary } from "../shared/overview";
+import { shortLabel } from "../shared/machine.ts";
+export { shortLabel };
 
 // One host's board data as the Everything view sees it. `stale` marks a
 // snapshot served from cache because the host could not be read this time.
@@ -13,14 +15,8 @@ export interface HostSnapshot {
   stale: boolean;
 }
 
-// The machine tag Des wants beside an objective: a short, stable name. Paseo
-// host labels are "korolev", "dgx-spark", "ideapad", so the first three
-// letters give KOR, DGX, IDE. Rename a host in Paseo and the tag follows.
-export function shortLabel(label: string): string {
-  const letters = label.replace(/[^A-Za-z0-9]/g, "");
-  if (!letters) return "?";
-  return letters.slice(0, 3).toUpperCase();
-}
+// HostSnapshot carries the machine tag beside an objective; the tag itself
+// lives in shared/machine.ts so the client renders the same letters.
 
 function cachePath(directory: string, serverId: string): string {
   return join(directory, `${serverId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);

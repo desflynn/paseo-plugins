@@ -19,7 +19,10 @@ Bead: `paseo-plugins-6uz`. Objective: `o1` on the run "Progress across machines"
   `summariseBoard`, and `handleGetAllHostsOverview` wires it into `collectHosts` with a cache
   at `~/.dci/progress-cache`. Registered in `index.server.ts` beside `getOverview`.
   **State: `tsc --noEmit` clean, full suite 391 pass, 0 fail.**
-  Next and last: the client. Everything entry selected by default, machine tag (short label
+  CLIENT LANDED: an Everything strip on the Progress page (`useHosts()` + the new RPC),
+  one row per machine with its short label, board count and a `cached` marker, shown
+  above the boards and hidden when fewer than two hosts are configured.
+  Next: the same machine tag on board cards and feed rows. Everything entry selected by default, machine tag (short label
   plus a computer glyph) on the board cards and the feed rows, single-host picks unchanged.
 
 - **25 Oct, step 1 done — feasibility settled, and it is not the easy path.**

@@ -1,4 +1,4 @@
-import { type PluginScreenProps, type PluginSidebarItemProps, useRpc, usePaseo } from "@getpaseo/plugin/client";
+import { type PluginScreenProps, type PluginSidebarItemProps, useHosts, useRpc, usePaseo } from "@getpaseo/plugin/client";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import type { RpcOutput } from "@getpaseo/plugin";
@@ -7,7 +7,8 @@ import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
-import { getOverview } from "../shared/rpc";
+import { getAllHostsOverview, getOverview } from "../shared/rpc";
+import { shortLabel } from "../shared/machine";
 import { listAll, loadWorkspaceOwner, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
@@ -238,6 +239,39 @@ function PageFeed({ colors, groups, now, navigation }: { colors: Colors; groups:
   );
 }
 
+// Everything: every machine Paseo knows, read through this host's collector and
+// cached when a box is offline. Renders above the boards so one screen answers
+// "how is the fleet doing" without switching hosts.
+function useEverything() {
+  const hosts = useHosts();
+  const fetchAll = useRpc(getAllHostsOverview);
+  return useQuery({
+    queryKey: ["progress", "everything", hosts.map((h) => h.serverId).join(",")],
+    queryFn: () => fetchAll({ hosts: hosts.map((h) => ({ serverId: h.serverId, label: h.label, status: h.status })) }),
+    refetchInterval: POLL_MS,
+    staleTime: POLL_MS,
+    enabled: hosts.length > 0,
+  });
+}
+
+function EverythingStrip({ colors }: { colors: Colors }) {
+  const { data } = useEverything();
+  if (!data || data.hosts.length < 2) return null;
+  return (
+    <View style={{ marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 10, gap: 3 }}>
+      <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19, fontWeight: "600" }}>Everything · {data.hosts.length} machines</Text>
+      {data.hosts.map((h) => {
+        const boards = Object.keys(h.boards).length;
+        return (
+          <Text key={h.serverId} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
+            {shortLabel(h.label)} · {boards ? `${boards} board${boards === 1 ? "" : "s"}` : "no boards"}{h.stale ? " · cached" : ""}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
 export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreenProps) {
   const { colors } = theme;
   const { data: groups, error, isLoading } = useOverview(host.id);
@@ -253,6 +287,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
         <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>Progress</Text>
         {line ? <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>{line.before}<Text style={{ color: colors.statusDanger }}>{line.stuck}</Text>{line.after}</Text> : null}
       </View>
+      <EverythingStrip colors={colors} />
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
