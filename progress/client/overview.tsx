@@ -70,12 +70,20 @@ function useFleetGroups(local: ProjectGroup[] | undefined, hostId: string) {
         if (host.serverId === hostId) continue;
         const snapshot = everything.data?.hosts.find((entry) => entry.serverId === host.serverId);
         if (!snapshot || !Object.keys(snapshot.boards).length) continue;
+        // A host that will not answer still gets its boards listed, named by the
+        // board title, so a remote objective is never silently missing.
+        const fallback = () => ({
+          workspaces: Object.entries(snapshot.boards).map(([id, board]) => ({ id, projectId: host.label, projectName: host.label, name: board?.title ?? id, directory: "", hostLabel: host.label })),
+          agents: [] as AgentRef[],
+        });
+        let refs: { workspaces: WorkspaceRef[]; agents: AgentRef[] } = fallback();
         try {
-          const { workspaces, agents } = await readHostRefs(getPaseoClient(host.serverId), host.label);
-          groups.push(...groupOverview(workspaces, snapshot.boards, agents));
+          const borrowed = await readHostRefs(getPaseoClient(host.serverId), host.label);
+          if (borrowed.workspaces.length) refs = borrowed;
         } catch {
-          // A host that will not answer contributes no feed rows. Its strip entry still shows.
+          // Keep the fallback.
         }
+        groups.push(...groupOverview(refs.workspaces, snapshot.boards, refs.agents));
       }
       return groups;
     },
@@ -214,7 +222,7 @@ function SectionRepos({ colors, groups, isFolded, flip, now, navigation, hostId,
 // work happening now and what has completed, working rows in white and
 // completed rows in green, with the rest of the history behind one More info.
 // Open by default here; the workspace panel keeps its copy closed.
-function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"]; machine?: string; tint?: string }) {
+function PageFeed({ colors, groups, now, navigation, machine, tint, tints }: { colors: Colors; groups: ProjectGroup[]; now: number; navigation: PluginScreenProps["navigation"]; machine?: string; tint?: string; tints?: Record<string, string | undefined> }) {
   const feed = pageFeed(groups);
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(true);
@@ -267,7 +275,7 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           const owner = owners[row.workspaceId];
           // A row from another machine names that machine, not this one.
           const rowMachine = row.machine ?? machine;
-          const rowTint = row.machine ? undefined : tint;
+          const rowTint = row.machine ? tints?.[row.machine] : tint;
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} style={{ position: "relative", zIndex: hovered === `${row.workspaceId}:${row.id}:${row.at}` ? 10 : 0 }} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", columnGap: 4, minWidth: 0, position: "relative" }}>
@@ -345,6 +353,9 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
   // The Feed shows every machine, so it reads the fleet as well as this host.
   const fleet = useFleetGroups(groups, host.id);
   const feedGroups = fleet.data ?? groups;
+  // Each machine's own colour, so a remote row shows its machine in that colour.
+  const hosts = useHosts();
+  const tints: Record<string, string | undefined> = Object.fromEntries(hosts.map((entry) => [entry.label, identityTint(data?.hostColors?.[entry.serverId])]));
   // The host's own colour, the same one Paseo paints its sidebar badge with.
   const tint = identityTint(data?.hostColors?.[host.id]);
   // The machine this panel is attached to, so every card and feed row says where
@@ -366,7 +377,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
-      {feedGroups ? <PageFeed colors={colors} groups={feedGroups} now={now} navigation={navigation} machine={machineTag} tint={tint} /> : null}
+      {feedGroups ? <PageFeed colors={colors} groups={feedGroups} now={now} navigation={navigation} machine={machineTag} tint={tint} tints={tints} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (
