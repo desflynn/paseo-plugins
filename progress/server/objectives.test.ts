@@ -30,6 +30,20 @@ function fold(text: string, scope?: string) {
   return reduceProgress(parseProgress(text), NOW, scope);
 }
 
+// A close carries the proof of done. Appending keeps the GOAL written when the
+// objective was filed, so a closed ticket still says why it existed (o64).
+test("closing with a note appends the result to the goal", () => {
+  const text = [
+    line({ type: "ticket.add", id: "T01", title: "Wire the endpoint", estimateMin: 60 }),
+    line({ type: "ticket.update", id: "T01", note: "GOAL: read boards over http." }),
+    line({ type: "ticket.update", id: "T01", status: "closed", closeReason: "done", note: "RESULT: 200 with 18 boards." }),
+  ].join("\n") + "\n";
+  const { dashboard } = fold(text);
+  const ticket = dashboard.tickets.find((t) => t.title === "Wire the endpoint")!;
+  assert.match(ticket.note ?? "", /GOAL: read boards over http\./);
+  assert.match(ticket.note ?? "", /RESULT: 200 with 18 boards\./);
+});
+
 const add = (id: string, title: string, extra: Record<string, unknown> = {}) =>
   line({ type: "ticket.add", id, title, estimateMin: 60, ...extra });
 

@@ -599,7 +599,13 @@ export function reduceProgress(parsed: { events: ParsedLine[]; issues: FileIssue
           ticket.stage = event.stage || undefined;
           ticket.stageSince = event.stage ? event.ts : undefined;
         }
-        if (event.note !== undefined) ticket.note = event.note || undefined;
+        if (event.note !== undefined) {
+          const nextNote = event.note || undefined;
+          // A close carries the proof of done. Append it, so the GOAL written when
+          // the objective was filed survives the close (o64).
+          const closing = event.status !== undefined && incoming.status === "closed";
+          ticket.note = closing && nextNote && ticket.note ? `${ticket.note}\n\n${nextNote}` : nextNote;
+        }
         if (event.waitsFor !== undefined) ticket.waitsFor = event.waitsFor || undefined;
         if (event.source !== undefined) ticket.source = event.source || undefined;
         if (event.ref !== undefined) ticket.ref = event.ref;
