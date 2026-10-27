@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { summariseBoard, type BoardSummary } from "../shared/overview.ts";
+import { summariseBoard, withFeed, type BoardSummary } from "../shared/overview.ts";
 import { findStore } from "./store.ts";
 import { readProgress } from "./progress-file.ts";
 
@@ -145,7 +145,7 @@ export async function boardsDocument(
       // No store on disk means no board: skip. Never create one.
       const read = await readProgress(store.directory, now());
       if (!read.configured) return null;
-      const summary = summariseBoard(read.dashboard);
+      const summary = withFeed(summariseBoard(read.dashboard), read.dashboard);
       if (!summary) return null;
       return {
         cwd: workspace.cwd,
