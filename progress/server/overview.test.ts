@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boardStatuses, parseProgress, reduceProgress } from "../shared/dashboard.ts";
-import { identityTint, shortLabel } from "../shared/machine.ts";
+import { identityTint, machineColor, shortLabel } from "../shared/machine.ts";
 import { BOARD_MODES, MODE_LABEL } from "../shared/modes.ts";
 import {
   archiveConfirm, archivedFor, barSegments, cardAgents, plainName, buildSections, cardCount, chatsSpan, gridLayout, MODE_BUTTONS, MODE_TINT, modeConfirm, packRepos, repoSpan, spanWidth, headerCounts, optionHint, priorityChips, repoSummary, resultLine, splitGroup, statusDots, readyRows,
@@ -613,4 +613,18 @@ test("a host colour maps to Paseo's identity foreground, and none maps to nothin
   assert.equal(identityTint("none"), undefined, "no colour: the caller uses the muted foreground");
   assert.equal(identityTint(undefined), undefined);
   assert.equal(identityTint("chartreuse"), undefined, "a name Paseo does not know is no colour");
+});
+
+// Des's palette (27 Oct): the fallback when a host carries no colour, because a
+// daemon upgrade has twice dropped the stored setting.
+test("a machine falls back to Des's own colour when the store has none", () => {
+  assert.equal(machineColor("KLV"), "pink");
+  assert.equal(machineColor("korolev"), "pink");
+  assert.equal(machineColor("IP"), "orange");
+  assert.equal(machineColor("ideapad"), "orange");
+  assert.equal(machineColor("DGX"), "emerald");
+  assert.equal(machineColor("G5"), "blue");
+  assert.equal(machineColor("TP"), "violet");
+  assert.equal(machineColor("MS"), undefined, "MS is plain, so it stays the muted foreground");
+  assert.equal(identityTint(machineColor("KLV")), "#d87da3");
 });

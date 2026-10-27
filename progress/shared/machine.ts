@@ -24,6 +24,23 @@ const IDENTITY_LIGHT: Record<IdentityColor, string> = {
   indigo: "#5251c2", teal: "#3e6d6c", red: "#9c4243", amber: "#716239", blue: "#39649e",
 };
 
+// Des's palette, by machine (27 Oct): MS plain, KLV hot pink, DGX green,
+// ideaPad orange, G5 blue, TP purple. Used only when a host carries no colour
+// of its own, which is what happens after a daemon upgrade drops the setting.
+// It is a fallback for a lost store, not a replacement for the real setting.
+const BY_MACHINE: Array<[RegExp, IdentityColor]> = [
+  [/^(klv|korolev)/i, "pink"],
+  [/^(ip|ideapad)/i, "orange"],
+  [/^(dgx)/i, "emerald"],
+  [/^(g5|pcg5)/i, "blue"],
+  [/^(tp|thinkpad)/i, "violet"],
+];
+
+export function machineColor(label: string): IdentityColor | undefined {
+  for (const [pattern, color] of BY_MACHINE) if (pattern.test(label.trim())) return color;
+  return undefined;
+}
+
 // The tint for a host's colour name, or undefined when the host has no colour
 // ("none", missing, or a name Paseo does not know) and the caller should use
 // the theme's muted foreground.

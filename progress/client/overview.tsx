@@ -8,7 +8,7 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-na
 import { formatAgo } from "../shared/format";
 import { archivedFor, buildSections, plainName, type ArchivedAgent, cardCount, chatsSpan, gridLayout, groupOverview, headerCounts, headerLine, packRepos, pageFeed, repoSpan, repoSummary, spanWidth, splitGroup, type AgentRef, type ProjectGroup, type WorkspaceRef } from "../shared/overview";
 import { getAllHostsOverview, getOverview } from "../shared/rpc";
-import { identityTint, shortLabel } from "../shared/machine";
+import { identityTint, machineColor, shortLabel } from "../shared/machine";
 import { listAll, loadWorkspaceOwner, type Page, type Paseo } from "./agents-list";
 import { POLL_MS } from "./dashboard-query";
 import { BoardCard, ChatsCard, isHovered } from "./overview-card";
@@ -364,7 +364,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
     // .color, fa4f5f5a2). The typed package here is older, so read it loosely and
     // fall back to the store read for a build that does not have it yet.
     const own = (entry as { color?: string }).color;
-    return [entry.label, identityTint(own ?? data?.hostColors?.[entry.serverId])];
+    return [entry.label, identityTint(own ?? data?.hostColors?.[entry.serverId] ?? machineColor(entry.label))];
   }));
   // The host's own colour, the same one Paseo paints its sidebar badge with.
   const tint = identityTint(data?.hostColors?.[host.id]);
