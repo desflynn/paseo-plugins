@@ -239,8 +239,8 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
                   {machine ? <Text style={{ color: tint ?? colors.foregroundMuted }}>{machine} · </Text> : null}
                   <Text style={{ color: colors.foregroundMuted }}>P{row.priority} · </Text>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
-                  <Text style={{ color: colors.foregroundMuted }}> · {plainName(row.board)}</Text>
                 </Text>
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>· {plainName(row.board)}</Text>
                 {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: "#0d0f13" }}>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{row.title}</Text>
                 </View> : null}
