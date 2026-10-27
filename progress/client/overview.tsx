@@ -69,7 +69,8 @@ function useFleetGroups(local: ProjectGroup[] | undefined, hostId: string) {
       for (const host of hosts) {
         if (host.serverId === hostId) continue;
         const snapshot = everything.data?.hosts.find((entry) => entry.serverId === host.serverId);
-        if (!snapshot || !Object.keys(snapshot.boards).length) continue;
+        const boards = snapshot?.boards ?? {};
+        if (!Object.keys(boards).length) continue;
         // The collector keys a board by its STORE FOLDER, not by a workspace id,
         // so the folder is the identity here too. Workspace ids never match, and
         // joining on them silently dropped every remote machine (Des, 27 Oct).
@@ -81,12 +82,12 @@ function useFleetGroups(local: ProjectGroup[] | undefined, hostId: string) {
         } catch {
           // No names from the host: the board title stands in.
         }
-        const workspaces: WorkspaceRef[] = Object.entries(snapshot.boards).map(([store, board]) => {
+        const workspaces: WorkspaceRef[] = Object.entries(boards).map(([store, board]) => {
           const folder = folderOf(store);
           const match = named.find((entry) => folder === folderOf(entry.dir) || folder.startsWith(`${folderOf(entry.dir)}-`));
           return { id: store, projectId: host.label, projectName: host.label, name: match?.name ?? board?.title ?? folder, directory: "", hostLabel: host.label };
         });
-        groups.push(...groupOverview(workspaces, snapshot.boards, []));
+        groups.push(...groupOverview(workspaces, boards, []));
       }
       return groups;
     },
