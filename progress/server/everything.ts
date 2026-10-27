@@ -77,13 +77,73 @@ export function foldBoards(payload: BoardPayload): Record<string, BoardSummary |
 
 // A host that answers with no boards is a failure, not a result: it falls to the
 // cache so the strip never claims a live machine has nothing on it.
-export const readHostBoards: HostReader = async (host) => {
-  const { bin, args } = hostCommand(hostTargets(host.label)[0]!);
-  const { stdout } = await run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 });
-  const boards = foldBoards(JSON.parse(stdout) as BoardPayload);
-  if (!Object.keys(boards).length) throw new Error(`no boards read for ${host.label}`);
-  return boards;
-};
+export interface HostReaderDeps {
+  fetch?: typeof globalThis.fetch;
+  run?: (bin: string, args: string[]) => Promise<{ stdout: string }>;
+  token?: string;
+  port?: number;
+}
+
+// The harness endpoint the fleet is being rolled onto. It answers the same JSON
+// paseo-boards prints, so nothing needs translating.
+export function boardsPort(): number {
+  const raw = Number(process.env.DCI_BOARDS_PORT ?? "");
+  return Number.isFinite(raw) && raw > 0 ? raw : 8770;
+}
+
+// One shared token, from the environment first so a test or a shell can override
+// it, then the file the harness installer writes.
+export function boardsToken(): string {
+  const fromEnv = process.env.DCI_BOARDS_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return readFileSync(join(homedir(), ".dci", "boards-token"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+// A docker target is reached through the docker socket, not the network.
+export function boardsEndpoint(target: string, port = boardsPort()): string | null {
+  if (target.startsWith("docker:")) return null;
+  const host = target.includes("@") ? target.slice(target.indexOf("@") + 1) : target;
+  return host ? `http://${host}:${port}` : null;
+}
+
+export function makeHostReader(deps: HostReaderDeps = {}): HostReader {
+  const fetchImpl = deps.fetch ?? globalThis.fetch;
+  const exec = deps.run ?? ((bin: string, args: string[]) => run(bin, args, { timeout: 20_000, maxBuffer: 8 << 20 }));
+  return async (host) => {
+    const target = hostTargets(host.label)[0]!;
+    const token = deps.token ?? boardsToken();
+    const base = boardsEndpoint(target, deps.port);
+    if (base && token) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5_000);
+      try {
+        const res = await fetchImpl(`${base}/v1/boards`, {
+          headers: { "x-dci-token": token },
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const boards = foldBoards((await res.json()) as BoardPayload);
+          if (Object.keys(boards).length) return boards;
+        }
+      } catch {
+        // Unreachable, refused or unauthorised: the shell path below still runs.
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const { bin, args } = hostCommand(target);
+    const { stdout } = await exec(bin, args);
+    const boards = foldBoards(JSON.parse(stdout) as BoardPayload);
+    if (!Object.keys(boards).length) throw new Error(`no boards read for ${host.label}`);
+    return boards;
+  };
+}
+
+export const readHostBoards: HostReader = makeHostReader();
 
 // The Everything call: every configured host, live where possible, cached where
 // not. One dead machine never fails the page.
