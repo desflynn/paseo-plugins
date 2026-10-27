@@ -359,7 +359,13 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
   const feedGroups = fleet.data ?? groups;
   // Each machine's own colour, so a remote row shows its machine in that colour.
   const hosts = useHosts();
-  const tints: Record<string, string | undefined> = Object.fromEntries(hosts.map((entry) => [entry.label, identityTint(data?.hostColors?.[entry.serverId])]));
+  const tints: Record<string, string | undefined> = Object.fromEntries(hosts.map((entry) => {
+    // The app carries the host's colour on its summary now (PluginHostSummary
+    // .color, fa4f5f5a2). The typed package here is older, so read it loosely and
+    // fall back to the store read for a build that does not have it yet.
+    const own = (entry as { color?: string }).color;
+    return [entry.label, identityTint(own ?? data?.hostColors?.[entry.serverId])];
+  }));
   // The host's own colour, the same one Paseo paints its sidebar badge with.
   const tint = identityTint(data?.hostColors?.[host.id]);
   // The machine this panel is attached to, so every card and feed row says where
