@@ -123,8 +123,8 @@ export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { boa
       const workspaceId = entry.workspace.id;
       const machine = entry.workspace.hostLabel;
       for (const row of feed.live) live.push({ ...row, board, workspaceId, ...(machine ? { machine } : {}) });
-      for (const row of feed.changes) changes.push({ ...row, board, workspaceId });
-      for (const row of feed.finished) finished.push({ ...row, board, workspaceId });
+      for (const row of feed.changes) changes.push({ ...row, board, workspaceId, ...(machine ? { machine } : {}) });
+      for (const row of feed.finished) finished.push({ ...row, board, workspaceId, ...(machine ? { machine } : {}) });
     }
   }
   const newest = (a: { at: string }, b: { at: string }) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0);
