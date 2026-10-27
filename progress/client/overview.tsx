@@ -233,7 +233,7 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", columnGap: 4, minWidth: 0, position: "relative" }}>
-                {machine ? <View style={{ paddingTop: 3, flexShrink: 0 }}><Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} /></View> : null}
+                {machine ? <View style={{ width: 12, height: 18, paddingTop: 3, flexShrink: 0, flexGrow: 0 }}><Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} /></View> : null}
                 <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
                   <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · </Text>
                   {machine ? <Text style={{ color: tint ?? colors.foregroundMuted }}>{machine} · </Text> : null}
