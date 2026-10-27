@@ -233,10 +233,12 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} style={{ position: "relative", zIndex: hovered === `${row.workspaceId}:${row.id}:${row.at}` ? 10 : 0 }} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", columnGap: 4, minWidth: 0, position: "relative" }}>
-                {machine ? <View style={{ width: 12, height: 18, paddingTop: 3, flexShrink: 0, flexGrow: 0 }}><Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} /></View> : null}
+                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
+                {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0, height: 18 }}>
+                  <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
+                  <Text style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
+                </View> : null}
                 <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
-                  <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · </Text>
-                  {machine ? <Text style={{ color: tint ?? colors.foregroundMuted }}>{machine} · </Text> : null}
                   <Text style={{ color: colors.foregroundMuted }}>P{row.priority} · </Text>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
                 </Text>
