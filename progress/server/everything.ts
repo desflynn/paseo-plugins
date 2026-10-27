@@ -91,11 +91,19 @@ export function boardsPort(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 8770;
 }
 
-// One shared token, from the environment first so a test or a shell can override
-// it, then the file the harness installer writes.
+// One shared token. The harness mints it into ~/.dci/config.json, so that file is
+// the source of truth; the environment overrides it for a test or a shell, and a
+// plain token file is still read for a box installed the older way.
 export function boardsToken(): string {
   const fromEnv = process.env.DCI_BOARDS_TOKEN?.trim();
   if (fromEnv) return fromEnv;
+  try {
+    const config = JSON.parse(readFileSync(join(homedir(), ".dci", "config.json"), "utf8")) as { boardsToken?: string };
+    const fromConfig = config.boardsToken?.trim();
+    if (fromConfig) return fromConfig;
+  } catch {
+    // no config, or unreadable: fall through to the token file
+  }
   try {
     return readFileSync(join(homedir(), ".dci", "boards-token"), "utf8").trim();
   } catch {
