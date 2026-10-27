@@ -70,20 +70,23 @@ function useFleetGroups(local: ProjectGroup[] | undefined, hostId: string) {
         if (host.serverId === hostId) continue;
         const snapshot = everything.data?.hosts.find((entry) => entry.serverId === host.serverId);
         if (!snapshot || !Object.keys(snapshot.boards).length) continue;
-        // A host that will not answer still gets its boards listed, named by the
-        // board title, so a remote objective is never silently missing.
-        const fallback = () => ({
-          workspaces: Object.entries(snapshot.boards).map(([id, board]) => ({ id, projectId: host.label, projectName: host.label, name: board?.title ?? id, directory: "", hostLabel: host.label })),
-          agents: [] as AgentRef[],
-        });
-        let refs: { workspaces: WorkspaceRef[]; agents: AgentRef[] } = fallback();
+        // The collector keys a board by its STORE FOLDER, not by a workspace id,
+        // so the folder is the identity here too. Workspace ids never match, and
+        // joining on them silently dropped every remote machine (Des, 27 Oct).
+        const folderOf = (path: string) => path.split("/").filter(Boolean).pop() ?? "";
+        let named: Array<{ dir: string; name: string }> = [];
         try {
           const borrowed = await readHostRefs(getPaseoClient(host.serverId), host.label);
-          if (borrowed.workspaces.length) refs = borrowed;
+          named = borrowed.workspaces.map((workspace) => ({ dir: workspace.directory, name: workspace.name }));
         } catch {
-          // Keep the fallback.
+          // No names from the host: the board title stands in.
         }
-        groups.push(...groupOverview(refs.workspaces, snapshot.boards, refs.agents));
+        const workspaces: WorkspaceRef[] = Object.entries(snapshot.boards).map(([store, board]) => {
+          const folder = folderOf(store);
+          const match = named.find((entry) => folder === folderOf(entry.dir) || folder.startsWith(`${folderOf(entry.dir)}-`));
+          return { id: store, projectId: host.label, projectName: host.label, name: match?.name ?? board?.title ?? folder, directory: "", hostLabel: host.label };
+        });
+        groups.push(...groupOverview(workspaces, snapshot.boards, []));
       }
       return groups;
     },
