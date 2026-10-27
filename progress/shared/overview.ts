@@ -108,10 +108,10 @@ export function withFeed(summary: BoardSummary | null, dashboard: Dashboard): Bo
 
 // The Progress page's feed, merged across every board on it: live work, the
 // recent status changes and the recent completions, newest first (o52).
-export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { board: string; workspaceId: string }>; changes: Array<FeedRow & { board: string; workspaceId: string }>; finished: Array<FeedDone & { board: string; workspaceId: string }> } {
-  const live: Array<FeedLive & { board: string; workspaceId: string }> = [];
-  const changes: Array<FeedRow & { board: string; workspaceId: string }> = [];
-  const finished: Array<FeedDone & { board: string; workspaceId: string }> = [];
+export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { board: string; workspaceId: string; machine?: string }>; changes: Array<FeedRow & { board: string; workspaceId: string; machine?: string }>; finished: Array<FeedDone & { board: string; workspaceId: string; machine?: string }> } {
+  const live: Array<FeedLive & { board: string; workspaceId: string; machine?: string }> = [];
+  const changes: Array<FeedRow & { board: string; workspaceId: string; machine?: string }> = [];
+  const finished: Array<FeedDone & { board: string; workspaceId: string; machine?: string }> = [];
   for (const group of groups) {
     for (const entry of group.workspaces) {
       // The feed row names the seat, not the board: a board title can be an
@@ -121,7 +121,8 @@ export function pageFeed(groups: ProjectGroup[]): { live: Array<FeedLive & { boa
       const feed = entry.board?.feed;
       if (!feed) continue;
       const workspaceId = entry.workspace.id;
-      for (const row of feed.live) live.push({ ...row, board, workspaceId });
+      const machine = entry.workspace.hostLabel;
+      for (const row of feed.live) live.push({ ...row, board, workspaceId, ...(machine ? { machine } : {}) });
       for (const row of feed.changes) changes.push({ ...row, board, workspaceId });
       for (const row of feed.finished) finished.push({ ...row, board, workspaceId });
     }
@@ -156,6 +157,8 @@ export interface WorkspaceRef {
   projectPath?: string;
   name: string;
   directory: string;
+  // The machine this workspace lives on, when it is not the panel's own.
+  hostLabel?: string;
   // The workspace's own labels in Paseo; BRO marks Top (Zoe, Joey).
   labels?: string[];
 }

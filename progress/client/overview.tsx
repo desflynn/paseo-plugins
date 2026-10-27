@@ -1,4 +1,4 @@
-import { type PluginScreenProps, type PluginSidebarItemProps, useHosts, useRpc, usePaseo } from "@getpaseo/plugin/client";
+import { type PluginScreenProps, type PluginSidebarItemProps, getPaseoClient, useHosts, useRpc, usePaseo } from "@getpaseo/plugin/client";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import type { RpcOutput } from "@getpaseo/plugin";
@@ -27,7 +27,7 @@ type AgentPayload = { id: string; workspaceId?: string | null; status: AgentRef[
 
 type FetchOverview = (input: { workspaces: { workspaceId: string; workspaceDirectory: string }[] }) => Promise<RpcOutput<typeof getOverview>>;
 
-async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise<{ groups: ProjectGroup[]; hostColors: Record<string, string> }> {
+async function readHostRefs(paseo: Paseo, hostLabel?: string): Promise<{ workspaces: WorkspaceRef[]; agents: AgentRef[] }> {
   const [rawWorkspaces, rawAgents] = await Promise.all([
     listAll((options) => paseo.workspaces.list(options) as Promise<Page>),
     listAll((options) => paseo.agents.list({ ...options, filter: { includeArchived: false } }) as Promise<Page>),
@@ -40,11 +40,46 @@ async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise
     name: workspace.title ?? workspace.name,
     directory: workspace.workspaceDirectory ?? workspace.projectRootPath,
     ...(workspace.labels?.length ? { labels: workspace.labels } : {}),
+    ...(hostLabel ? { hostLabel } : {}),
   }));
   const agents: AgentRef[] = (rawAgents as { agent: AgentPayload }[]).flatMap(({ agent }) =>
     agent.workspaceId ? [{ id: agent.id, workspaceId: agent.workspaceId, status: agent.status, title: agent.title ?? null, parentAgentId: agent.parentAgentId ?? null }] : []);
+  return { workspaces, agents };
+}
+
+async function loadOverview(paseo: Paseo, fetchOverview: FetchOverview): Promise<{ groups: ProjectGroup[]; hostColors: Record<string, string> }> {
+  const { workspaces, agents } = await readHostRefs(paseo);
   const { boards, hostColors } = await fetchOverview({ workspaces: workspaces.map((workspace) => ({ workspaceId: workspace.id, workspaceDirectory: workspace.directory })) });
   return { groups: groupOverview(workspaces, boards, agents), hostColors: hostColors ?? {} };
+}
+
+// The Feed is every machine, not just this one (Des, 26 Oct). Each online host
+// is asked for its own workspaces, so a row names the seat rather than a board
+// title, and the boards come from the fleet snapshot. An offline host keeps
+// whatever the snapshot cached, or contributes nothing.
+function useFleetGroups(local: ProjectGroup[] | undefined, hostId: string) {
+  const hosts = useHosts();
+  const everything = useEverything();
+  return useQuery({
+    queryKey: ["progress", "fleet", hostId, hosts.map((host) => host.serverId).join(","), everything.dataUpdatedAt],
+    enabled: Boolean(local && everything.data),
+    staleTime: POLL_MS,
+    queryFn: async () => {
+      const groups: ProjectGroup[] = [...(local ?? [])];
+      for (const host of hosts) {
+        if (host.serverId === hostId) continue;
+        const snapshot = everything.data?.hosts.find((entry) => entry.serverId === host.serverId);
+        if (!snapshot || !Object.keys(snapshot.boards).length) continue;
+        try {
+          const { workspaces, agents } = await readHostRefs(getPaseoClient(host.serverId), host.label);
+          groups.push(...groupOverview(workspaces, snapshot.boards, agents));
+        } catch {
+          // A host that will not answer contributes no feed rows. Its strip entry still shows.
+        }
+      }
+      return groups;
+    },
+  });
 }
 
 // o38.4: every archived agent, read only when the list is opened. Paseo cannot restore one, but an archived agent still opens to chat.
@@ -230,13 +265,16 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
         {rows.map((row) => {
           const done = row.what === "Completed";
           const owner = owners[row.workspaceId];
+          // A row from another machine names that machine, not this one.
+          const rowMachine = row.machine ?? machine;
+          const rowTint = row.machine ? undefined : tint;
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} style={{ position: "relative", zIndex: hovered === `${row.workspaceId}:${row.id}:${row.at}` ? 10 : 0 }} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", columnGap: 4, minWidth: 0, position: "relative" }}>
                 <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
-                {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0, height: 18 }}>
-                  <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
-                  <Text style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
+                {rowMachine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0, height: 18 }}>
+                  <Icon name="Server" size={12} color={rowTint ?? colors.foregroundMuted} />
+                  <Text style={{ color: rowTint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{rowMachine} ·</Text>
                 </View> : null}
                 <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
                   <Text style={{ color: colors.foregroundMuted }}>P{row.priority} · </Text>
@@ -304,6 +342,9 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
   const { colors } = theme;
   const { data, error, isLoading } = useOverview(host.id);
   const groups = data?.groups;
+  // The Feed shows every machine, so it reads the fleet as well as this host.
+  const fleet = useFleetGroups(groups, host.id);
+  const feedGroups = fleet.data ?? groups;
   // The host's own colour, the same one Paseo paints its sidebar badge with.
   const tint = identityTint(data?.hostColors?.[host.id]);
   // The machine this panel is attached to, so every card and feed row says where
@@ -325,7 +366,7 @@ export function ProgressOverviewScreen({ theme, host, navigation }: PluginScreen
       {isLoading ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>Loading every board…</Text> : null}
       {error ? <Text style={{ margin: 20, color: colors.statusDanger, fontSize: 12 }}>Could not read the boards. Retrying.</Text> : null}
       {groups && !groups.length ? <Text style={{ margin: 20, color: colors.foregroundMuted, fontSize: 12 }}>No boards or live agents yet.</Text> : null}
-      {groups ? <PageFeed colors={colors} groups={groups} now={now} navigation={navigation} machine={machineTag} tint={tint} /> : null}
+      {feedGroups ? <PageFeed colors={colors} groups={feedGroups} now={now} navigation={navigation} machine={machineTag} tint={tint} /> : null}
       {sections.map((section) => {
         const folded = flipped[section.id] ? !section.foldedByDefault : section.foldedByDefault;
         return (
