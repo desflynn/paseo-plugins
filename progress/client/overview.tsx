@@ -232,15 +232,15 @@ function PageFeed({ colors, groups, now, navigation, machine, tint }: { colors: 
           const owner = owners[row.workspaceId];
           return (
             <Pressable key={`${row.workspaceId}:${row.id}:${row.at}`} accessibilityRole="button" accessibilityLabel={row.title} onHoverIn={() => showOnHover(`${row.workspaceId}:${row.id}:${row.at}`)} onHoverOut={hideOnHover} onPress={() => { if (owner) navigation?.openAgent({ agentId: owner.id }); }}>
-              <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "center", columnGap: 4, minWidth: 0, position: "relative" }}>
-                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{formatAgo(row.at, now)} ·</Text>
-                {machine ? <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                  <Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} />
-                  <Text numberOfLines={1} style={{ color: tint ?? colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>{machine} ·</Text>
-                </View> : null}
-                <Text numberOfLines={1} style={{ flexShrink: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>P{row.priority} ·</Text>
-                <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, color: done ? colors.statusSuccess : colors.foreground, fontSize: 13, lineHeight: 18 }}>{row.title}</Text>
-                <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}> · {plainName(row.board)}</Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", columnGap: 4, minWidth: 0, position: "relative" }}>
+                {machine ? <View style={{ paddingTop: 3, flexShrink: 0 }}><Icon name="Server" size={12} color={tint ?? colors.foregroundMuted} /></View> : null}
+                <Text numberOfLines={single ? 1 : 2} style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 18 }}>
+                  <Text style={{ color: colors.foregroundMuted }}>{formatAgo(row.at, now)} · </Text>
+                  {machine ? <Text style={{ color: tint ?? colors.foregroundMuted }}>{machine} · </Text> : null}
+                  <Text style={{ color: colors.foregroundMuted }}>P{row.priority} · </Text>
+                  <Text style={{ color: done ? colors.statusSuccess : colors.foreground }}>{row.title}</Text>
+                  <Text style={{ color: colors.foregroundMuted }}> · {plainName(row.board)}</Text>
+                </Text>
                 {hovered === `${row.workspaceId}:${row.id}:${row.at}` ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, marginTop: 2, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: "#0d0f13" }}>
                   <Text style={{ color: done ? colors.statusSuccess : colors.foreground, fontSize: 12, lineHeight: 17 }}>{row.title}</Text>
                 </View> : null}
