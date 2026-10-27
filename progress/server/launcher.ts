@@ -129,6 +129,19 @@ export async function installBoardsLauncher(path: string): Promise<boolean> {
   return true;
 }
 
+// A box's harness boards endpoint runs this reader. A box that runs the plugin
+// but never pressed Install has no reader, so the endpoint answers 503 while
+// looking healthy. Ensure it at startup: missing or outdated gets written, a
+// file this plugin did not write is left alone, and a failure never blocks the
+// plugin from loading.
+export async function ensureBoardsLauncher(path = defaultBoardsPath()): Promise<boolean> {
+  try {
+    return await installBoardsLauncher(path);
+  } catch {
+    return false;
+  }
+}
+
 export async function boardsLauncherStatus(path = defaultBoardsPath(), pathEnv = process.env.PATH ?? "") {
   return {
     path,

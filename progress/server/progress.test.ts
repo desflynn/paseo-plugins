@@ -14,7 +14,7 @@ import { handleGetAttention, handleGetDashboard, handleListFolders, handleMarkPa
 import { markPanelOpened, readProgress } from "./progress-file.ts";
 import { formatEstimate, formatMinutes, formatTimeOfDay, formatWorkDone } from "../shared/format.ts";
 import { openChildren, boardStatuses, connDisplay, connLabel, holdHover, holdLabel, finishedToFold, headlineText, indicatorLabel, isAutoPullable, splitFinished, tickerIcon, type Dashboard, type Indicator, type Ticket } from "../shared/dashboard.ts";
-import { boardsLauncherState, boardsLauncherStatus, defaultLauncherPath, installBoardsLauncher, installLauncher, launcherStatus } from "./launcher.ts";
+import { boardsLauncherState, boardsLauncherStatus, defaultLauncherPath, ensureBoardsLauncher, installBoardsLauncher, installLauncher, launcherStatus } from "./launcher.ts";
 import { defaultSkillPaths, installSkill, skillSource, skillStatus } from "./skill.ts";
 import { MAX_PREVIEW_BYTES, MAX_PREVIEW_TEXT_BYTES, openCommand, openDeliverable, previewDeliverable } from "./open.ts";
 import { attachmentIcon, canPreview, deliverableAttachment, findAttachment, imageMimeType } from "../shared/attachments.ts";
@@ -2079,4 +2079,21 @@ test("closing a parent refuses while a child is still open", () => {
   const child = { ...base, id: "o1.1", status: "in_progress", under: "o1" } as unknown as Ticket;
   const stranger = { ...base, id: "o2", status: "open" } as unknown as Ticket;
   assert.deepEqual(openChildren({ tickets: [parent, child, stranger] } as never, "o1").map((ticket) => ticket.id), ["o1.1"], "the open child under the parent is what blocks the close");
+});
+
+// A box that runs the plugin but never pressed Install has no boards reader, so
+// its harness endpoint answers 503 while looking healthy. Startup must ensure it.
+test("startup ensures the boards reader and never overwrites a foreign file", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "progress-ensure-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const boards = join(home, ".local", "bin", "paseo-boards");
+
+  assert.equal(await ensureBoardsLauncher(boards), true, "a missing reader is written at startup");
+  assert.equal(await ensureBoardsLauncher(boards), false, "a current reader is left alone");
+
+  const foreign = join(home, "foreign", "paseo-boards");
+  await mkdir(dirname(foreign), { recursive: true });
+  await writeFile(foreign, "#!/bin/sh\necho not mine\n");
+  assert.equal(await ensureBoardsLauncher(foreign), false, "a file this plugin did not write is never touched");
+  assert.match(await readFile(foreign, "utf8"), /not mine/);
 });

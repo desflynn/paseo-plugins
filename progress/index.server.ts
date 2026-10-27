@@ -3,12 +3,17 @@ import { handleGetBeads, handleGetBeadDetail, handleSetBeadStatus, handleUpgrade
 import { handleGetAttention, handleGetDashboard, handleGetOverview, handleListFolders, handleMarkPanelOpened, handleSetBoardMode, handleSetHistoryFolder } from "./server/dashboard";
 import { handleGetAllHostsOverview } from "./server/everything";
 import { handleInstallLauncher, handleLauncherStatus } from "./server/launcher";
+import { ensureBoardsLauncher } from "./server/launcher";
 import { handleOpenDeliverable, handlePreviewDeliverable } from "./server/open";
 import { handleReportPerf } from "./server/perf";
 import { handleInstallSkill, handleSkillStatus } from "./server/skill";
 import { getAttention, getOverview, getAllHostsOverview, getBeadDetail, getBeads, getDashboard, getLauncherStatus, getSkillStatus, installLauncher, installSkill, listFolders, markPanelOpened, openDeliverable, previewDeliverable, setBeadStatus, setBoardMode, setHistoryFolder, upgradeBead, reportPerf } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
+  // Every box's harness boards endpoint runs the reader this plugin writes. A box
+  // that runs the plugin but never pressed Install has none, so ensure it here.
+  // Never under test, and never blocking: a failure leaves the plugin working.
+  if (!process.env.NODE_TEST_CONTEXT) void ensureBoardsLauncher();
   server.handle(getDashboard, handleGetDashboard);
   server.handle(getAttention, handleGetAttention);
   server.handle(getOverview, handleGetOverview);
