@@ -18,7 +18,6 @@ import { join } from "node:path";
 import { createServer, type AddressInfo } from "node:net";
 import {
 	startBrokerCore,
-	UnknownAgentError,
 	type BrokerAgentPort,
 	type BrokerCompleteRequest,
 	type BrokerLogEntry,
@@ -45,7 +44,11 @@ function scriptedPort() {
 	const pending = new Map<
 		string,
 		{
-			resolve: (r: { text: string; usage: BrokerUsage }) => void;
+			resolve: (r: {
+				text: string;
+				usage: BrokerUsage;
+				agentId?: string;
+			}) => void;
 			reject: (e: Error) => void;
 		}
 	>();
@@ -97,15 +100,10 @@ function scriptedPort() {
 			return true;
 		},
 		async sendToAgent(agentId, text) {
-			// The real adapter scopes BEFORE any daemon contact: an id outside
-			// the broker's own records throws UnknownAgentError here and
-			// nothing is recorded — mirroring "never forwarded". Only a send
-			// that actually goes through lands in calls/sentTo.
-			if (agentId !== "child_1") {
-				throw new UnknownAgentError(
-					`agent ${agentId} is not in the broker's own records — refused, not forwarded`,
-				);
-			}
+			// The pure daemon forward: the core scopes BEFORE calling the port
+			// (the broker log is the scope), so this double records whatever
+			// the core lets through and refuses nothing — any unknown_agent
+			// refusal a test sees came from the core, never from here.
 			calls.push({ method: "sendToAgent", payload: { agentId, text } });
 			sentTo.push(agentId);
 		},
@@ -120,11 +118,14 @@ function scriptedPort() {
 			callId: string,
 			text = "the answer",
 			usage: BrokerUsage = { input: 10, output: 5, totalTokens: 15 },
+			agentId?: string,
 		) {
 			const p = pending.get(callId);
 			assert.ok(p, `no pending turn for ${callId}`);
 			pending.delete(callId);
-			p.resolve({ text, usage });
+			// agentId names the agent the turn ran on (the real adapter's
+			// utility agent) — the complete path's scope naming.
+			p.resolve({ text, usage, ...(agentId ? { agentId } : {}) });
 		},
 	};
 }
@@ -255,6 +256,8 @@ test("each op answers its envelope with its own log entry; GET /v1/log reads the
 		assert.equal(ensure.envelope.log.op, "ensure-tutor");
 		assert.equal(ensure.envelope.log.seq, 1);
 		assert.equal(ensure.envelope.log.callId, "ws_1");
+		// The scope record: the creation entry names the tutor it ensured.
+		assert.deepEqual(ensure.envelope.log.data, { tutorId: "tutor_1" });
 
 		const child = await json(root + "/v1/agents/child", "POST", h, CHILD_BODY);
 		assert.equal(child.envelope.ok, true);
@@ -263,6 +266,8 @@ test("each op answers its envelope with its own log entry; GET /v1/log reads the
 		assert.equal(child.envelope.log.op, "child");
 		assert.equal(child.envelope.log.seq, 2);
 		assert.equal(child.envelope.log.callId, "conv_42");
+		// The scope record: the creation entry names the child it created.
+		assert.deepEqual(child.envelope.log.data, { childId: "child_1" });
 
 		const archive = await json(
 			root + "/v1/agents/known_agent/archive",
@@ -345,11 +350,17 @@ test("each op answers its envelope with its own log entry; GET /v1/log reads the
 	}
 });
 
-test("send op: happy path — POST /v1/agents/:id/send forwards {text} and answers the full envelope", async () => {
+test("send op: the log names the child (create-child data.childId) — the send forwards and the port double receives it", async () => {
 	const d = scriptedPort();
 	const core = await startCore(d.port);
 	try {
 		const root = base(core);
+		// The creation entry IS the scope proof: the child op's entry names
+		// childId child_1 in its data (the broker log is the scope).
+		const child = await json(root + "/v1/agents/child", "POST", authed(), CHILD_BODY);
+		assert.equal(child.envelope.ok, true);
+		assert.deepEqual(child.envelope.log.data, { childId: "child_1" });
+
 		const res = await json(root + "/v1/agents/child_1/send", "POST", authed(), {
 			text: "hello child",
 		});
@@ -362,16 +373,20 @@ test("send op: happy path — POST /v1/agents/:id/send forwards {text} and answe
 		const send = d.calls.find((c) => c.method === "sendToAgent");
 		assert.ok(send, "the port received the send");
 		assert.deepEqual(send!.payload, { agentId: "child_1", text: "hello child" });
+		assert.deepEqual(d.sentTo, ["child_1"]);
 	} finally {
 		await closeCore(core);
 	}
 });
 
-test("send op: an id outside the broker's records is refused unknown_agent, still logged, never sent", async () => {
+test("send op: an id the log does not name is refused unknown_agent core-side, still logged, the port double receives NOTHING", async () => {
 	const d = scriptedPort();
 	const core = await startCore(d.port);
 	try {
 		const root = base(core);
+		// The log is non-empty but names only child_1: stranger is outside
+		// the scope all the same.
+		await json(root + "/v1/agents/child", "POST", authed(), CHILD_BODY);
 		const res = await json(root + "/v1/agents/stranger/send", "POST", authed(), {
 			text: "should never land",
 		});
@@ -382,8 +397,14 @@ test("send op: an id outside the broker's records is refused unknown_agent, stil
 		assert.equal(res.envelope.log.op, "send");
 		assert.equal(res.envelope.log.ok, false);
 		assert.match(res.envelope.log.error ?? "", /records/);
-		// Law 1: the daemon-side send never executed.
+		// Law 1: the port double received NOTHING — no forward, not even an
+		// attempt; the refusal happened core-side, before any daemon contact.
 		assert.deepEqual(d.sentTo, [], "no agent was actually sent to");
+		assert.equal(
+			d.calls.some((c) => c.method === "sendToAgent"),
+			false,
+			"the port was never called for the unscoped id",
+		);
 	} finally {
 		await closeCore(core);
 	}
@@ -400,6 +421,9 @@ test("send op: a daemon failure is an honest envelope error, never a silent ok",
 	};
 	const core = await startCore(d.port);
 	try {
+		// The child creation entry names child_1: the core's log scope lets
+		// the send reach the port, whose daemon failure this test pins.
+		await json(base(core) + "/v1/agents/child", "POST", authed(), CHILD_BODY);
 		const res = await json(base(core) + "/v1/agents/child_1/send", "POST", authed(), { text: "hi" });
 		assert.equal(res.status, 200);
 		assert.equal(res.envelope.ok, false);
@@ -408,6 +432,51 @@ test("send op: a daemon failure is an honest envelope error, never a silent ok",
 		assert.equal(res.envelope.log.op, "send");
 		assert.equal(res.envelope.log.ok, false);
 		assert.match(res.envelope.log.error ?? "", /socket exploded/);
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("send op: the tutor and the utility agent scope lawfully from their creation entries", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const root = base(core);
+		const h = authed();
+
+		// ensure-tutor's entry names tutorId — the tutor is lawful.
+		const ensure = await json(root + "/v1/agents/ensure-tutor", "POST", h, {
+			workspaceId: "ws_1",
+		});
+		assert.equal(ensure.envelope.ok, true);
+		assert.deepEqual(ensure.envelope.log.data, { tutorId: "tutor_1" });
+		const tutorSend = await json(root + "/v1/agents/tutor_1/send", "POST", h, {
+			text: "hello tutor",
+		});
+		assert.equal(tutorSend.envelope.ok, true, JSON.stringify(tutorSend.envelope));
+		assert.deepEqual(d.sentTo, ["tutor_1"]);
+
+		// complete's entry names the agent the turn ran on (the adapter's
+		// standing utility agent) — the utility id is lawful too.
+		const pendingComplete = json(root + "/v1/complete", "POST", h, completeBody());
+		await waitFor(() => d.calls.some((c) => c.method === "runCompletionTurn"));
+		d.settle(
+			"call_1",
+			"the answer",
+			{ input: 10, output: 5, totalTokens: 15 },
+			UTILITY_AGENT_ID,
+		);
+		const complete = await pendingComplete;
+		assert.equal(complete.envelope.ok, true);
+		assert.deepEqual(complete.envelope.log.data, { agentId: UTILITY_AGENT_ID });
+		const utilSend = await json(
+			`${root}/v1/agents/${encodeURIComponent(UTILITY_AGENT_ID)}/send`,
+			"POST",
+			h,
+			{ text: "hello utility" },
+		);
+		assert.equal(utilSend.envelope.ok, true, JSON.stringify(utilSend.envelope));
+		assert.deepEqual(d.sentTo, ["tutor_1", UTILITY_AGENT_ID]);
 	} finally {
 		await closeCore(core);
 	}
@@ -579,6 +648,11 @@ test("log persists across restart: a new listener on the same dir reads prior en
 			assert.equal(entries.length, 1, "prior entry is read back");
 			assert.equal(entries[0]!.op, "ensure-tutor");
 			assert.equal(entries[0]!.callId, "ws_restart");
+			assert.deepEqual(
+				entries[0]!.data,
+				{ tutorId: "tutor_1" },
+				"the naming survives the JSONL round-trip — the log is the durable scope",
+			);
 
 			await json(root2 + "/v1/agents/ensure-tutor", "POST", authed(), {
 				workspaceId: "ws_again",
@@ -799,9 +873,17 @@ test("adapter: one REUSED utility agent, fresh self-contained instructions per c
 	};
 
 	const ra = await adapter.runCompletionTurn(reqA.callId, reqA);
-	assert.deepEqual(ra, { text: "ok", usage: { input: 7, output: 3, totalTokens: 10 } });
+	// The return now names the agent the turn ran on (the scope naming
+	// for the complete path's log entry): the double's create made
+	// handle new_1, and every turn names it.
+	assert.deepEqual(ra, {
+		agentId: "new_1",
+		text: "ok",
+		usage: { input: 7, output: 3, totalTokens: 10 },
+	});
 	const rb = await adapter.runCompletionTurn(reqB.callId, reqB);
 	assert.equal(rb.text, "ok");
+	assert.equal(rb.agentId, "new_1", "the same utility handle named on every turn");
 
 	assert.deepEqual(
 		createdTitles,

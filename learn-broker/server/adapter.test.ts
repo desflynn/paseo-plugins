@@ -11,7 +11,6 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { UnknownAgentError } from "./broker-core.ts";
 import {
 	createPaseoBrokerAdapter,
 	type PaseoSdkApi,
@@ -106,7 +105,7 @@ test("utility creation derives provider (request harness-first > env > honest re
 	await assert.rejects(() => c.runCompletionTurn("c3", req("smoke", "smoke-complete") as never), /provider|cwd/i);
 });
 
-test("sendToAgent: an agent in the broker's own records (label namespace) receives the send", async () => {
+test("sendToAgent forwards verbatim — ref().send only, the daemon list is never read (the core's log is the scope)", async () => {
 	const sent: string[] = [];
 	const childHandle = {
 		id: "child_1",
@@ -119,14 +118,14 @@ test("sendToAgent: an agent in the broker's own records (label namespace) receiv
 	};
 	const sdk = {
 		agents: {
-			ref: () => childHandle,
+			ref: (id: string) => {
+				assert.equal(id, "child_1", "the forward refs exactly the target id");
+				return childHandle;
+			},
 			async list() {
-				return {
-					entries: [
-						{ agent: { id: "tutor_9", labels: { "learn-tutor": "ws_1" } } },
-						{ agent: { id: "child_1", labels: { "learn-conversation": "conv_42" } } },
-					],
-				};
+				throw new Error(
+					"sendToAgent must never read the daemon list — the core's log is the scope",
+				);
 			},
 		},
 		workspaces: {
@@ -136,56 +135,8 @@ test("sendToAgent: an agent in the broker's own records (label namespace) receiv
 	const adapter = createPaseoBrokerAdapter(sdk, {
 		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
 	});
-	await adapter.sendToAgent("child_1", "hello child");
-	assert.deepEqual(sent, ["hello child"]);
-});
-
-test("sendToAgent: an id the broker did not create is refused and the daemon NEVER receives a send", async () => {
-	const sent: string[] = [];
-	const daemonHandle = (id: string) => ({
-		id,
-		async send(text: string) {
-			sent.push(text);
-		},
-		async refresh() {},
-		async archive() {},
-		timeline: { async refetch() { return { entries: [] }; } },
-	});
-	// stranger EXISTS in the daemon (a foreign agent) — scoping must not
-	// care: only broker-created records may receive a send.
-	const sdk = {
-		agents: {
-			ref: (id: string) => daemonHandle(id),
-			async list() {
-				return {
-					entries: [
-						{ agent: { id: "stranger", labels: { "unrelated-label": "x" } } },
-						// fail-closed shape: an entry with NO labels at all
-						{ agent: { id: "mystery" } },
-					],
-				};
-			},
-		},
-		workspaces: {
-			ref: () => ({ agents: { async create() { return { id: "x" }; } } }),
-		},
-	} as unknown as PaseoSdkApi;
-	const adapter = createPaseoBrokerAdapter(sdk, {
-		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
-	});
-	await assert.rejects(
-		() => adapter.sendToAgent("stranger", "should never land"),
-		(err: unknown) =>
-			err instanceof UnknownAgentError &&
-			/not in the broker's own records/.test((err as Error).message),
-	);
-	await assert.rejects(() => adapter.sendToAgent("ghost", "x"), UnknownAgentError);
-	await assert.rejects(
-		() => adapter.sendToAgent("mystery", "x"),
-		UnknownAgentError,
-		"an entry with no labels fails closed",
-	);
-	assert.deepEqual(sent, [], "the daemon double received NO send — the scoping law");
+	await adapter.sendToAgent("child_1", "hello child verbatim");
+	assert.deepEqual(sent, ["hello child verbatim"]);
 });
 
 test("complete() usage: refresh() after the turn delivers the usage snapshot (audit-falsity fix)", async () => {

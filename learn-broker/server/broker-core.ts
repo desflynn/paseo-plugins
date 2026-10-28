@@ -106,9 +106,10 @@ export type BrokerErrorKind =
 	| "bad_request"
 	| "unknown_agent";
 
-/** The scoped-refusal error (Phase 6 send law, law 1): the adapter throws
- *  it when an agent id is not in the broker's own records; the core maps
- *  it to the honest "unknown_agent" envelope kind. */
+/** The scoped-refusal error (Phase 6 send law, law 1): the core's send
+ *  route throws it when the broker's OWN log holds no creation entry
+ *  naming the agent id — checked before any forward; runOp maps it to
+ *  the honest "unknown_agent" envelope kind and logs the refused send. */
 export class UnknownAgentError extends Error {}
 
 /** One append-only log entry. For complete ops this carries the
@@ -131,6 +132,13 @@ export interface BrokerLogEntry {
 	textChars?: number;
 	usage?: BrokerUsage;
 	error?: string;
+	/** The scope record (Phase 6 ruling: the broker log IS the scope):
+	 *  a creation op's entry names the agent it created or ensured —
+	 *  {tutorId} on ensure-tutor, {childId} on child, {agentId} on
+	 *  complete (the agent the turn ran on: the standing utility agent).
+	 *  The naming field only, never credentials — the bridge config
+	 *  never travels into the log. */
+	data?: { tutorId?: string; childId?: string; agentId?: string };
 }
 
 /** The one response envelope: every op response carries its log entry;
@@ -162,17 +170,21 @@ export interface BrokerAgentPort {
 		agentId: string,
 		opts?: { includeArchived?: boolean },
 	): Promise<unknown[]>;
-	/** One completion turn: text + usage out. Throws on agent failure. */
+	/** One completion turn: text + usage out; agentId names the agent the
+	 *  turn ran on (the adapter's standing utility agent) when known —
+	 *  the complete path's scope naming for its log entry. Throws on
+	 *  agent failure. */
 	runCompletionTurn(
 		callId: string,
 		request: BrokerCompleteRequest,
-	): Promise<{ text: string; usage: BrokerUsage }>;
+	): Promise<{ text: string; usage: BrokerUsage; agentId?: string }>;
 	/** Best-effort cancel of an in-flight turn; false when none is live. */
 	cancelCompletionTurn(callId: string): Promise<boolean>;
-	/** The daemon's agent-send (sendPrompt): deliver text to a
-	 *  broker-created agent and let the daemon run the turn. Throws
-	 *  UnknownAgentError when the id is outside the broker's own records —
-	 *  the caller must never forward such a send. */
+	/** The daemon's agent-send (sendPrompt): deliver text and let the
+	 *  daemon run the turn — the verbatim forward. Scoping does NOT live
+	 *  here: the core checks its own log BEFORE calling this (Phase 6
+	 *  ruling: the broker log is the scope), so an implementation is
+	 *  reached only for ids the core already proved broker-created. */
 	sendToAgent(agentId: string, text: string): Promise<void>;
 }
 
@@ -311,6 +323,19 @@ function isNonEmptyString(v: unknown): v is string {
 	return typeof v === "string" && v.length > 0;
 }
 
+/** The scope record (Phase 6 ruling: the broker log IS the scope): a
+ *  creation op's entry names the agent it created or ensured, so the
+ *  send route can prove broker-created-ness from the log alone. Only
+ *  the naming field is logged — never the bridge config, never a
+ *  credential. */
+function namingFor(op: BrokerOp, data: unknown): { data?: BrokerLogEntry["data"] } {
+	const rec = (data ?? {}) as Record<string, unknown>;
+	if (op === "ensure-tutor" && isNonEmptyString(rec.tutorId)) return { data: { tutorId: rec.tutorId } };
+	if (op === "child" && isNonEmptyString(rec.childId)) return { data: { childId: rec.childId } };
+	if (op === "complete" && isNonEmptyString(rec.agentId)) return { data: { agentId: rec.agentId } };
+	return {};
+}
+
 function asBody(raw: string): Record<string, unknown> | null {
 	if (raw.trim() === "") return {};
 	try {
@@ -382,6 +407,18 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 		);
 	}
 	const log = new BrokerLog(opts.logDir);
+	// The send scope (Phase 6 ruling: the broker log is the scope): an ok
+	// entry from a creation op whose data names the agentId — the durable
+	// proof of broker-created-ness, no daemon call, no page caps.
+	const logNamesAgent = (agentId: string): boolean =>
+		log.all().some((entry) => {
+			if (!entry.ok || !entry.data) return false;
+			return (
+				(entry.op === "ensure-tutor" && entry.data.tutorId === agentId) ||
+				(entry.op === "child" && entry.data.childId === agentId) ||
+				(entry.op === "complete" && entry.data.agentId === agentId)
+			);
+		});
 	// callId -> in-flight state for complete/cancel coordination.
 	const inflight = new Map<string, InflightComplete>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -422,6 +459,7 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 					op,
 					callId,
 					purpose,
+					...namingFor(op, data),
 					ok: true,
 					durationMs: Date.now() - started,
 				});
@@ -515,8 +553,16 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 			}
 			const text = body.text;
 			await runOp("send", agentId, "send prompt to agent", async () => {
-				// Scoping lives in the port: an id outside the broker's own
-				// records throws UnknownAgentError and is never forwarded.
+				// THE LOG IS THE SCOPE (Phase 6 ruling): a creation entry naming
+				// this agentId is the durable proof of broker-created-ness —
+				// checked core-level BEFORE any forward, so the daemon is never
+				// contacted for an unscoped id. The refusal is still a logged
+				// send op (UnknownAgentError → the unknown_agent kind).
+				if (!logNamesAgent(agentId)) {
+					throw new UnknownAgentError(
+						`send refused: agent ${agentId} is not in the broker's own records (broker-created agents only) — not forwarded`,
+					);
+				}
 				await opts.port.sendToAgent(agentId, text);
 				return {};
 			});
@@ -611,6 +657,7 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 				callId: request.callId,
 				purpose: request.purpose,
 				model: `${request.model.provider}:${request.model.id}`,
+				...namingFor("complete", result),
 				ok: true,
 				durationMs: Date.now() - started,
 				textChars: result.text.length,

@@ -12,7 +12,7 @@ exclusivity, one surface.
 | Create child | `POST /v1/agents/child` | lean five-field payload verbatim → `{childId, bridge}` |
 | Archive | `POST /v1/agents/:id/archive` | `{archived}`; false when unknown |
 | Timeline | `GET /v1/agents/:id/timeline?includeArchived=` | entries |
-| Send | `POST /v1/agents/:id/send` | `{text}` → `{}`; broker-created agents only — an id outside the broker's own records is refused `unknown_agent`, never forwarded |
+| Send | `POST /v1/agents/:id/send` | `{text}` → `{}`; broker-created agents only — the broker's OWN LOG is the scope: a creation entry naming the id (tutor, child, utility) is the proof, checked before any forward; an id it does not name is refused `unknown_agent`, never forwarded |
 | Complete | `POST /v1/complete` | caller `timeoutMs` enforced broker-side |
 | Cancel | `DELETE /v1/complete/:callId` | `{cancelled}`; no orphan turns |
 | Log | `GET /v1/log` | the append-only log |
