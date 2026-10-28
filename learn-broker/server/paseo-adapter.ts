@@ -61,8 +61,11 @@ export interface PaseoSdkAgentHandle {
 		opts?: { activeTurnBehavior?: "interrupt" | "steer" },
 	): Promise<void>;
 	waitForFinish(timeoutMs?: number): Promise<PaseoSdkRunResult>;
-	/** Never contacts the daemon from ref(); fetches placement. */
-	refresh(): Promise<{ workspaceId?: string | null; archivedAt?: string | null } | null>;
+	/** Never contacts the daemon from ref(); fetches the snapshot onto the
+	 *  handle — placement then reads as handle PROPERTIES (docs shape:
+	 *  refresh() returns nothing; workspaceId is a property, null until a
+	 *  snapshot arrives; an unknown agent makes refresh() throw). */
+	refresh(): Promise<void>;
 	archive(): Promise<void>;
 	timeline: {
 		refetch(opts?: { includeArchived?: boolean }): Promise<{ entries: unknown[] }>;
@@ -217,11 +220,11 @@ export function createPaseoBrokerAdapter(
 		async createConversationChild(input: BrokerChildInput) {
 			const bridge = opts.resolveBridge();
 			const tutorRef = paseo.agents.ref(input.tutorId);
-			const placement = await tutorRef.refresh();
-			if (!placement?.workspaceId) {
+			await tutorRef.refresh();
+			if (!tutorRef.workspaceId) {
 				throw new Error(`tutor ${input.tutorId} has no workspace placement`);
 			}
-			const workspace = paseo.workspaces.ref(placement.workspaceId);
+			const workspace = paseo.workspaces.ref(tutorRef.workspaceId);
 			const child = await workspace.agents.create({
 				config: {
 					...(opts.provider ? { provider: opts.provider } : {}),
@@ -242,8 +245,11 @@ export function createPaseoBrokerAdapter(
 
 		async archiveAgent(agentId) {
 			const ref = paseo.agents.ref(agentId);
-			const placement = await ref.refresh();
-			if (!placement) return false; // unknown agent
+			try {
+				await ref.refresh(); // unknown agent: throws
+			} catch {
+				return false;
+			}
 			await ref.archive();
 			return true;
 		},
