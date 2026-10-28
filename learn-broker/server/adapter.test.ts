@@ -104,3 +104,43 @@ test("utility creation derives provider (request harness-first > env > honest re
 	const c = make(undefined as unknown as string);
 	await assert.rejects(() => c.runCompletionTurn("c3", req("smoke", "smoke-complete") as never), /provider|cwd/i);
 });
+
+test("complete() usage: refresh() after the turn delivers the usage snapshot (audit-falsity fix)", async () => {
+	const created: unknown[] = [];
+	const handle = {
+		id: "u_1", workspaceId: "ws_docs",
+		// The audit-falsity shape: run() delivers the turn result but the
+		// usage snapshot arrives on the HANDLE only after refresh().
+		lastUsage: null as null | { inputTokens: number; outputTokens: number },
+		async refresh() {
+			this.lastUsage = { inputTokens: 11, outputTokens: 7 };
+		},
+		async run() {
+			return { status: "idle" as const, lastMessage: "ack" };
+		},
+		async send() {},
+		async waitForFinish() { return { status: "idle" as const, lastMessage: "ack" }; },
+		async archive() {},
+		timeline: { async refetch() { return { entries: [] }; } },
+	};
+	const sdk: PaseoSdkApi = {
+		agents: {
+			async create(opts: any) { created.push(opts); return handle; },
+			async list() { return { entries: [] }; },
+			ref: (id: string) => handle as never,
+		},
+		workspaces: { ref: () => ({ agents: { async create(opts: any) { created.push(opts); return handle; } } }) },
+	} as unknown as PaseoSdkApi;
+	const adapter = createPaseoBrokerAdapter(sdk, {
+		provider: "env-pin/zai/glm-5.3-flash",
+		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
+	});
+	const r = await adapter.runCompletionTurn("u1", {
+		callId: "u1", purpose: "p", model: { provider: "pi", id: "zai/glm-5.3-flash" },
+		messages: [{ role: "user", content: "hi" }],
+	} as never);
+	assert.equal(r.text, "ack");
+	assert.equal(r.usage.input, 11, "input tokens must be the REAL turn's, not zeros (audit-falsity seam)");
+	assert.equal(r.usage.output, 7);
+	assert.equal(r.usage.totalTokens, 18);
+});

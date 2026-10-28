@@ -205,6 +205,16 @@ export function createPaseoBrokerAdapter(
 		turns.set(callId, record);
 		try {
 			const result = await handle.run(buildInstruction(request));
+			// Audit-falsity fix (checkpilot's blocking finding): run()'s result
+			// carries the turn outcome, but the usage snapshot arrives on the
+			// HANDLE — deliver it with a best-effort refresh() before reading
+			// lastUsage, so the broker log records the REAL turn's tokens.
+			try {
+				await handle.refresh();
+			} catch {
+				// never fail a completed turn on a refresh error; usage then
+				// reads whatever the handle last observed (honest either way)
+			}
 			const usage = toUsage(handle.lastUsage);
 			if (result.status === "idle" && typeof result.lastMessage === "string") {
 				return { text: result.lastMessage, usage };
