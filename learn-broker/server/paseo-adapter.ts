@@ -17,6 +17,9 @@
  * utility agent. Cancellation uses the SDK's documented interrupt lever
  * (a send while mid-turn interrupts the active turn by daemon default).
  */
+import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
 	BrokerAgentPort,
 	BrokerBridgeConfig,
@@ -78,6 +81,9 @@ export interface PaseoSdkCreateOptions {
 		mcpServers?: unknown;
 		tools?: string[];
 	};
+	/** The daemon requires it on top-level creates ("createAgent requires
+	 *  provider and cwd") — an existing, lawful directory. */
+	cwd?: string;
 	parent?: PaseoSdkAgentHandle;
 	title?: string;
 	prompt?: string;
@@ -149,7 +155,7 @@ export function createPaseoBrokerAdapter(
 		{ handle: PaseoSdkAgentHandle; done: boolean }
 	>();
 
-	async function ensureUtility(): Promise<PaseoSdkAgentHandle> {
+	async function ensureUtility(requestModel?: { provider: string; id: string }): Promise<PaseoSdkAgentHandle> {
 		if (utility) return utility;
 		// Reattach if a previous daemon life left one standing.
 		const page = await paseo.agents.list({
@@ -160,8 +166,28 @@ export function createPaseoBrokerAdapter(
 			utility = paseo.agents.ref(found.agent.id);
 			return utility;
 		}
+		// Provider derivation (captain's ruling 81238ebf): the request's
+		// model in harness-first form wins, else the env pin, else an
+		// honest refusal naming what was missing. The daemon takes the
+		// combined "harness/model" string in config.provider.
+		let provider: string | undefined;
+		if (requestModel && requestModel.id.includes("/")) {
+			provider = `${requestModel.provider}/${requestModel.id}`;
+		} else if (opts.provider) {
+			provider = opts.provider;
+		}
+		if (!provider) {
+			throw new Error(
+				"complete(): no usable model pin — the request model is not harness-first and LEARN_BROKER_PROVIDER is unset (refusing, fail-closed)",
+			);
+		}
+		// The utility agent's lawful cwd: the box's ~/.learnharness (it
+		// exists — the plugin's env file lives there); created defensively.
+		const cwd = join(homedir(), ".learnharness");
+		mkdirSync(cwd, { recursive: true });
 		const created = await paseo.agents.create({
-			config: { ...(opts.provider ? { provider: opts.provider } : {}) },
+			config: { provider },
+			cwd,
 			title: UTILITY_AGENT_ID,
 			autoArchive: false,
 			labels: { [UTILITY_LABEL]: "true" },
@@ -174,7 +200,7 @@ export function createPaseoBrokerAdapter(
 		callId: string,
 		request: BrokerCompleteRequest,
 	): Promise<{ text: string; usage: BrokerUsage }> {
-		const handle = await ensureUtility();
+		const handle = await ensureUtility(request.model);
 		const record = { handle, done: false };
 		turns.set(callId, record);
 		try {

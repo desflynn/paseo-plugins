@@ -67,3 +67,40 @@ test("archiveAgent: unknown agent refresh throws → false; known agent archives
 	assert.equal(await adapter.archiveAgent("ghost"), false);
 	assert.equal(await adapter.archiveAgent("tutor_1"), true);
 });
+
+test("utility creation derives provider (request harness-first > env > honest refusal) and passes a cwd", async () => {
+	const created: Array<Record<string, unknown>> = [];
+	const handle = (id: string) => ({ id, workspaceId: "ws_docs", async refresh() {}, async archive() {},
+		timeline: { async refetch() { return { entries: [] }; } } });
+	const make = (envProvider?: string) => {
+		created.length = 0;
+		const sdk: PaseoSdkApi = {
+			agents: {
+				async create(opts: any) { created.push(opts); return handle(`u_${created.length}`); },
+				async list() { return { entries: [] }; },
+				ref: (id: string) => handle(id),
+			},
+			workspaces: { ref: () => ({ agents: { async create(opts: any) { created.push(opts); return { id: "c" }; } } }) },
+		} as unknown as PaseoSdkApi;
+		return createPaseoBrokerAdapter(sdk, { provider: envProvider, resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }) });
+	};
+	const req = (provider: string, id: string) => ({ callId: "x", purpose: "p", model: { provider, id }, messages: [{ role: "user", content: "hi" }] as never });
+
+	// harness-first request model wins: pi/zai/glm-5.3-flash (two slashes combined)
+	const a = make("env-pin/zai/glm-5.3-flash");
+	// runCompletionTurn needs run() on the handle — extend the double minimal: reuse smoke shapes
+	// (runCompletionTurn path covered by the reuse test; here we pin creation opts via a throw on run)
+	await a.runCompletionTurn("c1", req("pi", "zai/glm-5.3-flash") as never).catch(() => {});
+	assert.ok(created.length >= 1, "utility created");
+	assert.equal(created[0]!.config!.provider, "pi/zai/glm-5.3-flash", "harness-first request model wins over env");
+	assert.ok(typeof created[0]!.cwd === "string" && (created[0]!.cwd as string).length > 0, "cwd passed");
+
+	// env fallback when request model is not harness-first (id has no slash)
+	const b = make("env-pin/zai/glm-5.3-flash");
+	await b.runCompletionTurn("c2", req("smoke", "smoke-complete") as never).catch(() => {});
+	assert.equal(created[0]!.config!.provider, "env-pin/zai/glm-5.3-flash", "env pin used when request model is not harness-first");
+
+	// honest refusal when neither is usable
+	const c = make(undefined as unknown as string);
+	await assert.rejects(() => c.runCompletionTurn("c3", req("smoke", "smoke-complete") as never), /provider|cwd/i);
+});
