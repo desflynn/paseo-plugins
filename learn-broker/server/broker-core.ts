@@ -18,6 +18,7 @@
  * completions through the port.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import { DEFAULT_HOST } from "./config.ts";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -165,9 +166,12 @@ export interface BrokerCoreOptions {
 	/** Log directory; the log is broker-log.jsonl inside it. Omit for
 	 *  memory-only (tests pass a temp dir). */
 	logDir?: string;
-	/** Bind host. Defaults to all interfaces; deployment pins the tailnet
-	 *  address via env in the plugin shell. */
+	/** Bind host. Defaults to loopback: a roaming laptop joins whatever wifi is
+	 *  in range, so all interfaces would expose the listener on every one of
+	 *  them. Widen it deliberately to a tailnet address. */
 	host?: string;
+	/** Bind port. Defaults to an ephemeral port. */
+	listenPort?: number;
 }
 
 export interface BrokerCore {
@@ -608,7 +612,8 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
-		server.listen(0, opts.host ?? "0.0.0.0", () => resolve());
+		// Loopback unless the deployment says otherwise. See config.ts.
+		server.listen(opts.listenPort ?? 0, opts.host ?? DEFAULT_HOST, () => resolve());
 	});
 
 	return {

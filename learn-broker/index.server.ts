@@ -14,6 +14,7 @@
  */
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { startBrokerCore, type BrokerCore } from "./server/broker-core.ts";
+import { resolveSettings, type BrokerSettings } from "./server/config.ts";
 import {
 	createPaseoBrokerAdapter,
 	type PaseoSdkApi,
@@ -23,21 +24,27 @@ import {
  *  child creation; the Authorization header is derived from the service
  *  token and OMITTED when unset — the bridge never carries a half
  *  credential (the P4 law, mirrored). */
-function resolveBridgeFromEnv() {
-	const url = process.env.LEARN_SERVICE_URL;
-	if (!url) throw new Error("learn-broker: LEARN_SERVICE_URL is not configured");
+function resolveBridge(settings: BrokerSettings) {
+	const url = settings.serviceUrl;
+	if (!url) {
+		throw new Error(
+			`learn-broker: no service URL configured — set serviceUrl in ${settingsPathHint} or LEARN_SERVICE_URL`,
+		);
+	}
 	return {
 		mcpServers: {
 			learn: {
 				type: "http" as const,
 				url,
-				...(process.env.LEARN_SERVICE_TOKEN
-					? { headers: { Authorization: `Bearer ${process.env.LEARN_SERVICE_TOKEN}` } }
+				...(settings.serviceToken
+					? { headers: { Authorization: `Bearer ${settings.serviceToken}` } }
 					: {}),
 			},
 		},
 	};
 }
+
+const settingsPathHint = "~/.dci/learn-broker.json";
 
 export default function contribute(server: PluginServerContext) {
 	let core: BrokerCore | null = null;
@@ -46,13 +53,18 @@ export default function contribute(server: PluginServerContext) {
 	const begin = (paseo: PaseoSdkApi): void => {
 		if (core || starting) return;
 		starting = true;
+		// Settings come from the environment, then ~/.dci/learn-broker.json, then
+		// the defaults. Paseo has no per-plugin env seam, so the file is the home
+		// and the environment stays an override. The token is never logged.
+		const settings = resolveSettings();
 		startBrokerCore({
-			token: process.env.LEARN_BROKER_TOKEN ?? null,
-			logDir: process.env.LEARN_BROKER_LOG_DIR,
-			host: process.env.LEARN_BROKER_HOST,
+			token: settings.token,
+			logDir: settings.logDir,
+			host: settings.host,
+			listenPort: settings.port,
 			port: createPaseoBrokerAdapter(paseo, {
-				provider: process.env.LEARN_BROKER_PROVIDER,
-				resolveBridge: resolveBridgeFromEnv,
+				provider: settings.provider,
+				resolveBridge: () => resolveBridge(settings),
 			}),
 		})
 			.then((started) => {

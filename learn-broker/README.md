@@ -22,14 +22,39 @@ log read carry `log: null` (refused calls are not ops). Errors are honest:
 
 **Token pairing.** One token, generated once at setup and shown as a pairing
 string: paste it into the SERVICE env as `LEARN_BROKER_TOKEN` and into this
-plugin's env (same value). Never git, never an agent prompt, never the daemon
-password. No token configured → the listener refuses to start (fail-closed).
+plugin's settings file (same value). Never git, never an agent prompt, never the
+daemon password. No token configured → the listener refuses to start
+(fail-closed).
 
 **Utility-agent ruling (gate ruling 2).** `complete()` runs on ONE REUSED
 lean agent, `learn-broker-utility` — created once per daemon, never per
 call — with fresh, fully self-contained instructions per call; state bleed
 is pinned by test (two calls, distinct payloads, no carry-over).
 
-Env seam: `LEARN_BROKER_TOKEN` (required), `LEARN_BROKER_LOG_DIR`,
-`LEARN_BROKER_HOST`, `LEARN_BROKER_PROVIDER`, `LEARN_SERVICE_URL`,
-`LEARN_SERVICE_TOKEN`. Contract version 1.
+**Settings home.** Paseo has no per-plugin environment seam: a plugin's config
+entry carries only enabled/path/source, `paseo plugin install` has no `--env`,
+and a wrapper plugin cannot inject one either — the plugin compiler refuses any
+module outside the registered plugin directory, and the daemon runs bundled code.
+The daemon unit is the only other home, and changing it means restarting the
+daemon.
+
+So the plugin reads its own env file, the one the deployment plans:
+
+```
+~/.learnharness/learn-broker.env      chmod 600, never git, never a prompt
+```
+
+Format is `KEY=VALUE`, one per line, as a shell would read it: `#` starts a
+comment, blank lines are ignored, `export ` is accepted, and one layer of
+surrounding quotes is stripped. The real environment still wins, so a shell or a
+test can override any value without touching the file.
+
+Settings: `LEARN_BROKER_TOKEN` (required), `LEARN_BROKER_LOG_DIR`,
+`LEARN_BROKER_HOST`, `LEARN_BROKER_PORT`, `LEARN_BROKER_PROVIDER`,
+`LEARN_SERVICE_URL`, `LEARN_SERVICE_TOKEN`. Contract version 1.
+
+**Binding.** The listener binds `127.0.0.1` by default, on an ephemeral port. A
+roaming laptop joins whatever wifi is in range, so `0.0.0.0` would expose the
+listener on every one of those networks, and a token gate is not a substitute for
+binding. Deployment pins the tailnet address on purpose by setting
+`LEARN_BROKER_HOST` in the file.
