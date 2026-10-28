@@ -14,7 +14,7 @@
  */
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { startBrokerCore, type BrokerCore } from "./server/broker-core.ts";
-import { resolveSettings, type BrokerSettings } from "./server/config.ts";
+import { isWorldReadable, resolveSettings, type BrokerSettings } from "./server/config.ts";
 import {
 	createPaseoBrokerAdapter,
 	type PaseoSdkApi,
@@ -44,7 +44,7 @@ function resolveBridge(settings: BrokerSettings) {
 	};
 }
 
-const settingsPathHint = "~/.dci/learn-broker.json";
+const settingsPathHint = "~/.learnharness/learn-broker.env";
 
 export default function contribute(server: PluginServerContext) {
 	let core: BrokerCore | null = null;
@@ -53,9 +53,18 @@ export default function contribute(server: PluginServerContext) {
 	const begin = (paseo: PaseoSdkApi): void => {
 		if (core || starting) return;
 		starting = true;
-		// Settings come from the environment, then ~/.dci/learn-broker.json, then
-		// the defaults. Paseo has no per-plugin env seam, so the file is the home
-		// and the environment stays an override. The token is never logged.
+		// Settings come from the environment, then ~/.learnharness/learn-broker.env,
+		// then the defaults. Paseo has no per-plugin env seam, so the file is the
+		// home and the environment stays an override. The token is never logged.
+		// F5 (fail-closed, wired at startup): a world-readable settings file
+		// refuses to start — the pairing token lives in it.
+		if (isWorldReadable()) {
+			console.error(
+				`learn-broker: refusing to start — ${settingsPathHint} is world-readable (chmod 0600 it; the pairing token lives there)`,
+			);
+			starting = false;
+			return;
+		}
 		const settings = resolveSettings();
 		startBrokerCore({
 			token: settings.token,

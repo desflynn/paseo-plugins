@@ -65,8 +65,10 @@ binding. Deployment pins the tailnet address on purpose by setting
    `agent.created` or `agent.turn_ended` hook, not when the plugin loads. For a
    few seconds after a reload there is no port at all, and that is not a
    failure — trigger one agent event first, then look.
-2. **The start log carries only the port.** `address()` reports `{ port }` with
-   no address field, so the log line cannot prove the bind. Read it from the OS:
+2. **The start log carries the bind.** Since 351bce0 `address()` reports
+   `{ address, port }` and the listening line prints both — it is
+   self-verifying for the pinned-address proof. Cross-read from the OS when
+   in doubt:
 
 ```sh
 ss -ltn | grep :<port>          # expect the pinned address, e.g. 100.103.166.71:37825
