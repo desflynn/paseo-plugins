@@ -58,3 +58,36 @@ roaming laptop joins whatever wifi is in range, so `0.0.0.0` would expose the
 listener on every one of those networks, and a token gate is not a substitute for
 binding. Deployment pins the tailnet address on purpose by setting
 `LEARN_BROKER_HOST` in the file.
+
+**Proving it after a reload.** Two traps, both seen on a real install:
+
+1. **The listener starts lazily.** It opens its socket on the first
+   `agent.created` or `agent.turn_ended` hook, not when the plugin loads. For a
+   few seconds after a reload there is no port at all, and that is not a
+   failure — trigger one agent event first, then look.
+2. **The start log carries only the port.** `address()` reports `{ port }` with
+   no address field, so the log line cannot prove the bind. Read it from the OS:
+
+```sh
+ss -ltn | grep :<port>          # expect the pinned address, e.g. 100.103.166.71:37825
+curl -sS http://127.0.0.1:<port>/api/v1/version   # expect refusal when bound to the tailnet
+```
+
+A listener bound to `0.0.0.0` cannot refuse loopback, so the refusal is the second
+opinion that the bind is narrow. The reverse holds when it binds loopback: the
+tailnet address must refuse.
+
+**Protocol proof ladder**, in this order, with the token from the env file:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://<addr>:<port>/api/v1/graph                      # 401, no token
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer wrong' http://<addr>:<port>/api/v1/graph   # 401, wrong token
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $LEARN_BROKER_TOKEN" http://<addr>:<port>/api/v1/graph  # 400, auth cleared and the request reached the protocol layer
+```
+
+A 400 with a real token is the pass: the gate let it through and the protocol
+rejected the empty body. 401 at every step means the token did not reach the
+plugin.
+
+**Red herring:** a `46045` listener on the tailnet is Tailscale's own peerapi. Do
+not probe it, and do not read it as the broker.
