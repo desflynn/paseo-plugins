@@ -241,3 +241,79 @@ test("ensureTutor returns the workspaceId: echoed when given, derived from the s
 	);
 	assert.ok(listed, "the derivation read the broker's own records");
 });
+
+// ── P6 C1 bridge fix: the PAYLOAD bridge materializes verbatim;
+// resolveBridge() stays the fallback. The live bug this pins: the
+// adapter's resolveBridge() default materialized a BARE url (no
+// ?conversation= param) into the child's daemon config, the dock call
+// could not bind to the conversation, the service waited forever —
+// MCP -32001, five runs lost. ──
+
+/** A minimal sdk whose workspace create RECORDS the opts — for the
+ *  bridge materialization pins. */
+function recordingCreateSdk(created: Array<Record<string, unknown>>): PaseoSdkApi {
+	const handle = (id: string) => ({
+		id,
+		workspaceId: "ws_docs",
+		async refresh() {},
+		async archive() {},
+		timeline: { async refetch() { return { entries: [] }; } },
+	});
+	return {
+		agents: { ref: (id: string) => handle(id) },
+		workspaces: {
+			ref: (ws: string) => ({
+				agents: {
+					async create(opts: any) {
+						created.push(opts);
+						return { id: `child_of_${ws}` };
+					},
+				},
+			}),
+		},
+	} as unknown as PaseoSdkApi;
+}
+
+test("createConversationChild: the PAYLOAD bridge is materialized VERBATIM (config url carries ?conversation=)", async () => {
+	const created: Array<Record<string, unknown>> = [];
+	const adapter = createPaseoBrokerAdapter(recordingCreateSdk(created), {
+		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://bare/mcp" } } }),
+	});
+	const payloadUrl = "http://learn-service:8780/mcp?conversation=conv-9";
+	const child = await adapter.createConversationChild({
+		tutorId: "tutor_1",
+		conversationId: "conv-9",
+		personaPreps: [],
+		tools: ["learn"],
+		autoArchive: true,
+		bridge: { mcpServers: { learn: { type: "http", url: payloadUrl, headers: {} } } },
+	});
+	assert.equal(
+		child.bridge.mcpServers.learn.url,
+		payloadUrl,
+		"the returned bridge IS the payload's — verbatim",
+	);
+	const config = created[0]?.config as { mcpServers?: { learn?: { url?: string } } } | undefined;
+	assert.ok(
+		config?.mcpServers?.learn?.url?.includes("?conversation="),
+		`the sdk received the scoped url, got: ${String(config?.mcpServers?.learn?.url)}`,
+	);
+	assert.equal(config?.mcpServers?.learn?.url, payloadUrl, "the sdk received the payload url VERBATIM");
+});
+
+test("createConversationChild: no bridge in the payload → resolveBridge() fallback (today's behavior, pinned)", async () => {
+	const created: Array<Record<string, unknown>> = [];
+	const adapter = createPaseoBrokerAdapter(recordingCreateSdk(created), {
+		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
+	});
+	const child = await adapter.createConversationChild({
+		tutorId: "tutor_1",
+		conversationId: "conv-10",
+		personaPreps: [],
+		tools: ["learn"],
+		autoArchive: true,
+	});
+	assert.equal(child.bridge.mcpServers.learn.url, "http://x/mcp", "the resolveBridge url materialized");
+	const config = created[0]?.config as { mcpServers?: { learn?: { url?: string } } } | undefined;
+	assert.equal(config?.mcpServers?.learn?.url, "http://x/mcp", "the fallback url rode into the sdk config");
+});

@@ -905,3 +905,82 @@ test("adapter: one REUSED utility agent, fresh self-contained instructions per c
 	// cancel: no live turn → false
 	assert.equal(await adapter.cancelCompletionTurn("never"), false);
 });
+
+// ── P6 C1 bridge fix: the scoped bridge crosses the child op ──
+
+test("child: a payload WITH a scoped bridge carries input.bridge to the port VERBATIM", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const scopedUrl = "http://127.0.0.1:8780/mcp?conversation=conv_scoped";
+		const res = await json(base(core) + "/v1/agents/child", "POST", authed(), {
+			tutorId: "tutor_1",
+			conversationId: "conv_scoped",
+			personaPreps: ["be brief"],
+			tools: ["learn_search"],
+			autoArchive: true,
+			bridge: { mcpServers: { learn: { type: "http", url: scopedUrl, headers: {} } } },
+		});
+		assert.equal(res.status, 200, "the six-field payload (the five + the optional bridge) is lawful");
+		const call = d.calls.find((c) => c.method === "createConversationChild");
+		assert.ok(call, "the port saw the create");
+		const input = call!.payload as { bridge?: { mcpServers?: { learn?: { url?: string } } } };
+		assert.equal(
+			input.bridge?.mcpServers?.learn?.url,
+			scopedUrl,
+			"the port received the scoped bridge VERBATIM — the url carries conversation=conv_scoped",
+		);
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("child: the five-field payload stays lawful — no bridge reaches the port", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const res = await json(base(core) + "/v1/agents/child", "POST", authed(), {
+			tutorId: "tutor_1",
+			conversationId: "conv_plain",
+			personaPreps: ["be brief"],
+			tools: ["learn_search"],
+			autoArchive: true,
+		});
+		assert.equal(res.status, 200, "the five-field shape remains lawful");
+		const call = d.calls.find((c) => c.method === "createConversationChild") as
+			| { payload: { bridge?: unknown } }
+			| undefined;
+		assert.ok(call, "the port saw the create");
+		assert.equal(call!.payload.bridge, undefined, "no bridge on a five-field payload");
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("child: a malformed bridge is a 400 bad_request — nothing is created", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const base5 = {
+			tutorId: "tutor_1",
+			conversationId: "conv_bad_bridge",
+			personaPreps: ["be brief"],
+			tools: ["learn_search"],
+			autoArchive: true,
+		};
+		for (const bad of ["not-an-object", 42, null, { mcpServers: "nope" }, {}]) {
+			const res = await json(base(core) + "/v1/agents/child", "POST", authed(), {
+				...base5,
+				bridge: bad,
+			});
+			assert.equal(res.status, 400, `a malformed bridge (${JSON.stringify(bad)}) is a bad_request`);
+			assert.equal(res.envelope.error?.kind, "bad_request");
+		}
+		assert.ok(
+			!d.calls.some((c) => c.method === "createConversationChild"),
+			"nothing was created for a malformed bridge",
+		);
+	} finally {
+		await closeCore(core);
+	}
+});

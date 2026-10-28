@@ -61,13 +61,20 @@ export interface BrokerCompleteRequest {
 }
 
 /** The conversation child's creation payload — LEAN by contract: exactly
- *  these five fields, never seat, label or guy machinery. */
+ *  these five fields plus the OPTIONAL scoped bridge, never seat, label
+ *  or guy machinery. */
 export interface BrokerChildInput {
 	tutorId: string;
 	conversationId: string;
 	personaPreps: string[];
 	tools: string[];
 	autoArchive: boolean;
+	/** The conversation-scoped file-bridge config, OPTIONAL: the lean
+	 *  five-field shape stays lawful without it. When present the
+	 *  adapter materializes it VERBATIM (its url carries the
+	 *  ?conversation= param); when absent the adapter falls back to its
+	 *  own resolveBridge() (P6 C1). */
+	bridge?: BrokerBridgeConfig;
 }
 
 /** The file-bridge config returned for the child (mirrors BridgeConfig;
@@ -350,21 +357,33 @@ function asBody(raw: string): Record<string, unknown> | null {
 }
 
 /** Validate the lean five-field child payload verbatim — extra fields
- *  break the leanness law, so they are refused, not silently dropped. */
+ *  break the leanness law, so they are refused, not silently dropped.
+ *  The ONE lawful sixth key is the optional scoped `bridge` (P6 C1):
+ *  an object carrying mcpServers (an object) — nothing else required;
+ *  a wrong shape refuses (→ 400 bad_request), never a silent drop. */
 function parseChildBody(body: Record<string, unknown>): BrokerChildInput | null {
 	const keys = Object.keys(body).sort().join(",");
-	if (keys !== "autoArchive,conversationId,personaPreps,tools,tutorId") return null;
+	const fiveFields = "autoArchive,conversationId,personaPreps,tools,tutorId";
+	const sixFields = "autoArchive,bridge,conversationId,personaPreps,tools,tutorId";
+	if (keys !== fiveFields && keys !== sixFields) return null;
 	if (!isNonEmptyString(body.tutorId)) return null;
 	if (!isNonEmptyString(body.conversationId)) return null;
 	if (!Array.isArray(body.personaPreps) || body.personaPreps.some((p) => !isNonEmptyString(p))) return null;
 	if (!Array.isArray(body.tools) || body.tools.some((t) => !isNonEmptyString(t))) return null;
 	if (typeof body.autoArchive !== "boolean") return null;
+	if (body.bridge !== undefined) {
+		const b = body.bridge as unknown;
+		if (b === null || typeof b !== "object" || Array.isArray(b)) return null;
+		const mcpServers = (b as Record<string, unknown>).mcpServers;
+		if (mcpServers === null || typeof mcpServers !== "object" || Array.isArray(mcpServers)) return null;
+	}
 	return {
 		tutorId: body.tutorId,
 		conversationId: body.conversationId,
 		personaPreps: body.personaPreps as string[],
 		tools: body.tools as string[],
 		autoArchive: body.autoArchive,
+		...(body.bridge !== undefined ? { bridge: body.bridge as BrokerBridgeConfig } : {}),
 	};
 }
 
@@ -514,7 +533,7 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 					res,
 					400,
 					"bad_request",
-					"expected the lean five-field payload {tutorId, conversationId, personaPreps, tools, autoArchive} — no extra fields",
+					"expected the lean five-field payload {tutorId, conversationId, personaPreps, tools, autoArchive} — the one lawful extra key is the optional scoped `bridge` {mcpServers: object}",
 				);
 				return;
 			}

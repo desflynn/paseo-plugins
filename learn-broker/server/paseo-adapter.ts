@@ -284,7 +284,15 @@ export function createPaseoBrokerAdapter(
 		},
 
 		async createConversationChild(input: BrokerChildInput) {
-			const bridge = opts.resolveBridge();
+			// P6 C1: the PAYLOAD bridge materializes VERBATIM when present —
+			// its url carries the ?conversation= param the child needs to
+			// bind its live MCP session. THE LIVE BUG this fixes: the bare
+			// resolveBridge() default materialized a url with no conversation
+			// param into the child's daemon config, the dock call could not
+			// bind to the conversation, the service waited forever —
+			// MCP -32001, five runs lost. resolveBridge() stays the fallback
+			// when the payload has no bridge.
+			const bridge = input.bridge ?? opts.resolveBridge();
 			const tutorRef = paseo.agents.ref(input.tutorId);
 			await tutorRef.refresh();
 			if (!tutorRef.workspaceId) {
