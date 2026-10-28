@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import {
 	startBrokerCore,
+	UnknownAgentError,
 	type BrokerAgentPort,
 	type BrokerCompleteRequest,
 	type BrokerLogEntry,
@@ -39,6 +40,7 @@ function authed(extra: Record<string, string> = {}): Record<string, string> {
 function scriptedPort() {
 	const calls: Array<{ method: string; payload: unknown }> = [];
 	const cancels: string[] = [];
+	const sentTo: string[] = [];
 	const pending = new Map<
 		string,
 		{
@@ -87,12 +89,26 @@ function scriptedPort() {
 			p.reject(new Error("turn cancelled"));
 			return true;
 		},
+		async sendToAgent(agentId, text) {
+			// The real adapter scopes BEFORE any daemon contact: an id outside
+			// the broker's own records throws UnknownAgentError here and
+			// nothing is recorded — mirroring "never forwarded". Only a send
+			// that actually goes through lands in calls/sentTo.
+			if (agentId !== "child_1") {
+				throw new UnknownAgentError(
+					`agent ${agentId} is not in the broker's own records — refused, not forwarded`,
+				);
+			}
+			calls.push({ method: "sendToAgent", payload: { agentId, text } });
+			sentTo.push(agentId);
+		},
 	};
 
 	return {
 		port,
 		calls,
 		cancels,
+		sentTo,
 		settle(
 			callId: string,
 			text = "the answer",
@@ -187,6 +203,7 @@ test("401 wall: every route refuses without or with a wrong token, nothing logge
 			["POST", "/v1/agents/ensure-tutor"],
 			["POST", "/v1/agents/child"],
 			["POST", "/v1/agents/known_agent/archive"],
+			["POST", "/v1/agents/known_agent/send"],
 			["GET", "/v1/agents/known_agent/timeline"],
 			["POST", "/v1/complete"],
 			["DELETE", "/v1/complete/call_1"],
@@ -312,6 +329,92 @@ test("each op answers its envelope with its own log entry; GET /v1/log reads the
 		// The log read itself appends nothing (no self-referential growth).
 		const again = await json(root + "/v1/log", "GET", h);
 		assert.equal((again.envelope.data.entries as unknown[]).length, 6);
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("send op: happy path — POST /v1/agents/:id/send forwards {text} and answers the full envelope", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const root = base(core);
+		const res = await json(root + "/v1/agents/child_1/send", "POST", authed(), {
+			text: "hello child",
+		});
+		assert.equal(res.status, 200);
+		assert.equal(res.envelope.ok, true);
+		assert.deepEqual(res.envelope.data, {}, "success data is the empty object");
+		assert.equal(res.envelope.log.op, "send");
+		assert.equal(res.envelope.log.callId, "child_1");
+		assert.equal(res.envelope.log.ok, true);
+		const send = d.calls.find((c) => c.method === "sendToAgent");
+		assert.ok(send, "the port received the send");
+		assert.deepEqual(send!.payload, { agentId: "child_1", text: "hello child" });
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("send op: an id outside the broker's records is refused unknown_agent, still logged, never sent", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const root = base(core);
+		const res = await json(root + "/v1/agents/stranger/send", "POST", authed(), {
+			text: "should never land",
+		});
+		assert.equal(res.status, 200);
+		assert.equal(res.envelope.ok, false);
+		assert.equal(res.envelope.error.kind, "unknown_agent");
+		// Law 2: the refusal is still a logged op with its full envelope.
+		assert.equal(res.envelope.log.op, "send");
+		assert.equal(res.envelope.log.ok, false);
+		assert.match(res.envelope.log.error ?? "", /records/);
+		// Law 1: the daemon-side send never executed.
+		assert.deepEqual(d.sentTo, [], "no agent was actually sent to");
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("send op: a daemon failure is an honest envelope error, never a silent ok", async () => {
+	const d = scriptedPort();
+	const orig = d.port.sendToAgent;
+	d.port.sendToAgent = async (agentId, text) => {
+		if (agentId === "child_1") {
+			throw new Error("daemon send failed: socket exploded");
+		}
+		return orig(agentId, text);
+	};
+	const core = await startCore(d.port);
+	try {
+		const res = await json(base(core) + "/v1/agents/child_1/send", "POST", authed(), { text: "hi" });
+		assert.equal(res.status, 200);
+		assert.equal(res.envelope.ok, false);
+		assert.equal(res.envelope.error.kind, "agent_error");
+		assert.match(res.envelope.error.message, /socket exploded/);
+		assert.equal(res.envelope.log.op, "send");
+		assert.equal(res.envelope.log.ok, false);
+		assert.match(res.envelope.log.error ?? "", /socket exploded/);
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("send op: bad bodies are honest 400s, logged nowhere", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const root = base(core);
+		const h = authed();
+		for (const body of [undefined, {}, { text: "" }, { text: 7 }]) {
+			const res = await json(root + "/v1/agents/child_1/send", "POST", h, body as never);
+			assert.equal(res.status, 400, JSON.stringify(body));
+			assert.equal(res.envelope.error.kind, "bad_request");
+			assert.equal(res.envelope.log, null);
+		}
+		assert.equal(core.readLog().length, 0, "no op ran, so nothing logged");
 	} finally {
 		await closeCore(core);
 	}

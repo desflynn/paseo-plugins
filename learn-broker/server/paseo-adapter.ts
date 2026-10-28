@@ -20,6 +20,7 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { UnknownAgentError } from "./broker-core.ts";
 import type {
 	BrokerAgentPort,
 	BrokerBridgeConfig,
@@ -34,6 +35,17 @@ export const UTILITY_AGENT_ID = "learn-broker-utility";
 const UTILITY_LABEL = "learn-broker-utility";
 const TUTOR_LABEL = "learn-tutor";
 const CONVERSATION_LABEL = "learn-conversation";
+
+/** The broker label namespace — the records the broker itself writes
+ *  whenever it creates an agent (tutor, conversation child, utility).
+ *  An agent carrying none of these labels was not created by this
+ *  broker, whatever else the daemon knows about it (Phase 6 send
+ *  scoping law, law 1). */
+const BROKER_LABEL_KEYS: readonly string[] = [
+	UTILITY_LABEL,
+	TUTOR_LABEL,
+	CONVERSATION_LABEL,
+];
 
 // --- minimal structural mirror of the Paseo SDK (duplicated on purpose) ---
 
@@ -97,7 +109,11 @@ export interface PaseoSdkApi {
 		ref(id: string): PaseoSdkAgentHandle;
 		list(opts?: {
 			filter?: { labels?: Record<string, string> };
-		}): Promise<{ entries: Array<{ agent: { id: string } }> }>;
+		}): Promise<{
+			entries: Array<{
+				agent: { id: string; labels?: Record<string, string> };
+			}>;
+		}>;
 	};
 	workspaces: {
 		ref(id: string): {
@@ -321,6 +337,30 @@ export function createPaseoBrokerAdapter(
 				.catch(() => {});
 			void record.handle.waitForFinish(60_000).catch(() => {});
 			return true;
+		},
+
+		async sendToAgent(agentId, text) {
+			// SCOPING LAW (the captain's three laws, send op): the broker
+			// sends ONLY to agents it created. Enforcement reads the
+			// plugin's OWN records — the broker label namespace — BEFORE
+			// anything is forwarded: an id absent from them is refused here
+			// with the honest "unknown_agent" kind and the daemon NEVER
+			// receives the prompt. Fail-closed: an entry that carries no
+			// labels at all (an SDK shape this build does not understand)
+			// also refuses — absence of proof is a refusal, never a send.
+			const page = await paseo.agents.list();
+			const labels = page.entries.find((e) => e.agent.id === agentId)?.agent
+				.labels;
+			const brokerCreated =
+				!!labels && BROKER_LABEL_KEYS.some((key) => labels[key] !== undefined);
+			if (!brokerCreated) {
+				throw new UnknownAgentError(
+					`send refused: agent ${agentId} is not in the broker's own records (broker-created agents only) — not forwarded`,
+				);
+			}
+			// The daemon's agent-send, verbatim: fire-and-forget sendPrompt;
+			// the turn runs on the daemon (default interrupt semantics).
+			await paseo.agents.ref(agentId).send(text);
 		},
 	};
 

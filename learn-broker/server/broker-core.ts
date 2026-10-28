@@ -89,17 +89,27 @@ export type BrokerOp =
 	| "child"
 	| "archive"
 	| "timeline"
+	| "send"
 	| "complete"
 	| "cancel";
 
-/** Honest error kinds only — never a fabricated reply (Part B.4). */
+/** Honest error kinds only — never a fabricated reply (Part B.4).
+ *  "unknown_agent" is the Phase 6 send scoping refusal: the id is absent
+ *  from the broker's OWN records, so the op is refused broker-side and
+ *  never forwarded to the daemon. */
 export type BrokerErrorKind =
 	| "timeout"
 	| "aborted"
 	| "agent_error"
 	| "transport"
 	| "unauthorized"
-	| "bad_request";
+	| "bad_request"
+	| "unknown_agent";
+
+/** The scoped-refusal error (Phase 6 send law, law 1): the adapter throws
+ *  it when an agent id is not in the broker's own records; the core maps
+ *  it to the honest "unknown_agent" envelope kind. */
+export class UnknownAgentError extends Error {}
 
 /** One append-only log entry. For complete ops this carries the
  *  BrokerCallLogEntry fields (seq, at, callId, purpose, model, ok,
@@ -155,6 +165,11 @@ export interface BrokerAgentPort {
 	): Promise<{ text: string; usage: BrokerUsage }>;
 	/** Best-effort cancel of an in-flight turn; false when none is live. */
 	cancelCompletionTurn(callId: string): Promise<boolean>;
+	/** The daemon's agent-send (sendPrompt): deliver text to a
+	 *  broker-created agent and let the daemon run the turn. Throws
+	 *  UnknownAgentError when the id is outside the broker's own records —
+	 *  the caller must never forward such a send. */
+	sendToAgent(agentId: string, text: string): Promise<void>;
 }
 
 export interface BrokerCoreOptions {
@@ -418,7 +433,16 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 				});
 				sendJson(res, 200, {
 					ok: false,
-					error: { kind: "agent_error", message: messageOf(err) },
+					error: {
+						// The scoped send refusal keeps its own honest kind;
+						// everything else surfaces as agent_error (fail-closed,
+						// never a silent ok).
+						kind:
+							err instanceof UnknownAgentError
+								? "unknown_agent"
+								: "agent_error",
+						message: messageOf(err),
+					},
 					log: entry,
 				});
 			}
@@ -470,6 +494,24 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 			await runOp("timeline", agentId, "read timeline", async () => ({
 				entries: await opts.port.readTimeline(agentId, { includeArchived }),
 			}));
+			return;
+		}
+
+		const sendMatch = /^\/v1\/agents\/([^/]+)\/send$/.exec(path);
+		if (method === "POST" && sendMatch) {
+			const agentId = decodeURIComponent(sendMatch[1] ?? "");
+			const body = asBody(await readBody(req));
+			if (!body || !isNonEmptyString(body.text)) {
+				refuse(res, 400, "bad_request", "expected {text}");
+				return;
+			}
+			const text = body.text;
+			await runOp("send", agentId, "send prompt to agent", async () => {
+				// Scoping lives in the port: an id outside the broker's own
+				// records throws UnknownAgentError and is never forwarded.
+				await opts.port.sendToAgent(agentId, text);
+				return {};
+			});
 			return;
 		}
 

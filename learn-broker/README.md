@@ -12,13 +12,15 @@ exclusivity, one surface.
 | Create child | `POST /v1/agents/child` | lean five-field payload verbatim → `{childId, bridge}` |
 | Archive | `POST /v1/agents/:id/archive` | `{archived}`; false when unknown |
 | Timeline | `GET /v1/agents/:id/timeline?includeArchived=` | entries |
+| Send | `POST /v1/agents/:id/send` | `{text}` → `{}`; broker-created agents only — an id outside the broker's own records is refused `unknown_agent`, never forwarded |
 | Complete | `POST /v1/complete` | caller `timeoutMs` enforced broker-side |
 | Cancel | `DELETE /v1/complete/:callId` | `{cancelled}`; no orphan turns |
 | Log | `GET /v1/log` | the append-only log |
 
 Every op response carries its own log entry; 401/400/404 refusals and the
 log read carry `log: null` (refused calls are not ops). Errors are honest:
-`timeout | aborted | agent_error | transport | unauthorized`.
+`timeout | aborted | agent_error | transport | unauthorized | bad_request |
+unknown_agent`.
 
 **Token pairing.** One token, generated once at setup and shown as a pairing
 string: paste it into the SERVICE env as `LEARN_BROKER_TOKEN` and into this
