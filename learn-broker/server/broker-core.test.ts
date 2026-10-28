@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { createServer, type AddressInfo } from "node:net";
 import {
 	startBrokerCore,
 	UnknownAgentError,
@@ -48,13 +49,19 @@ function scriptedPort() {
 			reject: (e: Error) => void;
 		}
 	>();
-	const tutorsEnsured: string[] = [];
+	const tutorsEnsured: Array<string | undefined> = [];
 
 	const port: BrokerAgentPort = {
 		async ensureTutor(workspaceId) {
 			calls.push({ method: "ensureTutor", payload: workspaceId });
 			tutorsEnsured.push(workspaceId);
-			return { tutorId: "tutor_1", created: tutorsEnsured.length === 1 };
+			// The derived-id return: the double echoes a given id and derives
+			// a stable one for an omission, mirroring the real adapter.
+			return {
+				tutorId: "tutor_1",
+				created: tutorsEnsured.length === 1,
+				workspaceId: workspaceId ?? "ws_derived",
+			};
 		},
 		async createConversationChild(input) {
 			calls.push({ method: "createConversationChild", payload: input });
@@ -240,7 +247,11 @@ test("each op answers its envelope with its own log entry; GET /v1/log reads the
 		});
 		assert.equal(ensure.status, 200);
 		assert.equal(ensure.envelope.ok, true);
-		assert.deepEqual(ensure.envelope.data, { tutorId: "tutor_1", created: true });
+		assert.deepEqual(ensure.envelope.data, {
+			tutorId: "tutor_1",
+			created: true,
+			workspaceId: "ws_1",
+		});
 		assert.equal(ensure.envelope.log.op, "ensure-tutor");
 		assert.equal(ensure.envelope.log.seq, 1);
 		assert.equal(ensure.envelope.log.callId, "ws_1");
@@ -621,6 +632,59 @@ test("bad requests are honest 400s, logged nowhere", async () => {
 		assert.equal(unknown.envelope.error.kind, "transport");
 
 		assert.equal(core.readLog().length, 0, "no op ran, so nothing logged");
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("ensure-tutor: an omitted workspaceId is derived — data carries the port's non-empty workspaceId", async () => {
+	const d = scriptedPort();
+	const core = await startCore(d.port);
+	try {
+		const root = base(core);
+		for (const body of [undefined, {}]) {
+			const { status, envelope } = await json(
+				root + "/v1/agents/ensure-tutor",
+				"POST",
+				authed(),
+				body,
+			);
+			assert.equal(status, 200, "an omitted workspaceId no longer refuses");
+			assert.equal(envelope.ok, true);
+			assert.equal(typeof envelope.data.workspaceId, "string");
+			assert.ok(
+				(envelope.data.workspaceId as string).length > 0,
+				"the derived id is a non-empty string",
+			);
+		}
+		// the port saw the omission itself, never a fabricated id
+		const ensured = d.calls.filter((c) => c.method === "ensureTutor");
+		assert.equal(ensured.length, 2);
+		assert.ok(ensured.every((c) => c.payload === undefined), "the port received the omission verbatim");
+
+		// a present-but-empty value is still a bad request, never a derivation
+		const empty = await json(root + "/v1/agents/ensure-tutor", "POST", authed(), { workspaceId: "" });
+		assert.equal(empty.status, 400);
+		assert.equal(empty.envelope.error.kind, "bad_request");
+	} finally {
+		await closeCore(core);
+	}
+});
+
+test("the configured port is the one bound (stable port, not ephemeral)", async () => {
+	const d = scriptedPort();
+	// scout a free port, release it, then hand it to the core
+	const free = await new Promise<number>((resolve, reject) => {
+		const scout = createServer();
+		scout.listen(0, "127.0.0.1", () => {
+			const port = (scout.address() as AddressInfo).port;
+			scout.close(() => resolve(port));
+		});
+		scout.on("error", reject);
+	});
+	const core = await startBrokerCore({ token: TOKEN, port: d.port, listenPort: free });
+	try {
+		assert.equal(core.address()?.port, free, "the core binds the configured port verbatim");
 	} finally {
 		await closeCore(core);
 	}

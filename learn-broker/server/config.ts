@@ -27,15 +27,18 @@ import { join } from "node:path";
 
 /** Loopback. Deployment widens this to the tailnet address on purpose. */
 export const DEFAULT_HOST = "127.0.0.1";
-/** Ephemeral: the port is reported in the start log and to the caller. */
-export const DEFAULT_PORT = 0;
+/** The STABLE default listen port: the address survives a restart, so a
+ *  peer can rely on it. LEARN_BROKER_PORT (environment, then the file)
+ *  overrides; an explicit 0 still means an ephemeral port. */
+export const DEFAULT_PORT = 8790;
 
 export interface BrokerSettings {
 	/** The pairing token. Null refuses to start: fail-closed. */
 	token: string | null;
 	/** The address the listener binds. */
 	host: string;
-	/** 0 means an ephemeral port. */
+	/** The listen port — the stable 8790 by default; an explicit 0 means
+	 *  an ephemeral port. */
 	port: number;
 	logDir?: string;
 	provider?: string;

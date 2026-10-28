@@ -145,8 +145,12 @@ export interface BrokerResponseEnvelope<T = unknown> {
 /** The narrow port the broker drives — implemented against the Paseo SDK
  *  by server/paseo-adapter.ts, scripted by the tests. */
 export interface BrokerAgentPort {
-	/** Idempotent: one standing tutor per workspace. */
-	ensureTutor(workspaceId: string): Promise<{ tutorId: string; created: boolean }>;
+	/** Idempotent: one standing tutor per workspace. The response ALWAYS
+	 *  names the workspace: a given id is echoed verbatim; an omitted one
+	 *  is derived by the adapter (the standing tutor's own placement). */
+	ensureTutor(
+		workspaceId: string | undefined,
+	): Promise<{ tutorId: string; created: boolean; workspaceId: string }>;
 	createConversationChild(
 		input: BrokerChildInput,
 	): Promise<{ childId: string; bridge: BrokerBridgeConfig }>;
@@ -450,12 +454,16 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 
 		if (method === "POST" && path === "/v1/agents/ensure-tutor") {
 			const body = asBody(await readBody(req));
-			if (!body || !isNonEmptyString(body.workspaceId)) {
+			// The derived-id return: workspaceId is optional — an omission is
+			// derived by the port (the standing tutor's placement); a
+			// present-but-empty value is still a bad request, never a derivation.
+			if (!body || (body.workspaceId !== undefined && !isNonEmptyString(body.workspaceId))) {
 				refuse(res, 400, "bad_request", "expected {workspaceId}");
 				return;
 			}
-			await runOp("ensure-tutor", body.workspaceId, "ensure standing tutor", () =>
-				opts.port.ensureTutor(body.workspaceId as string),
+			const workspaceId = isNonEmptyString(body.workspaceId) ? body.workspaceId : undefined;
+			await runOp("ensure-tutor", workspaceId ?? "derived", "ensure standing tutor", () =>
+				opts.port.ensureTutor(workspaceId),
 			);
 			return;
 		}

@@ -24,12 +24,18 @@ test("the settings file is the one the deployment plans", () => {
 	assert.equal(settingsPath("/home/des"), "/home/des/.learnharness/learn-broker.env");
 });
 
-test("with no settings anywhere, the listener binds loopback on an ephemeral port", () => {
+test("with no settings anywhere, the listener binds loopback on the STABLE default port", () => {
 	const settings = resolveSettings({}, {});
 	assert.equal(settings.host, "127.0.0.1", "never all interfaces by default");
 	assert.equal(settings.host, DEFAULT_HOST);
+	assert.equal(settings.port, 8790, "the stable default port — the address survives a restart");
 	assert.equal(settings.port, DEFAULT_PORT);
 	assert.equal(settings.token, null, "no token means the core refuses to start");
+});
+
+test("LEARN_BROKER_PORT overrides the stable default from either source", () => {
+	assert.equal(resolveSettings({ LEARN_BROKER_PORT: "9876" } as NodeJS.ProcessEnv, {}).port, 9876, "the environment wins");
+	assert.equal(resolveSettings({}, { LEARN_BROKER_PORT: "9877" }).port, 9877, "the file wins over the default");
 });
 
 test("the env file is read as a shell would read it", async (t) => {
@@ -70,7 +76,7 @@ test("the environment overrides the file, and an empty value falls back to it", 
 	assert.equal(settings.provider, "claude", "the file still supplies what the environment does not");
 });
 
-test("a bad port in either source falls back instead of binding something absurd", () => {
+test("a bad port in either source falls back to the stable default instead of binding something absurd", () => {
 	assert.equal(resolveSettings({ LEARN_BROKER_PORT: "not-a-port" } as NodeJS.ProcessEnv, {}).port, DEFAULT_PORT);
 	assert.equal(resolveSettings({ LEARN_BROKER_PORT: "70000" } as NodeJS.ProcessEnv, {}).port, DEFAULT_PORT);
 	assert.equal(resolveSettings({}, { LEARN_BROKER_PORT: "65535" }).port, 65535);

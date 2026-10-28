@@ -227,3 +227,66 @@ test("complete() usage: refresh() after the turn delivers the usage snapshot (au
 	assert.equal(r.usage.output, 7);
 	assert.equal(r.usage.totalTokens, 18);
 });
+
+test("ensureTutor returns the workspaceId: echoed when given, derived from the standing tutor's placement when omitted", async () => {
+	// "learn-tutor" is the adapter's own label namespace (paseo-adapter.ts,
+	// TUTOR_LABEL); spelled here as the wire truth the sdk double scripts.
+	const tutorHandle = {
+		id: "tutor_1",
+		workspaceId: "ws_docs",
+		async refresh() {},
+		async archive() {},
+		timeline: { async refetch() { return { entries: [] }; } },
+	};
+	let listed = false;
+	const sdk = {
+		agents: {
+			ref: () => tutorHandle,
+			async list() {
+				listed = true;
+				return { entries: [{ agent: { id: "tutor_1", labels: { "learn-tutor": "ws_docs" } } }] };
+			},
+			async create() {
+				throw new Error("deriving must reuse the standing tutor, never create");
+			},
+		},
+		workspaces: {
+			ref: () => ({ agents: { async create() { return { id: "new_tutor" }; } } }),
+		},
+	} as unknown as PaseoSdkApi;
+	const adapter = createPaseoBrokerAdapter(sdk, {
+		resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
+	});
+
+	const echoed = await adapter.ensureTutor("ws_given");
+	assert.equal(echoed.workspaceId, "ws_given", "a passed workspaceId is echoed verbatim");
+
+	const derived = await adapter.ensureTutor(undefined);
+	assert.equal(derived.tutorId, "tutor_1", "the standing tutor is reused, not recreated");
+	assert.equal(derived.created, false);
+	assert.equal(derived.workspaceId, "ws_docs", "the derived id comes from the tutor's own placement");
+
+	// fail-closed: no standing tutor, nothing to derive from — an honest refusal
+	const emptySdk = {
+		agents: {
+			ref: () => tutorHandle,
+			async list() {
+				return { entries: [] };
+			},
+			async create() {
+				return { id: "nope" };
+			},
+		},
+		workspaces: {
+			ref: () => ({ agents: { async create() { return { id: "n" }; } } }),
+		},
+	} as unknown as PaseoSdkApi;
+	await assert.rejects(
+		() =>
+			createPaseoBrokerAdapter(emptySdk, {
+				resolveBridge: () => ({ mcpServers: { learn: { type: "http", url: "http://x/mcp" } } }),
+			}).ensureTutor(undefined),
+		/derive|workspaceId|standing tutor/i,
+	);
+	assert.ok(listed, "the derivation read the broker's own records");
+});

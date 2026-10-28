@@ -254,11 +254,34 @@ export function createPaseoBrokerAdapter(
 
 	const port: BrokerAgentPort = {
 		async ensureTutor(workspaceId) {
+			// The derived-id return: the response always names the workspace.
+			// A given id is echoed verbatim; an omission is derived from the
+			// standing tutor's own placement (the same internal read the child
+			// path uses) — with nothing to derive from, an honest refusal.
+			if (workspaceId === undefined) {
+				const all = await paseo.agents.list();
+				const standing = all.entries.find(
+					(e) => e.agent.labels?.[TUTOR_LABEL] !== undefined,
+				);
+				if (!standing) {
+					throw new Error(
+						"ensureTutor(): no workspaceId given and no standing tutor to derive one from — refusing, fail-closed",
+					);
+				}
+				const ref = paseo.agents.ref(standing.agent.id);
+				await ref.refresh();
+				if (!ref.workspaceId) {
+					throw new Error(
+						`ensureTutor(): standing tutor ${standing.agent.id} has no workspace placement to derive one from`,
+					);
+				}
+				return { tutorId: standing.agent.id, created: false, workspaceId: ref.workspaceId };
+			}
 			const page = await paseo.agents.list({
 				filter: { labels: { [TUTOR_LABEL]: workspaceId } },
 			});
 			const existing = page.entries[0];
-			if (existing) return { tutorId: existing.agent.id, created: false };
+			if (existing) return { tutorId: existing.agent.id, created: false, workspaceId };
 			const workspace = paseo.workspaces.ref(workspaceId);
 			const tutor = await workspace.agents.create({
 				config: { ...(opts.provider ? { provider: opts.provider } : {}) },
@@ -266,7 +289,7 @@ export function createPaseoBrokerAdapter(
 				autoArchive: false,
 				labels: { [TUTOR_LABEL]: workspaceId },
 			});
-			return { tutorId: tutor.id, created: true };
+			return { tutorId: tutor.id, created: true, workspaceId };
 		},
 
 		async createConversationChild(input: BrokerChildInput) {
