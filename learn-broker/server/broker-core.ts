@@ -176,7 +176,7 @@ export interface BrokerCoreOptions {
 
 export interface BrokerCore {
 	close(): Promise<void>;
-	address(): { port: number } | null;
+	address(): { address: string; port: number } | null;
 	/** The in-memory view of the append-only log (the file seeds it). */
 	readLog(): readonly BrokerLogEntry[];
 }
@@ -623,9 +623,9 @@ export async function startBrokerCore(opts: BrokerCoreOptions): Promise<BrokerCo
 			inflight.clear();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		},
-		address(): { port: number } | null {
+		address(): { address: string; port: number } | null {
 			const addr = server.address();
-			return addr && typeof addr === "object" ? { port: addr.port } : null;
+			return addr && typeof addr === "object" ? { address: addr.address, port: addr.port } : null;
 		},
 		readLog: () => log.all(),
 	};
