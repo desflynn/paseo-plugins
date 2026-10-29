@@ -13,6 +13,8 @@
  * and the plugin logs the refusal.
  */
 import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { handleLearnConversation, handleLearnOverview } from "./server/overview.ts";
+import { learnOverview, learnStartConversation } from "./shared/rpc.ts";
 import { startBrokerCore, type BrokerCore } from "./server/broker-core.ts";
 import { isWorldReadable, resolveSettings, type BrokerSettings } from "./server/config.ts";
 import {
@@ -84,6 +86,12 @@ export default function contribute(server: PluginServerContext) {
 				console.error("learn-broker: failed to start (fail-closed):", err);
 			});
 	};
+
+	// The Learn page's reads: the six-route envelope and the conversation
+	// mint. Both fetch the service with the token from the env seam; the
+	// token never crosses this boundary.
+	server.handle(learnOverview, handleLearnOverview);
+	server.handle(learnStartConversation, handleLearnConversation);
 
 	// The plugin contracts deliver the authenticated PaseoApi via hook
 	// contexts; capture it from the first event and start once.
