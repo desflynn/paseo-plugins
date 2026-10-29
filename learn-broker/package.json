@@ -1,0 +1,14 @@
+{
+  "name": "learn-broker",
+  "version": "0.2.0",
+  "description": "learn-on-paseo: the broker that is the only model path and agent-lifecycle seam for the learn service, plus the Learn page — the service's live v1 contract in the Paseo sidebar.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test \"server/*.test.ts\" \"shared/*.test.ts\""
+  },
+  "dependencies": {
+    "@getpaseo/plugin": "^0.11.2",
+    "zod": "^4.4.3"
+  }
+}
