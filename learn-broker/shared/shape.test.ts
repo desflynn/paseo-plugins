@@ -26,7 +26,7 @@ test("fieldRows: non-objects render nothing; the limit holds", () => {
 });
 
 test("sessionRows: a bare array and a wrapped list both read, missing fields render null", () => {
-	const bare = sessionRows([{ id: "s1", title: "Ohm's law", status: "concluded", childAgentId: "child-7" }]);
+	const bare = sessionRows([{ id: "s1", title: "Ohm's law", phase: "concluded", childAgentId: "child-7" }]);
 	assert.deepEqual(bare, [{ id: "s1", label: "Ohm's law", status: "concluded", childAgentId: "child-7", at: null }]);
 	const wrapped = sessionRows({ sessions: [{ conversationId: "c9" }] });
 	assert.deepEqual(wrapped, [{ id: "c9", label: "c9", status: null, childAgentId: null, at: null }]);
@@ -53,8 +53,9 @@ test("versionLine: service and contract join; anything missing drops out", () =>
 	assert.equal(versionLine("nope"), null);
 });
 
-test("tutorIdentity: id and status where the surface carries them", () => {
-	assert.deepEqual(tutorIdentity({ id: "tutor-9", status: "idle" }), { id: "tutor-9", status: "idle" });
+test("tutorIdentity: the first of the tutors list, or a bare tutor object", () => {
+	assert.deepEqual(tutorIdentity({ tutors: [{ id: "tutor-9", status: "idle" }] }), { id: "tutor-9", status: "idle" });
+	assert.deepEqual(tutorIdentity({ tutors: [] }), { id: null, status: null });
 	assert.deepEqual(tutorIdentity({ tutorId: "t1", state: "teaching" }), { id: "t1", status: "teaching" });
 	assert.deepEqual(tutorIdentity({}), { id: null, status: null });
 	assert.deepEqual(tutorIdentity(null), { id: null, status: null });

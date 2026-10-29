@@ -85,7 +85,9 @@ export function sessionRows(data: unknown, limit = 6): SessionRow[] {
 		rows.push({
 			id,
 			label: pickString(item, ["title", "topic", "name", "label"]) ?? id,
-			status: pickString(item, ["status", "state"]),
+			// The live surface carries `phase` (e.g. concluded); `status`/`state`
+			// cover the other spellings the contract allows.
+			status: pickString(item, ["status", "phase", "state", "kind"]),
 			childAgentId: pickString(item, ["childAgentId", "childId", "agentId"]),
 			at: pickTime(item, ["updatedAt", "endedAt", "startedAt", "createdAt", "at"]),
 		});
@@ -111,9 +113,16 @@ export interface TutorIdentity {
 	status: string | null;
 }
 
-/** The tutor's agent identity, where the surface carries it. */
+/** The tutor's agent identity, where the surface carries it: the first of
+ *  the { tutors: [...] } list, or a bare tutor object. */
 export function tutorIdentity(data: unknown): TutorIdentity {
 	const record = asRecord(data);
 	if (!record) return { id: null, status: null };
-	return { id: pickString(record, ["id", "tutorId", "agentId"]), status: pickString(record, ["status", "state"]) };
+	let source: Record<string, unknown> = record;
+	if (Array.isArray(record.tutors)) {
+		const first = asRecord(record.tutors[0]);
+		if (!first) return { id: null, status: null };
+		source = first;
+	}
+	return { id: pickString(source, ["id", "tutorId", "agentId"]), status: pickString(source, ["status", "state", "phase"]) };
 }

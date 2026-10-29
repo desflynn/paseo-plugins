@@ -51,7 +51,11 @@ const NO_SERVICE_URL = "no service URL configured — set LEARN_SERVICE_URL in ~
 function serviceBase(settings: BrokerSettings): string | null {
 	const url = settings.serviceUrl?.trim();
 	if (!url) return null;
-	return url.replace(/\/+$/, "");
+	// LEARN_SERVICE_URL is the MCP mount (…/mcp) in a paired deployment — the
+	// v1 REST API and the web UI (session view, conversations) live at the
+	// origin, so the mount is stripped here. The broker bridge keeps using the
+	// raw value, where /mcp is exactly what it wants.
+	return url.replace(/\/+$/, "").replace(/\/mcp$/, "").replace(/\/+$/, "");
 }
 
 function authHeaders(settings: BrokerSettings): Record<string, string> {

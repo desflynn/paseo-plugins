@@ -159,6 +159,19 @@ test("overview: the envelope never carries the token", async () => {
 	}
 });
 
+test("overview: an MCP-mount service URL reads the API at the origin", async () => {
+	const double = await startDouble(healthyService);
+	try {
+		const result = await fetchLearnOverview({ ...settings(`${double.base}/mcp`) });
+		assert.equal(result.serviceUrl, double.base, "the envelope carries the origin, so web links work");
+		for (const name of Object.keys(result.routes)) {
+			assert.equal(result.routes[name as keyof typeof result.routes].ok, true, `${name} via the origin`);
+		}
+	} finally {
+		await double.close();
+	}
+});
+
 test("mint: POSTs /api/conversations with no body and hands back the ids", async () => {
 	const double = await startDouble((req, res) => {
 		if (req.method === "POST" && req.url === "/api/conversations") {
