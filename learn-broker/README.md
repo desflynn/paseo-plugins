@@ -1,10 +1,50 @@
 # learn-broker
 
-The learn-on-paseo broker as a Paseo plugin (server half only): a narrow
-HTTP listener beside the daemon that translates a fixed five-op v1 protocol
-onto the authenticated `PaseoApi`, with an append-only call log. The learn
-service reaches models and agents ONLY through this listener — broker
-exclusivity, one surface.
+The learn-on-paseo broker as a Paseo plugin: a narrow HTTP listener beside
+the daemon (the server half) plus **the Learn page** — the service's live
+v1 contract in the Paseo sidebar (the client half). The learn service
+reaches models and agents ONLY through the listener — broker exclusivity,
+one surface — and the sidebar reads the service through two RPC seams.
+
+## The Learn page (P6)
+
+`index.client.tsx` registers the sidebar item, the Learn screen and a
+Command Center item (all one page). `client/learn.tsx` renders it:
+
+- **Handshake** — the version route as a dot + line (service + contract
+  version); a 409 contract mismatch surfaces verbatim, never hidden.
+- **Graph / Growth / Spend** — flat cards from the payload (the money
+  truth is the broker log the service totals).
+- **Sessions** — most recent first, with each lesson's child agent id
+  where the surface carries it: the Paseo-native nature is visible.
+- **Tutor** — the tutor's agent identity and the line "Your tutor and
+  every lesson run as Paseo agents."
+- **New conversation** — mints a session (`POST /api/conversations`, no
+  body: the service derives the session server-side) and hands off to
+  `${LEARN_SERVICE_URL}/conversation/<id>`. The creation turn can take
+  minutes; the button holds a minting state until the mint resolves.
+- **Open session view** — the web UI, one tap away.
+
+One failing route never blanks the page: the server's `learnOverview`
+RPC reads all six v1 routes in parallel (`Promise.allSettled`, 10s per
+route) and returns one envelope with each route's data or honest error.
+The Bearer token travels to the service and appears in no result; the
+client never holds it. `LEARN_SERVICE_URL` may be the MCP mount
+(`…/mcp`) — the API and web links build from the origin.
+
+**Dependencies (o69 law):** runtime imports are declared in
+`package.json` (`@getpaseo/plugin`, `zod`); React and React Native stay
+host-supplied. A box install needs `node_modules` inside the plugin
+directory with exactly that production set — copy it from a tree that
+has it (the same portable set progress ships), or `npm ci --omit=dev
+--legacy-peer-deps` where npm is allowed. `server/manifest.test.ts`
+holds the line.
+
+**Proof tools:** `NODE_ENV=test npx tsx --test "server/*.test.ts"
+"shared/*.test.ts"` (58 green) and `npx tsx scripts/exercise-overview.ts`
+against a live service (read-only; the mint is never fired by a script).
+
+## The broker (server half)
 
 | Op | Route | Notes |
 | --- | --- | --- |
